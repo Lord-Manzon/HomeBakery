@@ -120,3 +120,24 @@ access.
 **Why:** Keeps exactly what an anonymous visitor can read/write narrow and
 explicit, rather than relying on RLS policies to correctly restrict every
 column on every storefront-adjacent table.
+
+### 2026-08-15 — All Phase 3 tables exposed via Data API; disabled auto-expose for new tables
+
+**Decision:** After running the Phase 3 migration, manually exposed all 11
+new tables (`ingredients`, `recipes`, `recipe_ingredients`, `products`,
+`product_variants`, `orders`, `order_items`, `inventory_movements`,
+`expenses`, `storefront_settings`, `subscriptions`) in Project Settings →
+API → Exposed tables, alongside `bakers` (already exposed from Phase 2).
+Also turned off "Automatically expose new tables."
+**Why:** Table exposure and RLS are separate, independent settings in
+Supabase — RLS controls *what* a request is allowed to see once it reaches
+a table, but exposure controls whether the table is *reachable* through the
+Data API/REST at all. A newly created table isn't usable by the app until
+it's explicitly exposed, regardless of its RLS policies. Disabling
+auto-expose means every future migration requires a conscious, visible step
+to make a new table reachable — consistent with `AGENTS.md`'s "nothing gets
+added without a stated reason" approach, rather than a table silently
+becoming API-reachable the moment it's created.
+**Follow-up:** Every future migration that adds a table must include a
+manual exposure step in its checklist — easy to forget since RLS setup can
+feel like "the security step is done" when exposure is actually
