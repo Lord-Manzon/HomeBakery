@@ -121,6 +121,30 @@ access.
 explicit, rather than relying on RLS policies to correctly restrict every
 column on every storefront-adjacent table.
 
+### 2026-08-13 — Merged a detailed UX design system into UI_UX.md, kept 5-tab nav
+
+**Decision:** Replaced the skeletal `docs/UI_UX.md` with a much more
+detailed screen-by-screen spec (screen states, interaction-weight patterns,
+key flows, a full design-token system) sourced from a separate design
+session. Kept the existing **5-tab** nav (Home, Orders, Production,
+Ingredients, More) rather than adopting that session's proposed 4-tab
+version (which folded Ingredients into More + contextual-only access).
+**Why:** The detail and reasoning in the new spec was a real improvement
+over the old doc and worth keeping wholesale. The 4-tab proposal was
+reasonable on its own terms, but Ingredients already has a shipped,
+working tab from Phase 1, and stock-checking is frequent/standalone enough
+for a solo baker to justify its own tab rather than only contextual access
+— not worth the rework for a marginal nav simplification.
+**Reaffirmed 2026-08-15:** a second mockup again proposed folding
+Ingredients into More and giving Recipes its own top-level tab. Same
+reasoning as above still held — declined again. Corrected mockup (5-tab,
+Recipes nested under variant editing) approved and used as the visual
+reference for the Phase 4 UX spec.
+**Follow-up (done 2026-08-15):** `src/theme/` had Phase 1's placeholder
+color/spacing/typography values, not the tokens specified in `UI_UX.md`
+section F — migrated, see the `2026-08-15 — Migrated src/theme/...` entry
+below.
+
 ### 2026-08-15 — All Phase 3 tables exposed via Data API; disabled auto-expose for new tables
 
 **Decision:** After running the Phase 3 migration, manually exposed all 11
@@ -140,7 +164,8 @@ added without a stated reason" approach, rather than a table silently
 becoming API-reachable the moment it's created.
 **Follow-up:** Every future migration that adds a table must include a
 manual exposure step in its checklist — easy to forget since RLS setup can
-feel like "the security step is done" when exposure is actually
+feel like "the security step is done" when exposure is actually a
+separate setting.
 
 ### 2026-08-15 — Migrated src/theme/ from Phase 1 placeholders to the real design system
 
@@ -162,7 +187,87 @@ merge). This closes that follow-up.
   stated reason and decision, not to ride along with a token-values-only
   update. Still using system fonts.
 - Order-status colors for `Confirmed` and `Preparing` aren't actually
-  defined anywhere in section F (which only specifies success/warning/a f
+  defined anywhere in section F (which only specifies success/warning/
   danger + primary). Mapped as a best guess in `colors.ts` with inline
   comments flagging them as unreviewed — worth a real look once real
   order status chips are visible on-device.
+
+### 2026-08-15 — Locked the Phase 4 Products & Variants UX spec
+
+**Decision:** Added detailed screen-by-screen specs for the Products list,
+New product, Product detail, Add/edit variant sheet, and the Phase 4
+Recipe & costing placeholder to `docs/UI_UX.md` section E (items 5, 5a,
+5b, 5c, 6). Two implementation-affecting calls made in the process:
+- The variant's serving/yield note (e.g. "Serves 8"), shown in an AI-built
+  mockup, has no dedicated column in `docs/DATABASE.md`'s
+  `product_variants` table. Folded into the variant's `name` field (e.g.
+  `"Medium — Serves 8"`) rather than adding a new column, to avoid an
+  unplanned schema change. Revisit if this reads awkwardly in practice.
+- Product detail navigation uses a real Expo Router route
+  (`/more/products/[id]`), not the inline same-screen expansion shown in
+  the reference mockup — needed for back-button/deep-link/loading-state
+  behavior required by `docs/CODING_STANDARDS.md`.
+**Why:** `docs/AGENTS.md`'s process requires UX to be designed before
+implementation starts; this closes that step for Phase 4 specifically.
+**Note:** `suggested_price` is explicitly NOT a field in the variant sheet
+— it's a Phase 6 calculated value (`cost ÷ (1 − margin%)`), never
+hand-typed. `packaging_cost` IS in the Phase 4 sheet, since it's a plain
+number the baker enters directly, no calculation involved.
+
+### 2026-08-15 — Added a baker-customizable theme (accent color + light/dark/system)
+
+**Decision:** Bakers can choose an accent color from a curated set of 6
+swatches (Terracotta, Berry, Ocean, Sage, Plum, Honey) plus a display mode
+(Light / Dark / Match device), via a new Appearance screen under More.
+Added `theme_accent` and `theme_mode` columns to `bakers`
+(`supabase/migrations/0003_baker_theme_preference.sql`), a `ThemeContext`
+provider (`src/theme/ThemeContext.tsx`) computing a full palette from the
+chosen accent + mode (`src/theme/palettes.ts`), and wired it into
+`app/_layout.tsx` and `app/(tabs)/_layout.tsx`.
+**Why:** Requested as a feature. Scoped to accent-only (not a full custom
+color picker) because the app's fixed neutrals and semantic colors
+(success/warning/danger) were tuned for contrast against specific accent
+tones — an arbitrary baker-chosen hex risks poor readability or a status
+chip that no longer reads as intended. A curated set keeps every
+combination safe.
+**Scope/rollout note:** This is additive, not a retrofit. Only screens
+built from 2026-08-15 onward use the reactive `useThemeColors()` hook
+(currently: the Appearance screen and the tab bar). Screens built before
+this date keep using the static `colors` import and are unaffected —
+migrating them to be theme-reactive is a separate, later cleanup pass, not
+done as part of this change. Phase 4 (in progress) is being built against
+`useThemeColors()` from the start, per the update brief sent alongside
+this decision.
+**Alternatives considered:** Full free-form color picker — rejected for
+the contrast-safety reason above; can revisit if the curated set feels
+too limiting in practice.
+
+### 2026-08-15 — Locked the Phase 5 Ingredients & Inventory UX spec
+
+**Decision:** Added detailed screen-by-screen specs for the Ingredients
+list, detail, Restock, Use/waste, and Add/edit ingredient screens to
+`docs/UI_UX.md` section E item 4. Visual reference: a provided mockup
+(`Inventory-Variant-C-MoreComplete.html`), corrected to the locked 5-tab
+nav — the mockup itself proposed folding Ingredients into More, declined
+for the same reasons as the earlier Products mockup correction.
+**Implementation-affecting decisions made in the process:**
+- Three baker-facing actions (Restock / Use-waste / Edit-quantity) map to
+  the four `inventory_movements.movement_type` values. The Use/Waste
+  sheet's reason list is "Used in production," "Wasted," "Spoiled" only —
+  "Other" was considered and dropped as too ambiguous to map to a
+  movement type. No separate "Adjust stock" button exists; editing an
+  ingredient's quantity directly IS the adjustment action.
+- Added `ingredients.category` (nullable text, same free-text pattern as
+  `expenses.category`) — see `supabase/migrations/0004_ingredient_category.sql`.
+  Not in the original `docs/DATABASE.md` schema; added because the
+  reference mockup used it and it was confirmed as wanted.
+- Restock's cost-per-unit recalculation uses a **weighted average**
+  (blends existing stock's cost with the new purchase), not a simple
+  replace. This is real business logic requiring a Jest unit test per
+  `docs/CODING_STANDARDS.md`, not just a UI field.
+- No supplier field — an earlier draft of `docs/UI_UX.md`'s Ingredients
+  section mentioned one, but no supplier column exists in
+  `docs/DATABASE.md` and the reference mockup doesn't have one either.
+  Treated as superseded, not built.
+**Why:** `docs/AGENTS.md` requires UX to be designed before
+implementation starts; this closes that step for Phase 5.
