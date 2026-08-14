@@ -4,6 +4,8 @@ export type Baker = {
   currency: string;
   timezone: string;
   default_margin_percent: number;
+  theme_accent: string;
+  theme_mode: 'light' | 'dark' | 'system';
   created_at: string;
   updated_at: string;
 };
