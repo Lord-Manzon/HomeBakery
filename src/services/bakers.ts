@@ -14,6 +14,17 @@ export type OnboardingInput = {
   timezone: string;
 };
 
+/**
+ * Fields updatable outside onboarding — currently just theme preference.
+ * Added 2026-08-15 for the Appearance settings screen (accent color +
+ * light/dark/system mode). See supabase/migrations/0003_baker_theme_preference.sql
+ * and docs/DECISIONS.md.
+ */
+export type ThemePreferenceInput = {
+  theme_accent: string;
+  theme_mode: 'light' | 'dark' | 'system';
+};
+
 export async function completeOnboarding(input: OnboardingInput): Promise<Baker> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError) throw userError;
@@ -30,7 +41,9 @@ export async function completeOnboarding(input: OnboardingInput): Promise<Baker>
   return data as Baker;
 }
 
-export async function updateBakerProfile(input: Partial<OnboardingInput>): Promise<Baker> {
+export async function updateBakerProfile(
+  input: Partial<OnboardingInput & ThemePreferenceInput>
+): Promise<Baker> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError) throw userError;
   const userId = userData.user?.id;

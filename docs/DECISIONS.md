@@ -141,3 +141,28 @@ becoming API-reachable the moment it's created.
 **Follow-up:** Every future migration that adds a table must include a
 manual exposure step in its checklist — easy to forget since RLS setup can
 feel like "the security step is done" when exposure is actually
+
+### 2026-08-15 — Migrated src/theme/ from Phase 1 placeholders to the real design system
+
+**Decision:** Replaced `src/theme/colors.ts` and `src/theme/typography.ts`
+with values matching `docs/UI_UX.md` section F. Key names in both files
+were kept identical to Phase 1's — only the underlying values changed —
+specifically to avoid a breaking change across the 11 files already
+importing these tokens (auth screens, nav shell, shared components).
+`spacing.ts`/`radii` were left untouched, since Phase 1's values already
+matched section F closely enough that changing them would've been
+change for its own sake.
+**Why:** Phase 1 shipped placeholder theme values before the design system
+existed (tracked as an open follow-up in `UI_UX.md` since the 2026-08-13
+merge). This closes that follow-up.
+**Open items carried forward, not resolved by this change:**
+- Nunito font (section F's target typeface) was deliberately NOT added —
+  it requires a new dependency (`@expo-google-fonts/nunito` + `expo-font`)
+  plus async font-loading logic at the app root, which needs its own
+  stated reason and decision, not to ride along with a token-values-only
+  update. Still using system fonts.
+- Order-status colors for `Confirmed` and `Preparing` aren't actually
+  defined anywhere in section F (which only specifies success/warning/a f
+  danger + primary). Mapped as a best guess in `colors.ts` with inline
+  comments flagging them as unreviewed — worth a real look once real
+  order status chips are visible on-device.
