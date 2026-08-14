@@ -1,11 +1,13 @@
-import { StyleSheet, Text, View } from 'react-native';
-import { PrimaryButton } from '../../src/components/PrimaryButton';
-import { useBakerProfile } from '../../src/hooks/useBakerProfile';
-import { signOut } from '../../src/services/auth';
-import { colors, spacing, typography } from '../../src/theme';
+import { StyleSheet, Text, View, Pressable } from 'react-native';
+import { useRouter } from 'expo-router';
+import { PrimaryButton } from '../../../src/components/PrimaryButton';
+import { useBakerProfile } from '../../../src/hooks/useBakerProfile';
+import { signOut } from '../../../src/services/auth';
+import { colors, spacing, typography } from '../../../src/theme';
 
 export default function MoreScreen() {
   const { data: baker } = useBakerProfile();
+  const router = useRouter();
 
   return (
     <View style={styles.container}>
@@ -24,6 +26,14 @@ export default function MoreScreen() {
           </Text>
         </View>
       ) : null}
+
+      <Pressable
+        style={styles.menuRow}
+        onPress={() => router.push('/more/appearance')}
+      >
+        <Text style={styles.menuRowLabel}>Appearance</Text>
+        <Text style={styles.menuRowChevron}>›</Text>
+      </Pressable>
 
       <View style={styles.signOutButton}>
         <PrimaryButton title="Sign out" onPress={() => signOut()} />
@@ -62,5 +72,20 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xxs,
   },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    minHeight: 44,
+    marginBottom: spacing.sm,
+  },
+  menuRowLabel: { ...typography.body, color: colors.textPrimary },
+  menuRowChevron: { ...typography.body, color: colors.textSecondary },
   signOutButton: { marginTop: 'auto' },
 });

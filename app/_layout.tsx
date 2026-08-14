@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from '../src/hooks/useAuth';
 import { useBakerProfile } from '../src/hooks/useBakerProfile';
 import { signOut } from '../src/services/auth';
 import { colors, spacing, typography } from '../src/theme';
+import { ThemeProvider } from '../src/theme/ThemeContext';
 import { hasCompletedOnboarding } from '../src/types/baker';
 
 const queryClient = new QueryClient();
@@ -60,18 +61,30 @@ function RootNavigator() {
   const isLoggedIn = !!session;
   const onboarded = hasCompletedOnboarding(bakerProfile.data);
 
+  // Falls back to the same defaults as the 0003 migration when the baker
+  // profile isn't loaded yet (auth/onboarding screens) or hasn't set a
+  // preference. Wrapping unconditionally here is safe — screens that
+  // don't call useThemeColors() (everything except Appearance, so far)
+  // are completely unaffected either way.
+  const themePreference = {
+    themeAccent: bakerProfile.data?.theme_accent ?? '#C9683F',
+    themeMode: bakerProfile.data?.theme_mode ?? ('system' as const),
+  };
+
   return (
-    <Stack screenOptions={{ headerShown: false }}>
-      <Stack.Protected guard={!isLoggedIn}>
-        <Stack.Screen name="(auth)" />
-      </Stack.Protected>
-      <Stack.Protected guard={isLoggedIn && !onboarded}>
-        <Stack.Screen name="onboarding" />
-      </Stack.Protected>
-      <Stack.Protected guard={isLoggedIn && onboarded}>
-        <Stack.Screen name="(tabs)" />
-      </Stack.Protected>
-    </Stack>
+    <ThemeProvider preference={themePreference}>
+      <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Protected guard={!isLoggedIn}>
+          <Stack.Screen name="(auth)" />
+        </Stack.Protected>
+        <Stack.Protected guard={isLoggedIn && !onboarded}>
+          <Stack.Screen name="onboarding" />
+        </Stack.Protected>
+        <Stack.Protected guard={isLoggedIn && onboarded}>
+          <Stack.Screen name="(tabs)" />
+        </Stack.Protected>
+      </Stack>
+    </ThemeProvider>
   );
 }
 
