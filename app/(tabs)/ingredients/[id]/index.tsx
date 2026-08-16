@@ -16,6 +16,7 @@ import { PrimaryButton } from '../../../../src/components/PrimaryButton';
 import { IngredientFormSheet } from '../../../../src/components/IngredientFormSheet';
 import { UseWasteSheet } from '../../../../src/components/UseWasteSheet';
 import { RestockSheet } from '../../../../src/components/RestockSheet';
+import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
 import { Screen } from '../../../../src/components/Screen';
 import { colors, radii, spacing, typography } from '../../../../src/theme';
 
@@ -80,25 +81,23 @@ export default function IngredientDetailScreen() {
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
         </Pressable>
-        {isConfirmingDelete ? (
-          <View style={styles.confirmRow}>
-            <Pressable onPress={() => setIsConfirmingDelete(false)} style={styles.confirmCancel}>
-              <Text style={styles.confirmCancelText}>Cancel</Text>
-            </Pressable>
-            <Pressable onPress={handleDelete} style={styles.confirmDelete}>
-              <Text style={styles.confirmDeleteText}>Delete</Text>
-            </Pressable>
-          </View>
-        ) : (
-          <Pressable
-            onPress={() => setIsConfirmingDelete(true)}
-            hitSlop={12}
-            style={styles.deleteButton}
-          >
-            <Ionicons name="trash-outline" size={20} color={colors.danger} />
-          </Pressable>
-        )}
+        <Pressable
+          onPress={() => setIsConfirmingDelete(true)}
+          hitSlop={12}
+          style={styles.deleteButton}
+        >
+          <Ionicons name="trash-outline" size={20} color={colors.danger} />
+        </Pressable>
       </View>
+
+      <ConfirmDialog
+        visible={isConfirmingDelete}
+        title="Delete this ingredient?"
+        message={`This removes "${ingredient.name}" and its stock history. This can't be undone.`}
+        confirmLabel="Delete"
+        onCancel={() => setIsConfirmingDelete(false)}
+        onConfirm={handleDelete}
+      />
 
       {deleteError ? <ErrorBanner message={deleteError} /> : null}
 
@@ -242,24 +241,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  confirmRow: { flexDirection: 'row', gap: spacing.sm },
-  confirmCancel: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    justifyContent: 'center',
-  },
-  confirmCancelText: { ...typography.bodySm, color: colors.textPrimary },
-  confirmDelete: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radii.md,
-    backgroundColor: colors.danger,
-    justifyContent: 'center',
-  },
-  confirmDeleteText: { ...typography.bodySm, color: colors.textInverse },
   name: { ...typography.titleLg, color: colors.textPrimary },
   category: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xxs },
   statGrid: {

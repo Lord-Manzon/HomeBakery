@@ -59,11 +59,6 @@ export default function IngredientsListScreen() {
     <Screen style={styles.container}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Ingredients</Text>
-        {!isEmpty && (
-          <Pressable onPress={() => setIsAddOpen(true)} style={styles.addButton}>
-            <Text style={styles.addButtonLabel}>+</Text>
-          </Pressable>
-        )}
       </View>
 
       {isEmpty ? (
@@ -123,6 +118,12 @@ export default function IngredientsListScreen() {
         </>
       )}
 
+      {!isEmpty && (
+        <Pressable onPress={() => setIsAddOpen(true)} style={styles.fab}>
+          <Ionicons name="add" size={28} color={colors.textInverse} />
+        </Pressable>
+      )}
+
       <IngredientFormSheet
         visible={isAddOpen}
         onDismiss={() => setIsAddOpen(false)}
@@ -179,6 +180,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   addButtonLabel: { color: colors.textInverse, fontSize: 22, lineHeight: 24 },
+  fab: {
+    position: 'absolute',
+    right: spacing.xl,
+    bottom: spacing.xl,
+    width: 56,
+    height: 56,
+    borderRadius: radii.full,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
   skeletonCard: {
     height: 64,
     borderRadius: radii.md,
