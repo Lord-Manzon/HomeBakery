@@ -9,6 +9,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radii, spacing } from '../theme';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -35,8 +36,16 @@ type BottomSheetProps = {
  * Also wraps children in a ScrollView so content can't silently get
  * clipped when it's taller than the sheet's max height (Android in
  * particular clips overflow content in a bounded View by default).
+ *
+ * FIXED 2026-08-16: bottom padding was a fixed spacing.xxl, which isn't
+ * enough to clear a gesture-nav or 3-button nav bar on some devices —
+ * the primary action button (Save, Add ingredient, etc.) ended up
+ * sitting almost behind the system nav bar. Now adds
+ * useSafeAreaInsets().bottom on top of the fixed padding so it always
+ * clears the system bar regardless of device/nav style.
  */
 export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: BottomSheetProps) {
+  const insets = useSafeAreaInsets();
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
@@ -85,7 +94,13 @@ export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: B
       <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={animateOutAndDismiss} />
       </Animated.View>
-      <Animated.View style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}>
+      <Animated.View
+        style={[
+          styles.sheet,
+          { paddingBottom: spacing.xxl + insets.bottom },
+          { transform: [{ translateY: sheetTranslateY }] },
+        ]}
+      >
         <View style={styles.dragHandleArea} {...panResponder.panHandlers}>
           <View style={styles.dragHandle} />
         </View>

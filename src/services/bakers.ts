@@ -25,6 +25,15 @@ export type ThemePreferenceInput = {
   theme_mode: 'light' | 'dark' | 'system';
 };
 
+/**
+ * Added 2026-08-16 for the ingredient stock gauge feature. See
+ * supabase/migrations/0004_baker_gauge_sensitivity.sql and
+ * docs/DECISIONS.md.
+ */
+export type GaugeSensitivityInput = {
+  gauge_sensitivity: 'tight' | 'balanced' | 'relaxed';
+};
+
 export async function completeOnboarding(input: OnboardingInput): Promise<Baker> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError) throw userError;
@@ -42,7 +51,7 @@ export async function completeOnboarding(input: OnboardingInput): Promise<Baker>
 }
 
 export async function updateBakerProfile(
-  input: Partial<OnboardingInput & ThemePreferenceInput>
+  input: Partial<OnboardingInput & ThemePreferenceInput & GaugeSensitivityInput>
 ): Promise<Baker> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError) throw userError;

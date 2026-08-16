@@ -427,3 +427,92 @@ which already fits this — no change needed there.)
 - **Variant serving/yield note (added 2026-08-15):** folded into the
   variant `name` field rather than a new DB column — see section E.5c and
   `docs/DECISIONS.md`. Revisit only if this reads awkwardly in practice.
+
+# UI_UX.md edits for the gauge sensitivity feature
+
+Quick note before these: your project has **two** UI/UX docs —
+`docs/UI_UX.md` and `docs/UI_UX_1.md` — and both still describe Restock as
+"full screen," even though the code moved it to a bottom sheet back on
+2026-08-15. I didn't want to silently pick one to edit (per AGENTS.md:
+"don't silently pick one" when docs and code disagree), so: which of the
+two is the one you actually want kept as canonical going forward? Once you
+say, I'll fold these edits into that file (and flag the other as
+superseded, or merge them, whichever you'd rather).
+
+The edits below apply to either file identically — same section numbers,
+same table.
+
+---
+
+## 1. Interaction weight table
+
+**Find:**
+> | Full screen | Many fields, or the user needs to focus | New order, Edit order, Add/edit product, Restock form |
+
+**Replace with:**
+> | Full screen | Many fields, or the user needs to focus | New order, Edit order, Add/edit product |
+> | Bottom sheet | 2–4 fields, quick and dismissible | Add expense, Add/edit variant, Stock adjustment, Edit ingredient quantity, **Restock, Use/waste** |
+
+(Restock moves out of the Full screen row into the existing Bottom sheet
+row — it was already listed there for "Stock adjustment," this just makes
+Restock/Use-waste consistent with what's actually built.)
+
+## 2. Section E, item 4 — Ingredients
+
+**Find the "Detail:" paragraph** (the one starting "current stock, cost,
+usage history…") **and the "States:" paragraph right after it, and replace
+the whole item 4 with:**
+
+> ### 4. Ingredients
+> **List:** ingredient name, category icon, current quantity + unit, a
+> **stock gauge bar** (see below) beneath each card, low-stock badge where
+> relevant. A **category filter** (horizontal chip row: All / Dry goods /
+> Dairy / Flavoring / Packaging / Other) sits above the list. Sortable by
+> low stock — now ordered by actual gauge percentage (closest to empty
+> first), not just the low-stock boolean, so items within "low" still have
+> a meaningful order. A header icon opens the gauge sensitivity picker
+> (see below).
+>
+> **Stock gauge:** a horizontal bar showing how full an ingredient's stock
+> reads relative to its `low_stock_threshold`. The bar's "full" ceiling is
+> `low_stock_threshold × a baker-chosen multiplier`, not a separate stored
+> value — see `docs/DECISIONS.md`'s 2026-08-16 entry for the three
+> presets (Tight ×2 / Balanced ×3, default / Relaxed ×4) and why they're
+> curated rather than free-form. Ingredients with no `low_stock_threshold`
+> set show a neutral hint ("Set a low-stock alert to track this") instead
+> of a fabricated bar — there's no "full" line to compare against without
+> one.
+>
+> **Detail:** hero card with the stock gauge, current stock, and a status
+> chip (In stock / Low stock / Out of stock), replacing the old plain
+> Current stock / Status tiles. Cost per unit and low-stock alert stay as
+> smaller stat tiles below. Two actions: **Restock** (`variant="primary"`)
+> and **Use/waste** (`variant="secondary"`) — see the PrimaryButton
+> `variant` note in `docs/DECISIONS.md`, since two same-weight filled
+> buttons here previously violated the Components section's "one filled
+> button per screen max" rule. Stock history rows show a small icon per
+> movement type (restock/usage/waste/adjustment) so the log reads at a
+> glance, not just from text.
+>
+> **Why two separate actions instead of one form:** adjusting stock (used
+> 200g baking) and restocking (bought 5kg) are different mental actions
+> with different consequences — a restock changes cost math, a usage
+> adjustment doesn't. This also maps directly onto
+> `inventory_movements.movement_type` in `docs/DATABASE.md`.
+>
+> **States:** *Low stock* — amber/red badge and gauge color depending on
+> how far below threshold, consistent with the existing `isLowStock()`
+> rule (at or below threshold = low). *Empty* — "Add ingredients to track
+> stock." *No threshold set on an ingredient* — gauge shows the neutral
+> hint instead of a bar, not an empty/zero bar.
+
+## 3. Components section — PrimaryButton
+
+**Find:**
+> **Primary button:** filled accent, white text, one per screen max — never two competing filled buttons side by side.
+
+**Add directly after it:**
+> `PrimaryButton` supports a `variant?: 'primary' | 'secondary'` prop for
+> screens with two related actions that shouldn't read as equally
+> weighted (e.g. Restock vs. Use/waste on the ingredient detail screen) —
+> `secondary` renders as an accent-outline button, not a second filled one.

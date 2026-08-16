@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { BottomSheet } from './BottomSheet';
 import { FormField } from './FormField';
 import { PrimaryButton } from './PrimaryButton';
 import { ErrorBanner } from './ErrorBanner';
 import { restockFormSchema, type RestockFormInput } from '../utils/validation/ingredientSchemas';
+import { calculateRestockCostPerUnit } from '../services/ingredients';
 import type { Ingredient } from '../types/ingredient';
-import { colors, spacing, typography } from '../theme';
+import { colors, radii, spacing, typography } from '../theme';
 
 type RestockSheetProps = {
   visible: boolean;
@@ -26,6 +27,11 @@ type RestockSheetProps = {
  * original call anticipated. docs/UI_UX.md and docs/DECISIONS.md need a
  * follow-up entry reflecting this reversal (see chat) — not done
  * automatically here since doc edits are handled separately.
+ *
+ * CHANGED 2026-08-16: added a live summary showing the new stock total
+ * and, when a total cost is entered, the new weighted-average cost per
+ * unit — using the same calculateRestockCostPerUnit() the actual save
+ * calls, so the preview can never drift from what gets saved.
  */
 export function RestockSheet({
   visible,
@@ -58,6 +64,19 @@ export function RestockSheet({
     onSubmit(parsed.data);
   };
 
+  const addQty = Number(quantity) || 0;
+  const newStock = ingredient.current_stock + addQty;
+  const totalCostNumber = totalCostPaid === '' ? null : Number(totalCostPaid);
+  const hasValidCost = totalCostNumber != null && !Number.isNaN(totalCostNumber);
+  const newCostPerUnit = hasValidCost
+    ? calculateRestockCostPerUnit(
+        ingredient.current_stock,
+        ingredient.cost_per_unit,
+        addQty,
+        totalCostNumber as number
+      )
+    : null;
+
   return (
     <BottomSheet visible={visible} onDismiss={onDismiss} dismissDisabled={isSaving}>
       <Text style={styles.title}>Restock {ingredient.name}</Text>
@@ -89,6 +108,25 @@ export function RestockSheet({
         Leave blank if you don't want to update the cost per {ingredient.unit} right now.
       </Text>
 
+      {addQty > 0 && (
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>New stock</Text>
+            <Text style={styles.summaryValue}>
+              {ingredient.current_stock} + {addQty} = {newStock} {ingredient.unit}
+            </Text>
+          </View>
+          {newCostPerUnit != null ? (
+            <View style={[styles.summaryRow, styles.summaryRowLast]}>
+              <Text style={styles.summaryLabel}>New cost per unit</Text>
+              <Text style={[styles.summaryValue, { color: colors.success }]}>
+                {newCostPerUnit.toFixed(2)} (weighted avg)
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      )}
+
       <PrimaryButton title="Save restock" onPress={handleSave} isLoading={isSaving} />
     </BottomSheet>
   );
@@ -103,4 +141,21 @@ const styles = StyleSheet.create({
     marginTop: -spacing.md,
     marginBottom: spacing.lg,
   },
+  summaryCard: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: radii.lg,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingBottom: spacing.xs,
+    marginBottom: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  summaryRowLast: { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 },
+  summaryLabel: { ...typography.caption, color: colors.textSecondary },
+  summaryValue: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
 });

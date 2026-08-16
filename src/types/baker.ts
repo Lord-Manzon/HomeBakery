@@ -6,6 +6,7 @@ export type Baker = {
   default_margin_percent: number;
   theme_accent: string;
   theme_mode: 'light' | 'dark' | 'system';
+  gauge_sensitivity: 'tight' | 'balanced' | 'relaxed';
   created_at: string;
   updated_at: string;
 };

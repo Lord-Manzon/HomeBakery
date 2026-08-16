@@ -271,3 +271,110 @@ for the same reasons as the earlier Products mockup correction.
   Treated as superseded, not built.
 **Why:** `docs/AGENTS.md` requires UX to be designed before
 implementation starts; this closes that step for Phase 5.
+
+### 2026-08-16 — Two Phase 5 interaction patterns changed after on-device testing
+
+**Decision 1 — Restock moved from full-screen to a bottom sheet.**
+The original spec (docs/UI_UX.md section E.4.3) classified Restock as
+full-screen, following the interaction-weight table's "many fields → full
+screen" rule. In practice it only has 2 fields (quantity, optional total
+cost paid) — closer to the "2-4 fields → sheet" bucket than the original
+call anticipated. Changed to a bottom sheet (src/components/RestockSheet.tsx),
+matching Add/Edit ingredient and Use/Waste.
+
+**Decision 2 — Ingredient delete uses a popup modal, not inline-confirm.**
+docs/UI_UX.md's default pattern for deletes across the app is inline-confirm
+(the trigger button swaps to Cancel/Confirm in place) — reserving modal
+dialogs for "irreversible, high-stakes actions only." Ingredient deletion
+is being treated as one of those exceptions: it also deletes the
+ingredient's full stock/movement history, which is more consequential than
+deleting a single order or expense line. Uses a new reusable
+src/components/ConfirmDialog.tsx.
+
+**Why both changed together:** both surfaced during the same round of
+on-device testing, driven by how the built screens actually felt to use
+rather than a spec re-read. Recorded here rather than silently — per
+docs/AGENTS.md, a deviation from a locked spec is still a decision, even
+when it's a UI-feel call rather than a technical one.
+
+**Also fixed this session (bugs, not decisions):**
+- `app/_layout.tsx` computed a theme preference but never actually wrapped
+  `<Stack>` in `<ThemeProvider>` — the whole theme feature was silently
+  inert. Fixed.
+- Category/unit chips in `IngredientFormSheet.tsx` weren't rendering —
+  root cause was `gap` combined with `flexWrap: 'wrap'`, a known
+  Android/Yoga rendering issue in some RN versions. Switched to
+  margin-based chip spacing. Confirmed fixed on-device.
+- `BottomSheet.tsx` rebuilt: backdrop fade decoupled from sheet slide
+  (previously both animated together via `Modal`'s built-in
+  `animationType="slide"`, causing the dim to visibly "rise" with the
+  sheet); added real drag-to-dismiss via `PanResponder`, isolated to a
+  padded handle-bar area so it doesn't compete with the sheet's internal
+  `ScrollView` for touch events.
+- Root cause of an earlier full-app crash on launch was a Java 25 vs. 17
+  mismatch on the dev machine breaking the native Android build —
+  unrelated to any app code. Resolved by installing Java 17; testing has
+  since moved from Expo Go to a real `npx expo run:android` dev build.
+
+  ### 2026-08-16 — Added a baker-customizable stock gauge (Tight/Balanced/Relaxed) to Ingredients
+
+**Decision:** The Ingredients list and detail screen now show a visual
+stock bar (`StockGauge`) next to each ingredient's numbers, instead of
+only the current-stock number and a low-stock badge. How "full" the bar
+reads is controlled by a baker-level `gauge_sensitivity` preference
+(`tight` / `balanced` / `relaxed`, default `balanced`), set via a new
+sheet reached from an icon in the Ingredients header. Added
+`bakers.gauge_sensitivity` (`supabase/migrations/0004_baker_gauge_sensitivity.sql`),
+gauge math in `src/services/stockGauge.ts`, and the `StockGauge` /
+`GaugeSensitivitySheet` components.
+
+**Why a multiplier off `low_stock_threshold`, not a separate `max_stock`
+column:** the gauge's "full" ceiling is computed on the fly as
+`low_stock_threshold × multiplier` — no new per-ingredient field to keep
+in sync, and a baker who's already set a low-stock alert automatically
+gets a working gauge with no extra setup. Ingredients with no threshold
+set show a neutral "Set a low-stock alert to track this" hint instead of
+a fabricated bar.
+
+**Why 3 curated presets, not a free-form multiplier:** same reasoning as
+the accent-color picker (2026-08-15 entry) — a handful of understood,
+safe options beats an arbitrary number nobody can reason about.
+- **Tight (×2):** bars read full sooner — less advance warning before hitting the low-stock line.
+- **Balanced (×3, default):** a fair runway between "full" and the alert line for a typical restock cadence.
+- **Relaxed (×4):** more gradual decline visible, takes longer to look full again right after a restock.
+
+**Alternatives considered:** a free-form "set your own ceiling"
+number — rejected for the same reason a free-form accent color was:
+too easy to pick a value that makes every gauge either always-full or
+always-empty, with no guardrail.
+
+**Also bundled into this change (see UI_UX.md update below for full
+detail):**
+- A category filter (horizontal chip row) added to the Ingredients list —
+  not in the original Phase 5 spec, added because the gauge redesign
+  already restructured that screen's header area.
+- `PrimaryButton` gained a `variant?: 'primary' | 'secondary'` prop, used
+  so Restock (primary) and Use/waste (secondary) on the ingredient detail
+  screen no longer show as two competing filled buttons — closes a real
+  violation of `UI_UX.md`'s "one filled button per screen max" rule that
+  existed before this change.
+- Ingredient detail's stock-history rows now show a small icon per
+  movement type (restock/usage/waste/adjustment) instead of text alone.
+
+**Reconciling an earlier undocumented change:** `RestockSheet` was
+changed from a full-screen form to a bottom sheet on 2026-08-15 (visible
+in a code comment) but that change was never reflected in `UI_UX.md`,
+which still describes Restock as "full screen: quantity purchased, cost,
+optional supplier." This entry also closes that gap — see the corrected
+row in the Interaction weight table in `UI_UX.md`.
+
+**Not done as part of this change:** Jest still isn't installed in this
+project (no `jest` binary, no `@types/jest`, no `test` script) — both the
+pre-existing `ingredients.test.ts` and the new `stockGauge.test.ts` exist
+as real test files but can't currently run. Adding a test runner is its
+own dependency decision and hasn't been made yet.
+
+**Testing status:** verified with `npx tsc --noEmit` against the real
+project — zero errors outside the pre-existing Jest-not-installed test
+files. **Not yet tested on an Android device build** — required before
+this is considered done, per `ARCHITECTURE.md`'s local dev/testing rule.
