@@ -1,22 +1,28 @@
 import { useState } from 'react';
-import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useCreateIngredient, useIngredients } from '../../../src/hooks/useIngredients';
 import { isLowStock, type Ingredient } from '../../../src/types/ingredient';
 import { ErrorBanner } from '../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../src/components/PrimaryButton';
 import { IngredientFormSheet } from '../../../src/components/IngredientFormSheet';
+import { Screen } from '../../../src/components/Screen';
 import { colors, radii, spacing, typography } from '../../../src/theme';
 
 export default function IngredientsListScreen() {
   const router = useRouter();
   const { data: ingredients, isLoading, isError, refetch } = useIngredients();
   const [search, setSearch] = useState('');
+  const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const createIngredient = useCreateIngredient();
 
+  const lowStockCount = (ingredients ?? []).filter(isLowStock).length;
+
   const filtered = (ingredients ?? [])
     .filter((i) => i.name.toLowerCase().includes(search.toLowerCase()))
+    .filter((i) => (showLowStockOnly ? isLowStock(i) : true))
     // low-stock items surface first, per docs/UI_UX.md
     .sort((a, b) => Number(isLowStock(b)) - Number(isLowStock(a)));
 
@@ -28,29 +34,29 @@ export default function IngredientsListScreen() {
 
   if (isLoading) {
     return (
-      <View style={styles.container}>
+      <Screen style={styles.container}>
         <Text style={styles.title}>Ingredients</Text>
         {[1, 2, 3, 4].map((n) => (
           <View key={n} style={styles.skeletonCard} />
         ))}
-      </View>
+      </Screen>
     );
   }
 
   if (isError) {
     return (
-      <View style={styles.container}>
+      <Screen style={styles.container}>
         <Text style={styles.title}>Ingredients</Text>
         <ErrorBanner message="Couldn't load your ingredients." />
         <PrimaryButton title="Try again" onPress={() => refetch()} />
-      </View>
+      </Screen>
     );
   }
 
   const isEmpty = !ingredients || ingredients.length === 0;
 
   return (
-    <View style={styles.container}>
+    <Screen style={styles.container}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Ingredients</Text>
         {!isEmpty && (
@@ -69,20 +75,52 @@ export default function IngredientsListScreen() {
           </View>
         </View>
       ) : (
-        <FlatList
-          data={filtered}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={{ paddingBottom: spacing.xl }}
-          ListEmptyComponent={
-            <Text style={styles.noMatch}>No ingredients match "{search}"</Text>
-          }
-          renderItem={({ item }) => (
-            <IngredientCard
-              ingredient={item}
-              onPress={() => router.push(`/ingredients/${item.id}`)}
+        <>
+          <View style={styles.searchBar}>
+            <Ionicons name="search-outline" size={18} color={colors.textSecondary} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search ingredients"
+              placeholderTextColor={colors.textSecondary}
+              value={search}
+              onChangeText={setSearch}
+              autoCapitalize="none"
             />
+            {search.length > 0 && (
+              <Pressable onPress={() => setSearch('')} hitSlop={8}>
+                <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
+              </Pressable>
+            )}
+          </View>
+
+          {lowStockCount > 0 && (
+            <Pressable
+              style={styles.attentionBanner}
+              onPress={() => setShowLowStockOnly((v) => !v)}
+            >
+              <Ionicons name="alert-circle" size={18} color={colors.danger} />
+              <Text style={styles.attentionText}>
+                {lowStockCount} ingredient{lowStockCount === 1 ? '' : 's'} need
+                {lowStockCount === 1 ? 's' : ''} attention · tap to {showLowStockOnly ? 'show all' : 'view'}
+              </Text>
+            </Pressable>
           )}
-        />
+
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={{ paddingBottom: spacing.xl }}
+            ListEmptyComponent={
+              <Text style={styles.noMatch}>No ingredients match "{search}"</Text>
+            }
+            renderItem={({ item }) => (
+              <IngredientCard
+                ingredient={item}
+                onPress={() => router.push(`/ingredients/${item.id}`)}
+              />
+            )}
+          />
+        </>
       )}
 
       <IngredientFormSheet
@@ -92,7 +130,7 @@ export default function IngredientsListScreen() {
         isSaving={createIngredient.isPending}
         errorMessage={createIngredient.isError ? "Couldn't save. Try again." : null}
       />
-    </View>
+    </Screen>
   );
 }
 
@@ -121,7 +159,10 @@ function IngredientCard({ ingredient, onPress }: { ingredient: Ingredient; onPre
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, padding: spacing.xl },
+  container: {
+    paddingHorizontal: spacing.xl,
+    paddingBottom: spacing.xl,
+  },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -144,6 +185,29 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceMuted,
     marginBottom: spacing.sm,
   },
+  searchBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.md,
+    paddingHorizontal: spacing.md,
+    height: 44,
+    marginBottom: spacing.md,
+  },
+  searchInput: { flex: 1, ...typography.body, color: colors.textPrimary, padding: 0 },
+  attentionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.dangerMuted,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  attentionText: { ...typography.bodySm, color: colors.danger, flex: 1 },
   card: {
     flexDirection: 'row',
     justifyContent: 'space-between',

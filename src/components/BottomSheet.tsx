@@ -1,58 +1,132 @@
-import { Modal, Pressable, StyleSheet, View, type ModalProps } from 'react-native';
+import { useEffect, useRef } from 'react';
+import {
+  Animated,
+  Dimensions,
+  Modal,
+  PanResponder,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { colors, radii, spacing } from '../theme';
+
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+const DISMISS_THRESHOLD = 120; // px dragged down before we treat it as "let go"
 
 type BottomSheetProps = {
   visible: boolean;
   onDismiss: () => void;
   children: React.ReactNode;
-  /** Set true while a save is in progress to block tap-outside dismiss,
+  /** Blocks tap-outside AND drag-to-dismiss while a save is in progress,
    * per docs/UI_UX.md: "sheet can't be dismissed mid-save." */
   dismissDisabled?: boolean;
 };
 
 /**
- * Built on React Native's built-in Modal — no new dependency, matches
- * docs/AGENTS.md's dependency policy. Not a true native bottom sheet
- * (no drag-to-dismiss gesture), but satisfies the spec's requirements:
- * dismissible by tap-outside, primary action area pinned at the bottom.
+ * Rebuilt 2026-08-15 to fix two problems with the original version:
+ * (1) Modal's built-in animationType="slide" animated the backdrop dim
+ * together with the sheet, making the dim visibly "rise" up the screen
+ * instead of fading in place — backdrop fade and sheet slide are now two
+ * independent Animated values, driven manually instead of by Modal.
+ * (2) Added real drag-to-dismiss via PanResponder (React Native core, no
+ * new dependency) — dragging the sheet down past a threshold dismisses
+ * it, not just tapping outside.
+ * Also wraps children in a ScrollView so content can't silently get
+ * clipped when it's taller than the sheet's max height (Android in
+ * particular clips overflow content in a bounded View by default).
  */
 export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: BottomSheetProps) {
-  const handleBackdropPress = () => {
-    if (!dismissDisabled) onDismiss();
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const sheetTranslateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+
+  useEffect(() => {
+    if (visible) {
+      sheetTranslateY.setValue(SCREEN_HEIGHT);
+      Animated.parallel([
+        Animated.timing(backdropOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.timing(sheetTranslateY, { toValue: 0, duration: 250, useNativeDriver: true }),
+      ]).start();
+    }
+  }, [visible]);
+
+  const animateOutAndDismiss = () => {
+    if (dismissDisabled) return;
+    Animated.parallel([
+      Animated.timing(backdropOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+      Animated.timing(sheetTranslateY, { toValue: SCREEN_HEIGHT, duration: 200, useNativeDriver: true }),
+    ]).start(() => onDismiss());
   };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, gesture) => {
+        if (gesture.dy > 0) sheetTranslateY.setValue(gesture.dy);
+      },
+      onPanResponderRelease: (_, gesture) => {
+        if (gesture.dy > DISMISS_THRESHOLD) {
+          animateOutAndDismiss();
+        } else {
+          Animated.spring(sheetTranslateY, { toValue: 0, useNativeDriver: true }).start();
+        }
+      },
+    })
+  ).current;
 
   return (
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
-      onRequestClose={handleBackdropPress}
+      animationType="none"
+      onRequestClose={animateOutAndDismiss}
       statusBarTranslucent
     >
-      <Pressable style={styles.backdrop} onPress={handleBackdropPress}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+      <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={animateOutAndDismiss} />
+      </Animated.View>
+      <Animated.View style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}>
+        <View style={styles.dragHandleArea} {...panResponder.panHandlers}>
+          <View style={styles.dragHandle} />
+        </View>
+        <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {children}
-        </Pressable>
-      </Pressable>
+        </ScrollView>
+      </Animated.View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
   backdrop: {
-    flex: 1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'flex-end',
   },
   sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: colors.surface,
-    // ASSUMPTION: radii.lg = 16px, matching docs/UI_UX.md section F
-    // ("cards and sheets 16px"). Haven't seen src/theme/radii.ts directly
-    // — if this key doesn't exist under this name, swap for whatever your
-    // actual token is called.
     borderTopLeftRadius: radii.lg,
     borderTopRightRadius: radii.lg,
-    padding: spacing.xl,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xxl,
     maxHeight: '85%',
+  },
+  dragHandleArea: {
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: colors.border,
   },
 });

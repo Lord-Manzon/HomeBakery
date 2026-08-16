@@ -1,6 +1,6 @@
 import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '../theme';
+import { colors, spacing } from '../theme';
 
 type ScreenProps = {
   children: React.ReactNode;
@@ -18,7 +18,7 @@ export function Screen({ children, style }: ScreenProps) {
   const insets = useSafeAreaInsets();
 
   return (
-    <View style={[styles.base, { paddingTop: insets.top }, style]}>
+    <View style={[styles.base, { paddingTop: insets.top + spacing.xl }, style]}>
       {children}
     </View>
   );

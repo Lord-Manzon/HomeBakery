@@ -27,6 +27,12 @@ type IngredientFormSheetProps = {
  * `quantity` produces an `adjustment` inventory movement — that logic
  * lives in src/services/ingredients.ts's updateIngredient(), not here;
  * this component only collects and validates the form values.
+ *
+ * NOTE 2026-08-15: chipRow previously used `gap` combined with
+ * `flexWrap: 'wrap'`, which has a known history of silently failing to
+ * render wrapped children on Android in some RN/Yoga versions. Switched
+ * to margin-based spacing on each chip instead — safer, no version
+ * dependency.
  */
 export function IngredientFormSheet({
   visible,
@@ -96,18 +102,14 @@ export function IngredientFormSheet({
         ))}
       </View>
 
-      <View style={styles.row}>
-        <View style={{ flex: 1 }}>
-          <FormField
-            label="Quantity"
-            placeholder="0"
-            keyboardType="decimal-pad"
-            value={quantity}
-            onChangeText={setQuantity}
-            error={fieldErrors.quantity}
-          />
-        </View>
-      </View>
+      <FormField
+        label="Quantity"
+        placeholder="0"
+        keyboardType="decimal-pad"
+        value={quantity}
+        onChangeText={setQuantity}
+        error={fieldErrors.quantity}
+      />
 
       <Text style={styles.label}>Unit</Text>
       <View style={styles.chipRow}>
@@ -144,8 +146,7 @@ export function IngredientFormSheet({
 const styles = StyleSheet.create({
   title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.lg },
   label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
-  row: { flexDirection: 'row', gap: spacing.md },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', marginBottom: spacing.lg },
   chip: {
     borderWidth: 1,
     borderColor: colors.border,
@@ -154,6 +155,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     minHeight: 36,
     justifyContent: 'center',
+    marginRight: spacing.sm,
+    marginBottom: spacing.sm,
   },
   chipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
   chipText: { ...typography.bodySm, color: colors.textPrimary },
