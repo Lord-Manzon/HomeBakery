@@ -365,6 +365,12 @@ const styles = StyleSheet.create({
   },
   statLabel: { ...typography.caption, color: colors.textSecondary },
   statValue: { ...typography.titleSm, color: colors.textPrimary, marginTop: spacing.xxs },
+  costHint: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: -spacing.md,
+    marginBottom: spacing.lg,
+  },
   actionRow: { flexDirection: 'row', marginBottom: spacing.sm },
   editLink: { alignItems: 'center', paddingVertical: spacing.sm, marginBottom: spacing.lg },
   editLinkText: { ...typography.bodySm, color: colors.primary },
