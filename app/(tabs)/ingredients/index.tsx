@@ -259,7 +259,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.lg,
   },
-  title: { ...typography.titleLg, color: colors.textPrimary },
+  title: { ...typography.displaySm, color: colors.textPrimary },
   // 44x44 minimum touch target per docs/UI_UX.md's Spacing & radius spec
   // ("this app gets used one-handed while a baker's other hand is full").
   // The icon itself stays visually small (20px, set at the call site) —

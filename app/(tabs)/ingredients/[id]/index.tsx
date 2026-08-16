@@ -64,6 +64,12 @@ export default function IngredientDetailScreen() {
   const statusColor =
     gauge.status === 'out' || gauge.status === 'low' ? colors.danger : colors.success;
 
+  // history is already sorted created_at desc (see getMovementHistory), so
+  // the first 'restock' row is the most recent one — no extra query
+  // needed for RestockSheet's "Last time" chip.
+  const lastRestockQuantity =
+    history?.find((m) => m.movement_type === 'restock')?.quantity_change ?? null;
+
   const handleDelete = () => {
     setDeleteError(null);
     deleteIngredient.mutate(ingredient.id, {
@@ -203,6 +209,7 @@ export default function IngredientDetailScreen() {
         }
         isSaving={restockIngredient.isPending}
         errorMessage={restockIngredient.isError ? "Couldn't save. Try again." : null}
+        lastRestockQuantity={lastRestockQuantity}
       />
     </Screen>
   );
@@ -304,7 +311,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   deleteButton: {
     width: 36,
@@ -314,7 +321,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  name: { ...typography.titleLg, color: colors.textPrimary },
+  name: { ...typography.displaySm, color: colors.textPrimary },
   category: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xxs },
   heroCard: {
     backgroundColor: colors.surface,

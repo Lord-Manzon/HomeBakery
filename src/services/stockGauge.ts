@@ -64,6 +64,23 @@ export function getIngredientGauge(ingredient: Ingredient, sensitivity: GaugeSen
 }
 
 /**
+ * How much to add to bring stock exactly to the gauge's "full" ceiling
+ * (low_stock_threshold * sensitivity multiplier). Powers the "Top off"
+ * quick-add chip in RestockSheet — reuses the exact same ceiling math as
+ * getStockGaugePercent so the chip and the gauge can never disagree.
+ * Returns null when there's no threshold set (nothing to top off to).
+ */
+export function getTopOffAmount(
+  currentStock: number,
+  lowStockThreshold: number | null,
+  sensitivity: GaugeSensitivity
+): number | null {
+  if (lowStockThreshold == null || lowStockThreshold <= 0) return null;
+  const ceiling = lowStockThreshold * GAUGE_SENSITIVITY_MULTIPLIERS[sensitivity];
+  return Math.max(0, Math.round((ceiling - currentStock) * 100) / 100);
+}
+
+/**
  * Sort key for "low stock first": ingredients with no threshold set (no
  * gauge) sort last, since there's no alert configured to make them
  * urgent — not first, and not mixed in ambiguously with actually-low

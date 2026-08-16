@@ -139,33 +139,39 @@ export function IngredientFormSheet({
         ))}
       </ScrollView>
 
-      <FormField
-        label="Quantity"
-        placeholder="0"
-        keyboardType="decimal-pad"
-        value={quantity}
-        onChangeText={setQuantity}
-        error={fieldErrors.quantity}
-      />
-
-      <Text style={styles.label}>Unit</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.chipScroll}
-        contentContainerStyle={styles.chipScrollContent}
-      >
-        {INGREDIENT_UNITS.map((u) => (
-          <Pressable
-            key={u}
-            onPress={() => setUnit(u)}
-            style={[styles.chip, unit === u && styles.chipSelected]}
+      <View style={styles.quantityUnitRow}>
+        <View style={styles.quantityCol}>
+          <FormField
+            label="Quantity"
+            placeholder="0"
+            keyboardType="decimal-pad"
+            value={quantity}
+            onChangeText={setQuantity}
+            error={fieldErrors.quantity}
+            style={styles.quantityInput}
+          />
+        </View>
+        <View style={styles.unitCol}>
+          <Text style={styles.label}>Unit</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipScroll}
+            contentContainerStyle={styles.chipScrollContent}
           >
-            <Text style={[styles.chipText, unit === u && styles.chipTextSelected]}>{u}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
-      {fieldErrors.unit ? <Text style={styles.fieldError}>{fieldErrors.unit}</Text> : null}
+            {INGREDIENT_UNITS.map((u) => (
+              <Pressable
+                key={u}
+                onPress={() => setUnit(u)}
+                style={[styles.chip, unit === u && styles.chipSelected]}
+              >
+                <Text style={[styles.chipText, unit === u && styles.chipTextSelected]}>{u}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+          {fieldErrors.unit ? <Text style={styles.fieldError}>{fieldErrors.unit}</Text> : null}
+        </View>
+      </View>
 
       <FormField
         label="Low-stock alert (optional)"
@@ -233,6 +239,10 @@ export function IngredientFormSheet({
 const styles = StyleSheet.create({
   title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.lg },
   label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
+  quantityUnitRow: { flexDirection: 'row', gap: spacing.md },
+  quantityCol: { width: 96 },
+  quantityInput: { textAlign: 'left' },
+  unitCol: { flex: 1 },
   chipScroll: { height: 40, maxHeight: 40, flexGrow: 0, flexShrink: 0, marginBottom: spacing.lg },
   chipScrollContent: { flexGrow: 0, alignItems: 'flex-start', paddingRight: spacing.xl },
   chip: {
