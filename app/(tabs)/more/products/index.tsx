@@ -41,26 +41,19 @@ export default function ProductsListScreen() {
       .filter((p) => p.name.toLowerCase().includes(search.trim().toLowerCase()));
   }, [products, selectedCategory, search]);
 
+  const isEmptyCatalog = !products || products.length === 0;
+
   return (
-    <Screen>
+    <Screen style={styles.container}>
       <View style={styles.headerRow}>
         <Text style={styles.title}>Products</Text>
-        <View style={styles.headerActions}>
-          <Pressable
-            onPress={() => setIsSearchOpen((v) => !v)}
-            style={styles.iconButton}
-            accessibilityLabel="Search products"
-          >
-            <Ionicons name="search" size={20} color={colors.textPrimary} />
-          </Pressable>
-          <Pressable
-            onPress={() => router.push('/more/products/new')}
-            style={styles.iconButton}
-            accessibilityLabel="Add product"
-          >
-            <Ionicons name="add" size={22} color={colors.textPrimary} />
-          </Pressable>
-        </View>
+        <Pressable
+          onPress={() => setIsSearchOpen((v) => !v)}
+          style={styles.iconButton}
+          accessibilityLabel="Search products"
+        >
+          <Ionicons name="search" size={20} color={colors.textPrimary} />
+        </Pressable>
       </View>
 
       {isSearchOpen ? (
@@ -200,6 +193,10 @@ function ProductCard({
 // rule in docs/DECISIONS.md (2026-08-15 entry).
 function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
+    container: {
+      paddingHorizontal: spacing.xl,
+      paddingBottom: spacing.xl,
+    },
     headerRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
