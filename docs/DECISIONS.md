@@ -378,3 +378,38 @@ own dependency decision and hasn't been made yet.
 project — zero errors outside the pre-existing Jest-not-installed test
 files. **Not yet tested on an Android device build** — required before
 this is considered done, per `ARCHITECTURE.md`'s local dev/testing rule.
+
+### 2026-08-17 — Reopened: product categories are now MVP (free text, dynamic chips)
+
+**Decision:** Added `products.category` — nullable free text, no fixed
+list, same pattern as `ingredients.category`/`expenses.category`. Products
+list shows a category filter chip row (always "All" first) generated
+dynamically from the distinct category values currently in use across the
+baker's own products, not from a separately stored/curated list. A product
+with no category set shows under "All" only, with no chip of its own.
+**Why:** A Phase 4 reference mockup (AI #2) made a real case for category
+filtering on the Products list; the previous "Later, not MVP" call
+(`docs/PRODUCT.md`, `docs/DATABASE.md`) is explicitly reopened here rather
+than silently overridden. `docs/PRODUCT.md` and `docs/DATABASE.md` updated
+alongside this entry.
+**Alternatives considered:** a fixed category list (`Ingredients`-style
+enum) — declined, since product categories are more bakery-specific/
+personal (e.g. "Pasalubong," "Holiday specials") than ingredients' small
+universal set, and a free-text/dynamic pattern avoids introducing a third
+categorization convention into the app on top of the two that already
+exist.
+**Also decided in the same conversation:** Products list cards show each
+variant as its own price chip inline (e.g. "Small ₱450 · Medium ₱850"),
+**replacing** the `docs/UI_UX_1.md` section E.5-locked "`N` variants ·
+`min`–`max` price range" summary-line format — another Phase 4 mockup
+(AI #2) driven reversal of an already-locked spec, same category of change
+as the 2026-08-15 Restock sheet reversal. `docs/UI_UX_1.md` section E.5
+needs a follow-up edit to match — not done as part of this entry, tracked
+as open.
+**Migration:** `supabase/migrations/0005_product_category.sql` (nullable
+column, no backfill needed, no RLS change — `category` follows the
+existing `products` table policies).
+**Follow-up:** `products` is already exposed via the Data API (covered by
+the 2026-08-15 "All Phase 3 tables exposed" entry) — adding a column to an
+already-exposed table doesn't require a new exposure step, only the
+migration itself.

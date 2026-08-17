@@ -125,8 +125,8 @@ delivery or pickup, notes) → saves → Order detail → from here: Edit / togg
 Payment / Mark delivered / Delete.
 
 **Create product** *(Phase 4 detail below in section E.5–E.6a)*
-Products (`+`) → New product (name, photo — optional; category is a later
-feature, not MVP, see docs/PRODUCT.md) → Product detail (empty variants) →
+Products (`+`) → New product (name, optional category, optional photo — see
+docs/DECISIONS.md's 2026-08-17 entry) → Product detail (empty variants) →
 Add variant (sheet: name, selling price, packaging cost) → variant appears
 in the list → Recipe & costing (Phase 4: placeholder; Phase 6: ingredients +
 cost breakdown auto-calculate using the resolved margin — variant → product
@@ -210,27 +210,49 @@ cosmetic, it's the same distinction the audit log needs.
 threshold. *Empty* — "Add ingredients to track stock."
 
 ### 5. Products list (More)
-**Layout:** title, search icon, `+` icon (top right), helper line ("Tap a
-product to see its variants"), list of product cards. Each card: icon tile,
-name, "`N` variants · `min`–`max` price range", chevron.
+**CHANGED 2026-08-17:** card layout and category filtering below replace
+this section's original spec — see `docs/DECISIONS.md`'s 2026-08-17 entry
+("Reopened: product categories are now MVP").
+
+**Layout:** title, category filter chip row (see below), search icon, `+`
+icon (top right), helper line ("Tap a product to see its variants"), list
+of product cards. Each card: icon tile, name, and **one price chip per
+active variant** shown inline (e.g. "Small ₱450 · Medium ₱850 · Large
+₱1,350") — replacing the earlier "`N` variants · `min`–`max` price range"
+summary line, since seeing each size/price at a glance is more useful to a
+baker scanning the list than a compressed range. No chevron — the whole
+card is tappable.
+**Category filter row:** chips generated dynamically from the distinct
+`category` values currently in use across the baker's own products —
+"All" always first and always present, then one chip per distinct
+category in use, alphabetical. A product with no category set shows under
+"All" only. No fixed/curated list, no empty placeholder chips for unused
+categories — removing the last product in a category quietly removes that
+chip too. Same interaction pattern as the Ingredients list's category row
+(horizontal scroll, not wrap).
 **Taps:** `+` → New product (full screen, see 5a). Search icon → inline
-search field replaces the helper line, filters live by name. Product card →
-Product detail (5b) — a real routed screen (`/more/products/[id]`), not an
-inline expansion, so it gets its own back button, deep link, and loading
-state per `docs/CODING_STANDARDS.md`.
+search field replaces the helper line, filters live by name. Category chip
+→ filters the list to that category (single-select, same as Ingredients).
+Product card → Product detail (5b) — a real routed screen
+(`/more/products/[id]`), not an inline expansion, so it gets its own back
+button, deep link, and loading state per `docs/CODING_STANDARDS.md`.
 **States:** *Loading* — skeleton cards, no spinner. *Empty (no products
 yet)* — friendly onboarding card (illustration/icon + one line + primary
-button "Add your first product") → New product screen. *Error* — retry,
-plain language, no jargon. *Search, no matches* — "No products match
-'`query`'" with a clear-search action, distinct from the true empty state.
+button "Add your first product") → New product screen; category row
+hidden entirely (nothing to filter yet). *Error* — retry, plain language,
+no jargon. *Search, no matches* — "No products match '`query`'" with a
+clear-search action, distinct from the true empty state.
 
 ### 5a. New product (full screen)
 Reached from: Products list `+`, or the empty-state CTA.
-**Fields:** Name (required, text) · Photo (optional, image picker →
-Supabase Storage). No category field — deferred to Later per
-`docs/PRODUCT.md`.
-**Validation (Zod):** `name` required, 1–100 chars, trimmed. `image_url`
-optional.
+**CHANGED 2026-08-17:** category is now MVP — see
+`docs/DECISIONS.md`'s 2026-08-17 entry.
+**Fields:** Name (required, text) · Category (optional — chips of the
+baker's existing categories shown as quick-pick, plus a way to type a new
+one; free text under the hood, same as Ingredients/Expenses) · Photo
+(optional, image picker → Supabase Storage).
+**Validation (Zod):** `name` required, 1–100 chars, trimmed. `category`
+optional, 1–50 chars if provided, trimmed. `image_url` optional.
 **States:** *Default* — Save disabled until name is non-empty. *Saving* —
 spinner, fields disabled. *Error* — inline banner, fields stay filled,
 retry by re-tapping Save. *Photo upload failure* — handled separately from
@@ -417,10 +439,10 @@ which already fits this — no change needed there.)
 
 ## Open notes from this merge
 
-- **Product categories:** the "create product" flow mentions category as an
-  option, but docs/PRODUCT.md explicitly defers categories to *Later*, not
-  MVP, and docs/DATABASE.md's `products` table has no category column. MVP
-  "New product" is name + optional photo only.
+- **Product categories — resolved 2026-08-17:** was an open contradiction
+  between this doc and docs/PRODUCT.md's "Later, not MVP" call. Reopened
+  and settled — category is now MVP, optional free text, no fixed list.
+  See docs/DECISIONS.md's 2026-08-17 entry and section E.5/5a above.
 - **Theme token migration:** `src/theme/` needs updating from Phase 1's
   placeholder values to the tokens in section F, including adding Nunito as
   a font dependency. Tracked as a follow-up, not yet done.
