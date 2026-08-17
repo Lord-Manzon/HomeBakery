@@ -1,5 +1,8 @@
+import { useMemo } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { colors, radii, spacing, typography } from '../theme';
+import { useThemeColors } from '../theme/ThemeContext';
+import { radii, spacing, typography } from '../theme';
+import type { ColorToken } from '../theme/colors';
 
 type ConfirmDialogProps = {
   visible: boolean;
@@ -27,6 +30,8 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
       <View style={styles.backdrop}>
@@ -48,39 +53,43 @@ export function ConfirmDialog({
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.xl,
-  },
-  card: {
-    width: '100%',
-    maxWidth: 340,
-    backgroundColor: colors.surface,
-    borderRadius: radii.lg,
-    padding: spacing.xl,
-  },
-  title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.sm },
-  message: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.xl },
-  buttonRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
-  cancelButton: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.md,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  cancelText: { ...typography.body, color: colors.textPrimary },
-  confirmButton: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderRadius: radii.md,
-    backgroundColor: colors.danger,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  confirmText: { ...typography.body, color: colors.textInverse, fontWeight: '600' },
-});
+// See FormField.tsx for why styles are built per-render from the theme
+// palette instead of a static module-level StyleSheet.create().
+function makeStyles(colors: Record<ColorToken, string>) {
+  return StyleSheet.create({
+    backdrop: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: spacing.xl,
+    },
+    card: {
+      width: '100%',
+      maxWidth: 340,
+      backgroundColor: colors.surface,
+      borderRadius: radii.lg,
+      padding: spacing.xl,
+    },
+    title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.sm },
+    message: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.xl },
+    buttonRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
+    cancelButton: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.md,
+      minHeight: 44,
+      justifyContent: 'center',
+    },
+    cancelText: { ...typography.body, color: colors.textPrimary },
+    confirmButton: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.md,
+      backgroundColor: colors.danger,
+      minHeight: 44,
+      justifyContent: 'center',
+    },
+    confirmText: { ...typography.body, color: colors.textInverse, fontWeight: '600' },
+  });
+}

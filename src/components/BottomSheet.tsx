@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   Animated,
   Dimensions,
+  Easing,
   Modal,
   PanResponder,
   Pressable,
@@ -9,7 +10,19 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { colors, radii, spacing } from '../theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useThemeColors } from '../theme/ThemeContext';
+import { radii, spacing, motionDuration, motionEasingCurve, motionSpring } from '../theme';
+import type { ColorToken } from '../theme/colors';
+
+// BottomSheet's drag-to-dismiss is tied to PanResponder + core RN
+// `Animated`, not Reanimated — see docs/DECISIONS.md's 2026-08-17 entry
+// for why this stayed as-is rather than being rewritten. Durations and
+// curve shape still come from the shared Motion tokens (theme/motion.ts)
+// via motionEasingCurve, since core Animated's Easing.bezier() and
+// Reanimated's are different objects but accept the same numbers.
+const sheetEasingIn = Easing.bezier(...motionEasingCurve.decelerate);
+const sheetEasingOut = Easing.bezier(...motionEasingCurve.accelerate);
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 const DISMISS_THRESHOLD = 120; // px dragged down before we treat it as "let go"
@@ -35,8 +48,18 @@ type BottomSheetProps = {
  * Also wraps children in a ScrollView so content can't silently get
  * clipped when it's taller than the sheet's max height (Android in
  * particular clips overflow content in a bounded View by default).
+ *
+ * FIXED 2026-08-16: bottom padding was a fixed spacing.xxl, which isn't
+ * enough to clear a gesture-nav or 3-button nav bar on some devices —
+ * the primary action button (Save, Add ingredient, etc.) ended up
+ * sitting almost behind the system nav bar. Now adds
+ * useSafeAreaInsets().bottom on top of the fixed padding so it always
+ * clears the system bar regardless of device/nav style.
  */
 export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: BottomSheetProps) {
+  const insets = useSafeAreaInsets();
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
@@ -44,8 +67,18 @@ export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: B
     if (visible) {
       sheetTranslateY.setValue(SCREEN_HEIGHT);
       Animated.parallel([
-        Animated.timing(backdropOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-        Animated.timing(sheetTranslateY, { toValue: 0, duration: 250, useNativeDriver: true }),
+        Animated.timing(backdropOpacity, {
+          toValue: 1,
+          duration: motionDuration.medium,
+          easing: sheetEasingIn,
+          useNativeDriver: true,
+        }),
+        Animated.timing(sheetTranslateY, {
+          toValue: 0,
+          duration: motionDuration.medium,
+          easing: sheetEasingIn,
+          useNativeDriver: true,
+        }),
       ]).start();
     }
   }, [visible]);
@@ -53,8 +86,18 @@ export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: B
   const animateOutAndDismiss = () => {
     if (dismissDisabled) return;
     Animated.parallel([
-      Animated.timing(backdropOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
-      Animated.timing(sheetTranslateY, { toValue: SCREEN_HEIGHT, duration: 200, useNativeDriver: true }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: motionDuration.fast,
+        easing: sheetEasingOut,
+        useNativeDriver: true,
+      }),
+      Animated.timing(sheetTranslateY, {
+        toValue: SCREEN_HEIGHT,
+        duration: motionDuration.medium,
+        easing: sheetEasingOut,
+        useNativeDriver: true,
+      }),
     ]).start(() => onDismiss());
   };
 
@@ -68,7 +111,13 @@ export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: B
         if (gesture.dy > DISMISS_THRESHOLD) {
           animateOutAndDismiss();
         } else {
-          Animated.spring(sheetTranslateY, { toValue: 0, useNativeDriver: true }).start();
+          Animated.spring(sheetTranslateY, {
+            toValue: 0,
+            damping: motionSpring.gentle.damping,
+            stiffness: motionSpring.gentle.stiffness,
+            mass: motionSpring.gentle.mass,
+            useNativeDriver: true,
+          }).start();
         }
       },
     })
@@ -85,7 +134,13 @@ export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: B
       <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={animateOutAndDismiss} />
       </Animated.View>
-      <Animated.View style={[styles.sheet, { transform: [{ translateY: sheetTranslateY }] }]}>
+      <Animated.View
+        style={[
+          styles.sheet,
+          { paddingBottom: spacing.xxl + insets.bottom },
+          { transform: [{ translateY: sheetTranslateY }] },
+        ]}
+      >
         <View style={styles.dragHandleArea} {...panResponder.panHandlers}>
           <View style={styles.dragHandle} />
         </View>
@@ -97,36 +152,40 @@ export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: B
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  sheet: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radii.lg,
-    borderTopRightRadius: radii.lg,
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xxl,
-    maxHeight: '85%',
-  },
-  dragHandleArea: {
-    paddingVertical: spacing.md,
-    alignItems: 'center',
-  },
-  dragHandle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.border,
-  },
-});
+// See FormField.tsx for why styles are built per-render from the theme
+// palette instead of a static module-level StyleSheet.create().
+function makeStyles(colors: Record<ColorToken, string>) {
+  return StyleSheet.create({
+    backdrop: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+    },
+    sheet: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: radii.lg,
+      borderTopRightRadius: radii.lg,
+      paddingHorizontal: spacing.xl,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.xxl,
+      maxHeight: '85%',
+    },
+    dragHandleArea: {
+      paddingVertical: spacing.md,
+      alignItems: 'center',
+    },
+    dragHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.border,
+    },
+  });
+}
