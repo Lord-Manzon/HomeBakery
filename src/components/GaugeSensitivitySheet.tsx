@@ -16,6 +16,11 @@ type GaugeSensitivitySheetProps = {
 
 const OPTIONS: { key: GaugeSensitivity; label: string; description: string }[] = [
   {
+    key: 'aggressive',
+    label: 'Aggressive (×1)',
+    description: 'Reads full right at your alert line — the earliest, most urgent warning.',
+  },
+  {
     key: 'tight',
     label: 'Tight (×2)',
     description: 'Bars read full sooner — less advance warning before low stock.',
@@ -34,8 +39,12 @@ const OPTIONS: { key: GaugeSensitivity; label: string; description: string }[] =
 
 // Fixed example used purely to illustrate the difference between presets —
 // not a real ingredient.
-const EXAMPLE_STOCK = 7;
-const EXAMPLE_THRESHOLD = 3;
+// stock 5, threshold 6 -> aggressive 83%, tight 42%, balanced 28%,
+// relaxed 21% — all four visibly different. The original 7/3 example
+// saturated both aggressive (×1) and tight (×2) at 100%, which defeated
+// the point of a side-by-side comparison once a 4th option existed.
+const EXAMPLE_STOCK = 5;
+const EXAMPLE_THRESHOLD = 6;
 
 export function GaugeSensitivitySheet({
   visible,
@@ -75,7 +84,7 @@ export function GaugeSensitivitySheet({
               <View style={{ flex: 1 }}>
                 <StockGauge percent={percent} status="ok" />
               </View>
-              <Text style={styles.previewLabel}>Butter, 7kg stock</Text>
+              <Text style={styles.previewLabel}>Butter, 5kg stock</Text>
             </View>
           </Pressable>
         );

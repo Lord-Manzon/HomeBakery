@@ -58,7 +58,8 @@ type ChipKey = 'lastTime' | 'topOff' | typeof CUSTOM_CHIP;
  *   specific ingredient, so the suggestion matches how they actually buy
  *   (e.g. "10 kg" for someone who always buys cheese in 10kg blocks)
  *   rather than an arbitrary preset that might not.
- * - "Top off" — computes exactly how much would bring the gauge to 100%
+ * - "Restock to Full" (was "Top off" — renamed 2026-08-17) — computes
+ *   exactly how much would bring the gauge to 100%
  *   full, using the SAME ceiling math as the gauge itself
  *   (getTopOffAmount, threshold * sensitivity multiplier) so this chip
  *   and the gauge preview below it can never disagree.
@@ -170,7 +171,7 @@ export function RestockSheet({
         ) : null}
         {topOffAmount != null && topOffAmount > 0 ? (
           <QuickAddChip
-            label="Top off"
+            label="Restock to Full"
             sub={`${topOffAmount} ${ingredient.unit}`}
             selected={selectedChip === 'topOff'}
             accent

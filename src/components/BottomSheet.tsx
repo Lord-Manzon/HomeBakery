@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
+  Keyboard,
   Modal,
   PanResponder,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -43,11 +45,41 @@ type BottomSheetProps = {
  * sitting almost behind the system nav bar. Now adds
  * useSafeAreaInsets().bottom on top of the fixed padding so it always
  * clears the system bar regardless of device/nav style.
+ *
+ * FIXED 2026-08-17: the numeric keyboard was covering whichever field
+ * was focused (Quantity, Low-stock alert, Restock's Total cost paid,
+ * Use/waste's Quantity, etc.) — nothing here was reacting to the
+ * keyboard opening at all. Two different fixes, one per platform,
+ * because they need genuinely different approaches:
+ * - iOS: ScrollView's `automaticallyAdjustKeyboardInsets` (core RN,
+ *   0.71+) — the ScrollView itself insets its content around the
+ *   keyboard. No manual listener needed.
+ * - Android: `automaticallyAdjustKeyboardInsets` is iOS-only. Android
+ *   Modals render as a separate Dialog window that does NOT
+ *   automatically inherit the Activity's adjustResize behavior — this
+ *   is a well-known RN Modal limitation, not something fixable via
+ *   app.json alone. Instead, a Keyboard listener tracks the keyboard's
+ *   height and the sheet's `bottom` offset is shifted up by that amount
+ *   (and `maxHeight` recalculated) so the sheet visually rises above the
+ *   keyboard instead of being covered by it.
  */
 export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: BottomSheetProps) {
   const insets = useSafeAreaInsets();
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const sheetTranslateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const showSub = Keyboard.addListener('keyboardDidShow', (e) =>
+      setAndroidKeyboardHeight(e.endCoordinates.height)
+    );
+    const hideSub = Keyboard.addListener('keyboardDidHide', () => setAndroidKeyboardHeight(0));
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   useEffect(() => {
     if (visible) {
@@ -97,14 +129,25 @@ export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: B
       <Animated.View
         style={[
           styles.sheet,
-          { paddingBottom: spacing.xxl + insets.bottom },
+          {
+            paddingBottom: spacing.xxl + insets.bottom,
+            bottom: androidKeyboardHeight,
+            maxHeight:
+              androidKeyboardHeight > 0
+                ? SCREEN_HEIGHT - androidKeyboardHeight - insets.top - spacing.xl
+                : '85%',
+          },
           { transform: [{ translateY: sheetTranslateY }] },
         ]}
       >
         <View style={styles.dragHandleArea} {...panResponder.panHandlers}>
           <View style={styles.dragHandle} />
         </View>
-        <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          automaticallyAdjustKeyboardInsets
+        >
           {children}
         </ScrollView>
       </Animated.View>

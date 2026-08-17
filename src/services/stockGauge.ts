@@ -11,6 +11,7 @@ export type GaugeSensitivity = Baker['gauge_sensitivity'];
  * about. See docs/DECISIONS.md for why ×3 is the default.
  */
 export const GAUGE_SENSITIVITY_MULTIPLIERS: Record<GaugeSensitivity, number> = {
+  aggressive: 1,
   tight: 2,
   balanced: 3,
   relaxed: 4,

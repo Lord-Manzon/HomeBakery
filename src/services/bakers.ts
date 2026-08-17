@@ -31,7 +31,7 @@ export type ThemePreferenceInput = {
  * docs/DECISIONS.md.
  */
 export type GaugeSensitivityInput = {
-  gauge_sensitivity: 'tight' | 'balanced' | 'relaxed';
+  gauge_sensitivity: 'aggressive' | 'tight' | 'balanced' | 'relaxed';
 };
 
 export async function completeOnboarding(input: OnboardingInput): Promise<Baker> {

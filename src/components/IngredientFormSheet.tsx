@@ -107,6 +107,51 @@ export function IngredientFormSheet({
 
       {errorMessage ? <ErrorBanner message={errorMessage} /> : null}
 
+      <Text style={styles.previewSectionLabel}>Preview on your list</Text>
+      <View style={styles.previewCard}>
+        <View style={styles.previewTopRow}>
+          <View
+            style={[
+              styles.previewIconTile,
+              {
+                backgroundColor:
+                  previewStatus === 'out'
+                    ? colors.dangerMuted
+                    : previewStatus === 'low'
+                      ? colors.warningMuted
+                      : previewStatus === 'none'
+                        ? colors.surfaceMuted
+                        : colors.successMuted,
+              },
+            ]}
+          >
+            <Ionicons
+              name={previewIcon}
+              size={15}
+              color={
+                previewStatus === 'out'
+                  ? colors.danger
+                  : previewStatus === 'low'
+                    ? colors.warning
+                    : previewStatus === 'none'
+                      ? colors.textSecondary
+                      : colors.success
+              }
+            />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.previewName} numberOfLines={1}>
+              {name || 'Ingredient name'}
+            </Text>
+            <Text style={styles.previewCategory}>{category ?? 'No category'}</Text>
+          </View>
+          <Text style={styles.previewStock}>
+            {previewStock} {unit || '—'}
+          </Text>
+        </View>
+        <StockGauge percent={previewPercent} status={previewStatus} />
+      </View>
+
       <FormField
         label="Ingredient name"
         placeholder="e.g. Flour"
@@ -181,51 +226,6 @@ export function IngredientFormSheet({
         onChangeText={setLowStockThreshold}
         error={fieldErrors.lowStockThreshold}
       />
-
-      <Text style={styles.previewSectionLabel}>Preview on your list</Text>
-      <View style={styles.previewCard}>
-        <View style={styles.previewTopRow}>
-          <View
-            style={[
-              styles.previewIconTile,
-              {
-                backgroundColor:
-                  previewStatus === 'out'
-                    ? colors.dangerMuted
-                    : previewStatus === 'low'
-                      ? colors.warningMuted
-                      : previewStatus === 'none'
-                        ? colors.surfaceMuted
-                        : colors.successMuted,
-              },
-            ]}
-          >
-            <Ionicons
-              name={previewIcon}
-              size={15}
-              color={
-                previewStatus === 'out'
-                  ? colors.danger
-                  : previewStatus === 'low'
-                    ? colors.warning
-                    : previewStatus === 'none'
-                      ? colors.textSecondary
-                      : colors.success
-              }
-            />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.previewName} numberOfLines={1}>
-              {name || 'Ingredient name'}
-            </Text>
-            <Text style={styles.previewCategory}>{category ?? 'No category'}</Text>
-          </View>
-          <Text style={styles.previewStock}>
-            {previewStock} {unit || '—'}
-          </Text>
-        </View>
-        <StockGauge percent={previewPercent} status={previewStatus} />
-      </View>
 
       <PrimaryButton
         title={isEdit ? 'Save changes' : 'Add ingredient'}
