@@ -161,6 +161,13 @@ export default function ProductsListScreen() {
               </Pressable>
             );
           })}
+          <Pressable
+            onPress={() => router.push('/more/products/categories/new')}
+            style={styles.categoryChipNew}
+          >
+            <Ionicons name="add" size={14} color={colors.primary} />
+            <Text style={styles.categoryChipNewText}>New</Text>
+          </Pressable>
         </ScrollView>
       ) : null}
 
@@ -258,7 +265,7 @@ function ProductCard({
         </View>
       )}
       <View style={styles.cardBody}>
-        <Text style={styles.cardName} numberOfLines={1}>
+        <Text style={styles.cardName} numberOfLines={2}>
           {product.name}
         </Text>
         {product.variants.length > 0 ? (
@@ -294,7 +301,7 @@ function ProductCard({
 function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
     container: {
-      paddingHorizontal: spacing.xl,
+      paddingHorizontal: spacing.lg,
       paddingBottom: spacing.xl,
     },
     headerRow: {
@@ -375,7 +382,19 @@ function makeStyles(colors: Record<ColorToken, string>) {
     categoryChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     categoryChipText: { ...typography.bodySm, color: colors.textPrimary },
     categoryChipTextSelected: { color: colors.textInverse },
-    listContent: { paddingBottom: spacing.xxxl + 56 },
+    categoryChipNew: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      marginRight: spacing.sm,
+    },
+    categoryChipNewText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
+    listContent: { paddingBottom: spacing.xxxl + 88 },
     skeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
     gridRow: { gap: spacing.md },
     card: {

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -63,6 +63,10 @@ export default function ProductDetailScreen() {
   const [localImageUri, setLocalImageUri] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
+
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -150,6 +154,27 @@ export default function ProductDetailScreen() {
     }
   };
 
+  const openNameEdit = () => {
+    setNameDraft(product.name);
+    setNameError(null);
+    setIsEditingName(true);
+  };
+
+  const commitNameEdit = () => {
+    const trimmed = nameDraft.trim();
+    setIsEditingName(false);
+    if (trimmed === product.name) return;
+    if (!trimmed) {
+      setNameError("Name can't be empty");
+      return;
+    }
+    setNameError(null);
+    updateProduct.mutate(
+      { name: trimmed, category: product.category, image_url: product.image_url },
+      { onError: () => setNameError("Couldn't save the name. Please try again.") }
+    );
+  };
+
   return (
     <Screen>
       <View style={styles.content}>
@@ -157,13 +182,34 @@ export default function ProductDetailScreen() {
           <Pressable onPress={() => router.back()} style={styles.iconButton}>
             <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
           </Pressable>
-          <Text style={styles.title} numberOfLines={1}>
-            {product.name}
-          </Text>
+          <View style={styles.titleWrap}>
+            {isEditingName ? (
+              <TextInput
+                style={styles.titleInput}
+                value={nameDraft}
+                onChangeText={setNameDraft}
+                onBlur={commitNameEdit}
+                onSubmitEditing={commitNameEdit}
+                autoFocus
+                selectTextOnFocus
+                returnKeyType="done"
+                maxLength={100}
+              />
+            ) : (
+              <Pressable onPress={openNameEdit} style={styles.titlePressable}>
+                <Text style={styles.title} numberOfLines={1}>
+                  {product.name}
+                </Text>
+                <Ionicons name="pencil-outline" size={12} color={colors.textSecondary} />
+              </Pressable>
+            )}
+          </View>
           <Pressable onPress={() => setIsOverflowOpen((v) => !v)} style={styles.iconButton}>
             <Ionicons name="ellipsis-vertical" size={20} color={colors.textPrimary} />
           </Pressable>
         </View>
+
+        {nameError ? <Text style={styles.nameErrorText}>{nameError}</Text> : null}
 
         {isOverflowOpen ? (
           <>
@@ -454,7 +500,29 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.md,
     },
     iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    title: { ...typography.displaySm, color: colors.textPrimary, flex: 1, textAlign: 'center' },
+    titleWrap: { flex: 1, alignItems: 'center' },
+    titlePressable: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xxs,
+      maxWidth: '100%',
+    },
+    title: { ...typography.displaySm, color: colors.textPrimary, flexShrink: 1 },
+    titleInput: {
+      ...typography.displaySm,
+      color: colors.textPrimary,
+      flex: 1,
+      textAlign: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: colors.primary,
+      paddingBottom: spacing.xxs,
+    },
+    nameErrorText: {
+      ...typography.caption,
+      color: colors.danger,
+      textAlign: 'center',
+      marginBottom: spacing.sm,
+    },
     overflowScrim: {
       position: 'absolute',
       top: 0,
