@@ -35,3 +35,16 @@ export type ProductVariant = {
 export type ProductWithVariants = Product & {
   variants: ProductVariant[];
 };
+
+/** A baker-created product category with its chosen icon — see
+ * supabase/migrations/0007_product_categories.sql and
+ * docs/DECISIONS.md's 2026-08-18 entry. Color is deliberately not a
+ * field here; it's derived from `name` at render time (see
+ * src/utils/productCategoryIcon.ts) rather than stored. */
+export type ProductCategory = {
+  id: string;
+  baker_id: string;
+  name: string;
+  icon: string;
+  created_at: string;
+};

@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createProduct,
+  createProductCategory,
   createVariant,
   deactivateProduct,
   deactivateVariant,
   getProduct,
+  getProductCategories,
   getProducts,
   getVariants,
   setDefaultVariant,
@@ -16,6 +18,7 @@ import type { ProductFormInput, VariantFormInput } from '../utils/validation/pro
 const productsKey = ['products'] as const;
 const productKey = (id: string) => ['products', id] as const;
 const variantsKey = (productId: string) => ['products', productId, 'variants'] as const;
+const productCategoriesKey = ['productCategories'] as const;
 
 export function useProducts() {
   return useQuery({ queryKey: productsKey, queryFn: getProducts });
@@ -104,6 +107,20 @@ export function useDeactivateVariant(productId: string) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: variantsKey(productId) });
       queryClient.invalidateQueries({ queryKey: productsKey });
+    },
+  });
+}
+
+export function useProductCategories() {
+  return useQuery({ queryKey: productCategoriesKey, queryFn: getProductCategories });
+}
+
+export function useCreateProductCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; icon: string }) => createProductCategory(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: productCategoriesKey });
     },
   });
 }

@@ -5,6 +5,7 @@ export default function ProductsLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="new" />
+      <Stack.Screen name="categories/new" />
       <Stack.Screen name="[id]/index" />
       <Stack.Screen name="[id]/recipe" />
     </Stack>

@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Product, ProductVariant, ProductWithVariants } from '../types/product';
+import type { Product, ProductCategory, ProductVariant, ProductWithVariants } from '../types/product';
 import type { ProductFormInput, VariantFormInput } from '../utils/validation/productSchemas';
 
 async function getCurrentBakerId(): Promise<string> {
@@ -66,6 +66,39 @@ export async function getProduct(id: string): Promise<Product> {
   const { data, error } = await supabase.from('products').select('*').eq('id', id).single();
   if (error) throw error;
   return data as Product;
+}
+
+/**
+ * All of the baker's product categories, alphabetical — the source for
+ * the category quick-pick chips on New Product and the Products list
+ * filter row. Per docs/DECISIONS.md's 2026-08-18 entry, this replaced
+ * deriving categories from distinct values already in use on products,
+ * since a category (and its icon) needs to be able to exist before any
+ * product uses it.
+ */
+export async function getProductCategories(): Promise<ProductCategory[]> {
+  const bakerId = await getCurrentBakerId();
+  const { data, error } = await supabase
+    .from('product_categories')
+    .select('*')
+    .eq('baker_id', bakerId)
+    .order('name', { ascending: true });
+  if (error) throw error;
+  return data as ProductCategory[];
+}
+
+export async function createProductCategory(input: {
+  name: string;
+  icon: string;
+}): Promise<ProductCategory> {
+  const bakerId = await getCurrentBakerId();
+  const { data, error } = await supabase
+    .from('product_categories')
+    .insert({ baker_id: bakerId, name: input.name, icon: input.icon })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ProductCategory;
 }
 
 export async function getVariants(productId: string): Promise<ProductVariant[]> {

@@ -1,24 +1,31 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import Animated, { FadeIn, FadeInDown, FadeOut, LinearTransition } from 'react-native-reanimated';
 import {
   useCreateVariant,
   useDeactivateProduct,
   useDeactivateVariant,
   useProduct,
+  useProductCategories,
+  useUpdateProduct,
   useUpdateVariant,
   useVariants,
 } from '../../../../../src/hooks/useProducts';
 import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
+import { getCategoryVisual } from '../../../../../src/utils/productCategoryIcon';
 import { useThemeColors } from '../../../../../src/theme/ThemeContext';
+import { usePressScale } from '../../../../../src/hooks/usePressScale';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
 import { VariantFormSheet } from '../../../../../src/components/VariantFormSheet';
 import { ConfirmDialog } from '../../../../../src/components/ConfirmDialog';
 import { Screen } from '../../../../../src/components/Screen';
+import { uploadProductPhoto } from '../../../../../src/services/products';
 import { formatCurrency } from '../../../../../src/utils/currency';
-import { spacing, radii, typography } from '../../../../../src/theme';
+import { spacing, radii, typography, motionDuration, motionEasing, motionStagger } from '../../../../../src/theme';
 import type { ColorToken } from '../../../../../src/theme/colors';
 import type { ProductVariant } from '../../../../../src/types/product';
 
@@ -31,9 +38,11 @@ export default function ProductDetailScreen() {
   const { data: product, isLoading, isError } = useProduct(id);
   const { data: variants, isLoading: isLoadingVariants } = useVariants(id);
   const { data: baker } = useBakerProfile();
+  const { data: productCategories } = useProductCategories();
 
   const createVariant = useCreateVariant(id);
   const updateVariant = useUpdateVariant(id);
+  const updateProduct = useUpdateProduct(id);
   const deactivateVariant = useDeactivateVariant(id);
   const deactivateProduct = useDeactivateProduct();
 
@@ -41,8 +50,19 @@ export default function ProductDetailScreen() {
   const [editingVariant, setEditingVariant] = useState<ProductVariant | undefined>(undefined);
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const [isConfirmingDeactivate, setIsConfirmingDeactivate] = useState(false);
-  const [confirmingDeleteVariantId, setConfirmingDeleteVariantId] = useState<string | null>(null);
+  // Which variant card currently has its Cancel/Delete row revealed —
+  // opened via long-press instead of a permanent delete icon on every
+  // card (see docs/DECISIONS.md-style rationale in the comment above
+  // VariantCard below).
+  const [revealedVariantId, setRevealedVariantId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Optimistic local preview while a newly-picked photo uploads — kept
+  // separate from `product.image_url` so the hero updates instantly on
+  // pick instead of waiting on the upload + refetch round-trip.
+  const [localImageUri, setLocalImageUri] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
 
   if (isLoading) {
     return (
@@ -62,6 +82,7 @@ export default function ProductDetailScreen() {
 
   const activeVariants = variants ?? [];
   const defaultVariant = activeVariants.find((v) => v.is_default) ?? activeVariants[0];
+  const displayImageUri = localImageUri ?? product.image_url ?? null;
 
   const openAddVariant = () => {
     setEditingVariant(undefined);
@@ -98,6 +119,37 @@ export default function ProductDetailScreen() {
     router.push(`/more/products/${product.id}/recipe?variantId=${defaultVariant.id}`);
   };
 
+  // Tapping the hero picks a photo and uploads it right away — reuses the
+  // same uploadProductPhoto() + useUpdateProduct() plumbing New Product
+  // already has, just wired into this screen too so a missing/failed
+  // photo can be fixed here instead of only at creation time.
+  const handlePickPhoto = async () => {
+    setPhotoError(null);
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setPhotoError("Couldn't access your photos.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], quality: 0.8 });
+    if (result.canceled || !result.assets[0]) return;
+
+    const localUri = result.assets[0].uri;
+    setLocalImageUri(localUri);
+    setIsUploadingPhoto(true);
+    try {
+      const uploadedUrl = await uploadProductPhoto(localUri);
+      updateProduct.mutate(
+        { name: product.name, category: product.category, image_url: uploadedUrl },
+        { onError: () => setPhotoError("Couldn't save your photo. Please try again.") }
+      );
+    } catch {
+      setPhotoError("Couldn't upload your photo. Please try again.");
+      setLocalImageUri(null);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   return (
     <Screen>
       <View style={styles.content}>
@@ -116,7 +168,10 @@ export default function ProductDetailScreen() {
         {isOverflowOpen ? (
           <>
             <Pressable style={styles.overflowScrim} onPress={() => setIsOverflowOpen(false)} />
-            <View style={styles.overflowMenu}>
+            <Animated.View
+              entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
+              style={styles.overflowMenu}
+            >
               <Pressable
                 style={styles.overflowRow}
                 onPress={() => {
@@ -127,7 +182,7 @@ export default function ProductDetailScreen() {
                 <Ionicons name="archive-outline" size={18} color={colors.danger} />
                 <Text style={styles.overflowRowText}>Deactivate product</Text>
               </Pressable>
-            </View>
+            </Animated.View>
           </>
         ) : null}
 
@@ -136,79 +191,86 @@ export default function ProductDetailScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {product.image_url || product.category ? (
-            <View style={styles.identityRow}>
-              {product.image_url ? (
-                <Image source={{ uri: product.image_url }} style={styles.identityImage} />
-              ) : (
-                <View style={styles.identityImagePlaceholder}>
-                  <Ionicons name="image-outline" size={20} color={colors.textSecondary} />
-                </View>
-              )}
-              {product.category ? (
-                <View style={styles.categoryPill}>
-                  <Text style={styles.categoryPillText}>{product.category}</Text>
-                </View>
-              ) : null}
-            </View>
-          ) : null}
+          <View style={styles.heroBlock}>
+            <HeroPhoto
+              uri={displayImageUri}
+              isUploading={isUploadingPhoto}
+              onPress={handlePickPhoto}
+              styles={styles}
+              colors={colors}
+            />
+            {photoError ? <Text style={styles.photoErrorText}>{photoError}</Text> : null}
+            {product.category ? (
+              <View style={styles.categoryPill}>
+                <Ionicons
+                  name={
+                    getCategoryVisual(product.category, productCategories ?? [])
+                      .icon as keyof typeof Ionicons.glyphMap
+                  }
+                  size={12}
+                  color={colors.textSecondary}
+                />
+                <Text style={styles.categoryPillText}>{product.category}</Text>
+              </View>
+            ) : null}
+          </View>
 
           <Text style={styles.sectionLabel}>Variants</Text>
 
           {isLoadingVariants ? (
             <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.lg }} />
           ) : activeVariants.length === 0 ? (
-            <View style={styles.emptyVariants}>
+            <Animated.View
+              entering={FadeIn.duration(motionDuration.medium).easing(motionEasing.decelerate)}
+              style={styles.emptyVariants}
+            >
               <Text style={styles.emptyVariantsText}>This product has no sizes yet</Text>
               <View style={styles.emptyVariantsButton}>
                 <PrimaryButton title="Add variant" onPress={openAddVariant} />
               </View>
-            </View>
+            </Animated.View>
           ) : (
-            <FlatList
-              data={activeVariants}
-              keyExtractor={(v) => v.id}
-              scrollEnabled={false}
-              renderItem={({ item }) => (
-                <VariantRow
+            <View style={styles.variantsGrid}>
+              {activeVariants.map((item, index) => (
+                <VariantCard
+                  key={item.id}
+                  index={index}
                   variant={item}
                   currency={baker?.currency}
                   styles={styles}
                   colors={colors}
                   onPress={() => openEditVariant(item)}
-                  onDeactivate={() => setConfirmingDeleteVariantId(item.id)}
-                  isConfirmingDeactivate={confirmingDeleteVariantId === item.id}
-                  onConfirmDeactivate={() => {
+                  isRevealed={revealedVariantId === item.id}
+                  onReveal={() => setRevealedVariantId(item.id)}
+                  onCancelReveal={() => setRevealedVariantId(null)}
+                  isDeleting={deactivateVariant.isPending && deactivateVariant.variables === item.id}
+                  onConfirmDelete={() => {
                     deactivateVariant.mutate(item.id);
-                    setConfirmingDeleteVariantId(null);
+                    setRevealedVariantId(null);
                   }}
-                  onCancelDeactivate={() => setConfirmingDeleteVariantId(null)}
                 />
-              )}
-            />
-          )}
-        </ScrollView>
-      </View>
-
-      {activeVariants.length > 0 ? (
-        <View style={styles.footer}>
-          <View style={styles.actionRow}>
-            <View style={styles.actionButtonSecondary}>
-              <PrimaryButton title="Add variant" onPress={openAddVariant} variant="secondary" />
+              ))}
+              <Pressable style={styles.addVariantTile} onPress={openAddVariant}>
+                <Ionicons name="add" size={18} color={colors.textSecondary} />
+                <Text style={styles.addVariantTileText}>Add variant</Text>
+              </Pressable>
             </View>
-            <View style={styles.actionButtonPrimary}>
+          )}
+
+          {activeVariants.length > 0 ? (
+            <View style={styles.actionsSection}>
               <PrimaryButton
                 title="Recipe & costing"
                 onPress={handleRecipeAndCosting}
                 disabled={!defaultVariant}
               />
+              {!defaultVariant ? (
+                <Text style={styles.disabledHint}>Add a variant first</Text>
+              ) : null}
             </View>
-          </View>
-          {!defaultVariant ? (
-            <Text style={styles.disabledHint}>Add a variant first</Text>
           ) : null}
-        </View>
-      ) : null}
+        </ScrollView>
+      </View>
 
       <VariantFormSheet
         visible={isVariantSheetOpen}
@@ -236,50 +298,149 @@ export default function ProductDetailScreen() {
   );
 }
 
-function VariantRow({
+// Full-width hero photo, tappable to add/change — replaces the old
+// 56x56 thumbnail that sat quietly next to the category pill and was
+// easy to miss (or, with no image_url at all, rendered nothing). Always
+// shows something tappable — an actual photo, or an inviting empty
+// state — so "no photo" reads as an available action, not a bug.
+function HeroPhoto({
+  uri,
+  isUploading,
+  onPress,
+  styles,
+  colors,
+}: {
+  uri: string | null;
+  isUploading: boolean;
+  onPress: () => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Record<ColorToken, string>;
+}) {
+  const press = usePressScale(0.98);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      disabled={isUploading}
+    >
+      <Animated.View style={[styles.hero, press.style]}>
+        {uri ? (
+          <Image source={{ uri }} style={styles.heroImage} resizeMode="cover" />
+        ) : (
+          <View style={styles.heroPlaceholder}>
+            <Ionicons name="image-outline" size={28} color={colors.textSecondary} />
+            <Text style={styles.heroPlaceholderText}>Add a photo</Text>
+          </View>
+        )}
+        {isUploading ? (
+          <View style={styles.heroUploadingOverlay}>
+            <ActivityIndicator color={colors.textInverse} />
+          </View>
+        ) : (
+          <View style={styles.heroBadge}>
+            <Ionicons name="camera" size={14} color={colors.textInverse} />
+          </View>
+        )}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// Compact grid card, sized to its content instead of stretching the
+// full row width — a short name like "Small" no longer leaves a long
+// bar of empty space next to the price.
+//
+// Delete is reached by long-press instead of a permanent icon on every
+// card: deactivating is rare next to editing, so it doesn't need equal
+// visual weight on the default face. Long-press reveals an in-card
+// Cancel/Delete row (still the same two-step, deliberate pattern as
+// before — long-press-then-tap instead of tap-then-tap).
+//
+// Deactivating a variant is a soft delete (`is_active = false` — see
+// services/products.ts), so it's safe even if the variant is already
+// on a past order: `order_items.variant_id` still points to a real row,
+// and `unit_price` was already copied onto the order at the time it was
+// placed, per docs/DATABASE.md. Only new orders lose the option to pick
+// this size again.
+function VariantCard({
   variant,
+  index,
   currency,
   styles,
   colors,
   onPress,
-  onDeactivate,
-  isConfirmingDeactivate,
-  onConfirmDeactivate,
-  onCancelDeactivate,
+  isRevealed,
+  onReveal,
+  onCancelReveal,
+  isDeleting,
+  onConfirmDelete,
 }: {
   variant: ProductVariant;
+  index: number;
   currency: string | null | undefined;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
   onPress: () => void;
-  onDeactivate: () => void;
-  isConfirmingDeactivate: boolean;
-  onConfirmDeactivate: () => void;
-  onCancelDeactivate: () => void;
+  isRevealed: boolean;
+  onReveal: () => void;
+  onCancelReveal: () => void;
+  isDeleting: boolean;
+  onConfirmDelete: () => void;
 }) {
+  const press = usePressScale(0.97);
+  // Staggered entrance per motion.ts's motionStagger — capped so a long
+  // variant list doesn't make the last cards look sluggishly late.
+  const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
+
   return (
-    <View style={styles.variantRow}>
-      <Pressable style={styles.variantRowBody} onPress={onPress}>
-        <Text style={styles.variantRowName}>{variant.name}</Text>
-        <Text style={styles.variantRowPrice}>
-          {formatCurrency(variant.selling_price, currency)}
-        </Text>
+    <Animated.View
+      entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
+      exiting={FadeOut.duration(motionDuration.medium).easing(motionEasing.accelerate)}
+      layout={LinearTransition.duration(motionDuration.medium).easing(motionEasing.standard)}
+      style={styles.variantCardWrap}
+    >
+      <Pressable
+        onPress={isRevealed ? undefined : onPress}
+        onLongPress={isRevealed ? undefined : onReveal}
+        onPressIn={isRevealed ? undefined : press.onPressIn}
+        onPressOut={isRevealed ? undefined : press.onPressOut}
+      >
+        <Animated.View
+          style={[styles.variantCard, isRevealed && styles.variantCardRevealed, press.style]}
+        >
+          {isRevealed ? (
+            <Animated.View entering={FadeIn.duration(motionDuration.fast)}>
+              <Text style={styles.variantCardRevealPrompt}>Remove this size?</Text>
+              <View style={styles.variantCardRevealRow}>
+                <Pressable onPress={onCancelReveal} style={styles.variantCardCancelBtn}>
+                  <Text style={styles.variantCardCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  onPress={onConfirmDelete}
+                  disabled={isDeleting}
+                  style={styles.variantCardDeleteBtn}
+                >
+                  {isDeleting ? (
+                    <ActivityIndicator size="small" color={colors.danger} />
+                  ) : (
+                    <Text style={styles.variantCardDeleteText}>Delete</Text>
+                  )}
+                </Pressable>
+              </View>
+            </Animated.View>
+          ) : (
+            <>
+              <Text style={styles.variantCardName}>{variant.name}</Text>
+              <Text style={styles.variantCardPrice}>
+                {formatCurrency(variant.selling_price, currency)}
+              </Text>
+            </>
+          )}
+        </Animated.View>
       </Pressable>
-      {isConfirmingDeactivate ? (
-        <View style={styles.inlineConfirmRow}>
-          <Pressable onPress={onCancelDeactivate} style={styles.inlineConfirmCancel}>
-            <Text style={styles.inlineConfirmCancelText}>Cancel</Text>
-          </Pressable>
-          <Pressable onPress={onConfirmDeactivate} style={styles.inlineConfirmConfirm}>
-            <Text style={styles.inlineConfirmConfirmText}>Confirm</Text>
-          </Pressable>
-        </View>
-      ) : (
-        <Pressable onPress={onDeactivate} style={styles.variantRowDelete}>
-          <Ionicons name="close" size={18} color={colors.textSecondary} />
-        </Pressable>
-      )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -328,33 +489,73 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     overflowRowText: { ...typography.body, color: colors.danger },
     scroll: { flex: 1 },
+    // No more paddingBottom carve-out for a fixed footer — the action
+    // button now scrolls with the content instead of pinning to the
+    // bottom of the screen. That's what was producing the large dead
+    // gap under the variant list on products with few variants: a
+    // full-height ScrollView with short content, topped by a footer
+    // nailed to the very bottom of the screen.
     scrollContent: { paddingBottom: spacing.xxl },
-    identityRow: {
-      flexDirection: 'row',
+    heroBlock: { marginBottom: spacing.xl },
+    // 16:9-ish hero, not a fixed square — reads as a proper product
+    // photo rather than an icon-sized thumbnail.
+    hero: {
+      width: '100%',
+      height: 180,
+      borderRadius: radii.lg,
+      backgroundColor: colors.surfaceMuted,
+      overflow: 'hidden',
+    },
+    heroImage: { width: '100%', height: '100%' },
+    heroPlaceholder: {
+      flex: 1,
       alignItems: 'center',
-      gap: spacing.md,
-      marginBottom: spacing.xl,
+      justifyContent: 'center',
+      gap: spacing.xs,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderStyle: 'dashed',
+      borderRadius: radii.lg,
     },
-    identityImage: {
-      width: 56,
-      height: 56,
-      borderRadius: radii.md,
-      backgroundColor: colors.surfaceMuted,
+    heroPlaceholderText: { ...typography.bodySm, color: colors.textSecondary },
+    // Small camera badge overlaid on the corner — shown whether or not a
+    // photo already exists, so "tap to change" stays discoverable even
+    // once a photo is set (there was previously no way to change a
+    // product's photo after creation at all).
+    heroBadge: {
+      position: 'absolute',
+      right: spacing.sm,
+      bottom: spacing.sm,
+      width: 30,
+      height: 30,
+      borderRadius: radii.full,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: colors.surface,
     },
-    identityImagePlaceholder: {
-      width: 56,
-      height: 56,
-      borderRadius: radii.md,
-      backgroundColor: colors.surfaceMuted,
+    heroUploadingOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(46, 42, 38, 0.35)',
       alignItems: 'center',
       justifyContent: 'center',
     },
+    photoErrorText: { ...typography.caption, color: colors.danger, marginTop: spacing.sm },
     categoryPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
       alignSelf: 'flex-start',
       backgroundColor: colors.surfaceMuted,
       borderRadius: radii.full,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.xs,
+      marginTop: spacing.sm,
     },
     categoryPillText: { ...typography.caption, color: colors.textSecondary },
     sectionLabel: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.md },
@@ -366,58 +567,76 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     emptyVariantsText: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
     emptyVariantsButton: { minWidth: 180 },
-    variantRow: {
+    // Wrapping 2-up grid — each card sized to ~47% width instead of the
+    // old full-width row, so short names/prices don't stretch into a
+    // long bar with dead space in the middle.
+    variantsGrid: {
       flexDirection: 'row',
-      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+    },
+    variantCardWrap: { width: '47%' },
+    variantCard: {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radii.md,
-      marginBottom: spacing.sm,
-      minHeight: 44,
+      padding: spacing.md,
+      minHeight: 64,
+      justifyContent: 'center',
     },
-    variantRowBody: {
+    variantCardRevealed: {
+      borderColor: colors.danger,
+    },
+    variantCardName: { ...typography.body, color: colors.textPrimary },
+    variantCardPrice: { ...typography.titleSm, color: colors.textPrimary, marginTop: spacing.xxs },
+    variantCardRevealPrompt: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.xs },
+    variantCardRevealRow: { flexDirection: 'row', gap: spacing.xs },
+    variantCardCancelBtn: {
       flex: 1,
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.md,
-    },
-    variantRowName: { ...typography.body, color: colors.textPrimary },
-    variantRowPrice: { ...typography.titleSm, color: colors.textPrimary },
-    variantRowDelete: {
-      width: 44,
-      height: 44,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    inlineConfirmRow: { flexDirection: 'row', paddingRight: spacing.sm, gap: spacing.xs },
-    inlineConfirmCancel: {
-      paddingHorizontal: spacing.md,
-      minHeight: 44,
-      justifyContent: 'center',
-    },
-    inlineConfirmCancelText: { ...typography.bodySm, color: colors.textSecondary },
-    inlineConfirmConfirm: {
-      paddingHorizontal: spacing.md,
-      minHeight: 44,
-      justifyContent: 'center',
-      backgroundColor: colors.dangerMuted,
+      height: 30,
       borderRadius: radii.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    inlineConfirmConfirmText: { ...typography.bodySm, color: colors.danger, fontWeight: '600' },
-    footer: {
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.md,
-      paddingBottom: spacing.lg,
+    variantCardCancelText: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
+    variantCardDeleteBtn: {
+      flex: 1,
+      height: 30,
+      borderRadius: radii.sm,
+      backgroundColor: colors.dangerMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    variantCardDeleteText: { ...typography.caption, color: colors.danger, fontWeight: '600' },
+    // Sits inside the grid as its own tile instead of a separate button
+    // below the list — one less CTA competing for attention, and it's
+    // exactly where your eye already is after scanning the sizes.
+    addVariantTile: {
+      width: '47%',
+      minHeight: 64,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderStyle: 'dashed',
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      gap: spacing.xs,
+    },
+    addVariantTileText: { ...typography.bodySm, color: colors.textSecondary },
+    // Replaces the old fixed-to-bottom `footer` — now just the last
+    // block inside the ScrollView, separated with a hairline instead of
+    // a full-width surface band. Only one button now ("Add variant"
+    // moved into the grid above), so no more two-button row.
+    actionsSection: {
+      marginTop: spacing.xl,
+      paddingTop: spacing.lg,
       borderTopWidth: 1,
       borderTopColor: colors.border,
-      backgroundColor: colors.surface,
     },
-    actionRow: { flexDirection: 'row', gap: spacing.md },
-    actionButtonSecondary: { flex: 1 },
-    actionButtonPrimary: { flex: 1 },
     disabledHint: {
       ...typography.caption,
       color: colors.textSecondary,

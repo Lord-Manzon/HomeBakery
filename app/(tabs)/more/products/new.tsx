@@ -4,8 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import { useThemeColors } from '../../../../src/theme/ThemeContext';
-import { useCreateProduct, useProducts } from '../../../../src/hooks/useProducts';
+import { useCreateProduct, useProductCategories } from '../../../../src/hooks/useProducts';
 import { productFormSchema } from '../../../../src/utils/validation/productSchemas';
+import { getCategoryVisual } from '../../../../src/utils/productCategoryIcon';
 import { FormField } from '../../../../src/components/FormField';
 import { PrimaryButton } from '../../../../src/components/PrimaryButton';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
@@ -18,7 +19,7 @@ export default function NewProductScreen() {
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const createProduct = useCreateProduct();
-  const { data: existingProducts } = useProducts();
+  const { data: categories } = useProductCategories();
 
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -26,17 +27,13 @@ export default function NewProductScreen() {
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [errors, setErrors] = useState<{ name?: string; category?: string }>({});
 
-  // Quick-pick chips from categories already in use — per the user's
-  // decision: "show existing category chips as quick-pick + allow typing
-  // new one." See docs/DECISIONS.md's 2026-08-17 entry.
-  const existingCategories = useMemo(() => {
-    if (!existingProducts) return [];
-    const distinct = new Set<string>();
-    for (const p of existingProducts) {
-      if (p.category) distinct.add(p.category);
-    }
-    return Array.from(distinct).sort((a, b) => a.localeCompare(b));
-  }, [existingProducts]);
+  // Quick-pick chips now come from the product_categories table rather
+  // than being derived from distinct values already in use on products
+  // — see docs/DECISIONS.md's 2026-08-18 entry. This lets a category
+  // (and its chosen icon) exist and show up here before any product
+  // actually uses it, which the old "distinct from products" approach
+  // couldn't do.
+  const existingCategories = categories ?? [];
 
   const canSave = name.trim().length > 0 && !createProduct.isPending;
 
@@ -131,36 +128,44 @@ export default function NewProductScreen() {
         />
 
         <Text style={styles.label}>Category (optional)</Text>
-        {existingCategories.length > 0 ? (
-          <View style={styles.categoryChipRow}>
-            {existingCategories.map((cat) => {
-              const isSelected = category === cat;
-              return (
-                <Pressable
-                  key={cat}
-                  onPress={() => setCategory(isSelected ? '' : cat)}
-                  style={[styles.categoryChip, isSelected && styles.categoryChipSelected]}
+        <View style={styles.categoryChipRow}>
+          {existingCategories.map((cat) => {
+            const isSelected = category === cat.name;
+            const visual = getCategoryVisual(cat.name, existingCategories);
+            return (
+              <Pressable
+                key={cat.id}
+                onPress={() => setCategory(isSelected ? '' : cat.name)}
+                style={[
+                  styles.categoryChip,
+                  isSelected && { backgroundColor: visual.color, borderColor: visual.color },
+                ]}
+              >
+                <Ionicons
+                  name={visual.icon as keyof typeof Ionicons.glyphMap}
+                  size={14}
+                  color={isSelected ? colors.textInverse : colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.categoryChipText,
+                    isSelected && styles.categoryChipTextSelected,
+                  ]}
                 >
-                  <Text
-                    style={[
-                      styles.categoryChipText,
-                      isSelected && styles.categoryChipTextSelected,
-                    ]}
-                  >
-                    {cat}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
-        <FormField
-          label=""
-          placeholder="Or type a new category"
-          value={category}
-          onChangeText={setCategory}
-          error={errors.category}
-        />
+                  {cat.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+          <Pressable
+            onPress={() => router.push('/more/products/categories/new')}
+            style={styles.categoryChipNew}
+          >
+            <Ionicons name="add" size={14} color={colors.primary} />
+            <Text style={styles.categoryChipNewText}>New</Text>
+          </Pressable>
+        </View>
+        {errors.category ? <Text style={styles.photoError}>{errors.category}</Text> : null}
 
         <View style={styles.saveButton}>
           <PrimaryButton
@@ -218,6 +223,9 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.sm,
     },
     categoryChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radii.full,
@@ -225,9 +233,19 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.sm,
       backgroundColor: colors.surface,
     },
-    categoryChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     categoryChipText: { ...typography.bodySm, color: colors.textPrimary },
     categoryChipTextSelected: { color: colors.textInverse },
+    categoryChipNew: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    categoryChipNewText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     saveButton: { marginTop: spacing.sm },
   });
 }
