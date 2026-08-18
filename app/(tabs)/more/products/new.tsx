@@ -101,7 +101,11 @@ export default function NewProductScreen() {
         <View style={styles.backButton} />
       </View>
 
-      <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
         {createProduct.isError ? (
           <ErrorBanner message="Couldn't save your product. Please try again." />
         ) : null}
@@ -157,16 +161,16 @@ export default function NewProductScreen() {
           onChangeText={setCategory}
           error={errors.category}
         />
-      </ScrollView>
 
-      <View style={styles.footer}>
-        <PrimaryButton
-          title={createProduct.isPending ? 'Saving…' : 'Save'}
-          onPress={handleSave}
-          disabled={!canSave}
-          isLoading={createProduct.isPending}
-        />
-      </View>
+        <View style={styles.saveButton}>
+          <PrimaryButton
+            title={createProduct.isPending ? 'Saving…' : 'Save'}
+            onPress={handleSave}
+            disabled={!canSave}
+            isLoading={createProduct.isPending}
+          />
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -200,6 +204,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       backgroundColor: colors.surface,
     },
     photoPickerText: { ...typography.bodySm, color: colors.textSecondary, marginTop: spacing.xs },
+    scrollContent: { paddingBottom: spacing.xxl },
     photoError: {
       ...typography.caption,
       color: colors.danger,
@@ -223,6 +228,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
     categoryChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     categoryChipText: { ...typography.bodySm, color: colors.textPrimary },
     categoryChipTextSelected: { color: colors.textInverse },
-    footer: { paddingTop: spacing.md },
+    saveButton: { marginTop: spacing.sm },
   });
 }

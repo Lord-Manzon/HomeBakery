@@ -271,3 +271,37 @@ for the same reasons as the earlier Products mockup correction.
   Treated as superseded, not built.
 **Why:** `docs/AGENTS.md` requires UX to be designed before
 implementation starts; this closes that step for Phase 5.
+
+
+### 2026-08-18 — Products list gets a FAB (bottom-right), replacing the top-right "+" icon
+
+**Decision:** The Products list's primary "add" action moved from a
+top-right `+` icon (as originally specified in `docs/UI_UX.md` section
+E.5) to a floating action button (FAB), bottom-right — the same 56px
+circular pattern already shipped on the Ingredients tab.
+**Why:** During a UI/UX polish pass on the Products flow, matching the
+FAB already used on Ingredients gives the app's two "browse a list,
+quickly add one" screens the same interaction pattern instead of two
+different ones for the same job. The original top-right `+` spec predates
+the Ingredients FAB; the mismatch was flagged rather than resolved
+silently, and explicitly approved by the project owner in favor of
+matching Ingredients over keeping the icon spec as originally written.
+**Alternatives considered:** Keep the top-right `+` as originally
+specified — not wrong on its own, just inconsistent with what Ingredients
+already shipped.
+**Doc impact:** `docs/UI_UX.md` section E.5 updated to describe the FAB
+instead of the `+` icon.
+
+### 2026-08-18 — Fixed static (light-only) color references breaking dark mode in `Screen` and the tab bar
+
+**Decision:** `src/components/Screen.tsx` and `app/(tabs)/_layout.tsx`
+were switched from the static `colors` export to the `useThemeColors()`
+hook, matching every other themed component.
+**Why:** Both were written before the 2026-08-15 accent/dark-mode theme
+system and never migrated, so their background/tint colors stayed locked
+to the light palette even in Dark mode while surrounding cards and text
+correctly re-themed — producing dark cards floating on a still-light
+background and tab bar. This is a bug fix restoring the intended
+2026-08-15 behavior, not a new design decision.
+**Follow-up:** Other screens outside the Products flow haven't been
+audited for the same static-import bug; worth a dedicated sweep later.

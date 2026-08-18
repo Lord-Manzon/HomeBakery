@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useProducts } from '../../../../src/hooks/useProducts';
@@ -145,9 +145,21 @@ export default function ProductsListScreen() {
           )}
         />
       )}
+
+      {!isLoading && !isEmptyCatalog ? (
+        <Pressable
+          onPress={() => router.push('/more/products/new')}
+          style={styles.fab}
+          accessibilityLabel="Add product"
+        >
+          <Ionicons name="add" size={28} color={colors.textInverse} />
+        </Pressable>
+      ) : null}
     </Screen>
   );
 }
+
+const MAX_VISIBLE_VARIANT_CHIPS = 3;
 
 function ProductCard({
   product,
@@ -162,22 +174,35 @@ function ProductCard({
   currency: string | null | undefined;
   onPress: () => void;
 }) {
+  const visibleVariants = product.variants.slice(0, MAX_VISIBLE_VARIANT_CHIPS);
+  const hiddenCount = product.variants.length - visibleVariants.length;
+
   return (
     <Pressable style={styles.card} onPress={onPress}>
-      <View style={styles.cardIconTile}>
-        <Ionicons name="pricetag" size={20} color={colors.primary} />
-      </View>
+      {product.image_url ? (
+        <Image source={{ uri: product.image_url }} style={styles.cardImage} />
+      ) : (
+        <View style={styles.cardImagePlaceholder}>
+          <Ionicons name="image-outline" size={22} color={colors.textSecondary} />
+        </View>
+      )}
       <View style={styles.cardBody}>
         <Text style={styles.cardName}>{product.name}</Text>
         {product.variants.length > 0 ? (
           <View style={styles.variantChipRow}>
-            {product.variants.map((v) => (
+            {visibleVariants.map((v) => (
               <View key={v.id} style={styles.variantChip}>
-                <Text style={styles.variantChipText}>
-                  {v.name} {formatCurrency(v.selling_price, currency)}
+                <Text style={styles.variantChipText}>{v.name}</Text>
+                <Text style={styles.variantChipPrice}>
+                  {formatCurrency(v.selling_price, currency)}
                 </Text>
               </View>
             ))}
+            {hiddenCount > 0 ? (
+              <View style={styles.variantChipMore}>
+                <Text style={styles.variantChipMoreText}>+{hiddenCount} more</Text>
+              </View>
+            ) : null}
           </View>
         ) : (
           <Text style={styles.cardNoVariants}>No sizes yet</Text>
@@ -241,7 +266,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     categoryChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     categoryChipText: { ...typography.bodySm, color: colors.textPrimary },
     categoryChipTextSelected: { color: colors.textInverse },
-    listContent: { paddingBottom: spacing.xxxl },
+    listContent: { paddingBottom: spacing.xxxl + 56 },
     card: {
       flexDirection: 'row',
       backgroundColor: colors.surface,
@@ -253,27 +278,59 @@ function makeStyles(colors: Record<ColorToken, string>) {
       gap: spacing.md,
     },
     cardSkeleton: { height: 88, backgroundColor: colors.surfaceMuted, borderColor: colors.surfaceMuted },
-    cardIconTile: {
-      width: 48,
-      height: 48,
+    cardImage: {
+      width: 56,
+      height: 56,
+      borderRadius: radii.md,
+      backgroundColor: colors.surfaceMuted,
+    },
+    cardImagePlaceholder: {
+      width: 56,
+      height: 56,
       borderRadius: radii.md,
       backgroundColor: colors.surfaceMuted,
       alignItems: 'center',
       justifyContent: 'center',
     },
-    cardBody: { flex: 1 },
+    cardBody: { flex: 1, justifyContent: 'center' },
     cardName: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
     cardNoVariants: { ...typography.bodySm, color: colors.textSecondary },
     variantChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
     variantChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xxs,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radii.full,
       paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xxs,
+      paddingVertical: spacing.xxs + 1,
       backgroundColor: colors.surfaceMuted,
     },
     variantChipText: { ...typography.caption, color: colors.textPrimary },
+    variantChipPrice: { ...typography.caption, color: colors.textSecondary },
+    variantChipMore: {
+      justifyContent: 'center',
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xxs + 1,
+    },
+    variantChipMoreText: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
+    fab: {
+      position: 'absolute',
+      right: spacing.xl,
+      bottom: spacing.xl,
+      width: 56,
+      height: 56,
+      borderRadius: radii.full,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      elevation: 4,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.25,
+      shadowRadius: 4,
+    },
     emptyState: {
       alignItems: 'center',
       paddingTop: spacing.xxxl,

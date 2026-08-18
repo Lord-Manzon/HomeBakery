@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -100,74 +100,98 @@ export default function ProductDetailScreen() {
 
   return (
     <Screen>
-      <View style={styles.headerRow}>
-        <Pressable onPress={() => router.back()} style={styles.iconButton}>
-          <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
-        </Pressable>
-        <Text style={styles.title} numberOfLines={1}>
-          {product.name}
-        </Text>
-        <Pressable onPress={() => setIsOverflowOpen((v) => !v)} style={styles.iconButton}>
-          <Ionicons name="ellipsis-vertical" size={20} color={colors.textPrimary} />
-        </Pressable>
-      </View>
-
-      {isOverflowOpen ? (
-        <View style={styles.overflowMenu}>
-          <Pressable
-            style={styles.overflowRow}
-            onPress={() => {
-              setIsOverflowOpen(false);
-              setIsConfirmingDeactivate(true);
-            }}
-          >
-            <Ionicons name="archive-outline" size={18} color={colors.danger} />
-            <Text style={styles.overflowRowText}>Deactivate product</Text>
+      <View style={styles.content}>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => router.back()} style={styles.iconButton}>
+            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
+          </Pressable>
+          <Text style={styles.title} numberOfLines={1}>
+            {product.name}
+          </Text>
+          <Pressable onPress={() => setIsOverflowOpen((v) => !v)} style={styles.iconButton}>
+            <Ionicons name="ellipsis-vertical" size={20} color={colors.textPrimary} />
           </Pressable>
         </View>
-      ) : null}
 
-      {product.category ? (
-        <View style={styles.categoryPill}>
-          <Text style={styles.categoryPillText}>{product.category}</Text>
-        </View>
-      ) : null}
-
-      <Text style={styles.sectionLabel}>Variants</Text>
-
-      {isLoadingVariants ? (
-        <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.lg }} />
-      ) : activeVariants.length === 0 ? (
-        <View style={styles.emptyVariants}>
-          <Text style={styles.emptyVariantsText}>This product has no sizes yet</Text>
-          <View style={styles.emptyVariantsButton}>
-            <PrimaryButton title="Add variant" onPress={openAddVariant} />
-          </View>
-        </View>
-      ) : (
-        <>
-          <FlatList
-            data={activeVariants}
-            keyExtractor={(v) => v.id}
-            scrollEnabled={false}
-            renderItem={({ item }) => (
-              <VariantRow
-                variant={item}
-                currency={baker?.currency}
-                styles={styles}
-                colors={colors}
-                onPress={() => openEditVariant(item)}
-                onDeactivate={() => setConfirmingDeleteVariantId(item.id)}
-                isConfirmingDeactivate={confirmingDeleteVariantId === item.id}
-                onConfirmDeactivate={() => {
-                  deactivateVariant.mutate(item.id);
-                  setConfirmingDeleteVariantId(null);
+        {isOverflowOpen ? (
+          <>
+            <Pressable style={styles.overflowScrim} onPress={() => setIsOverflowOpen(false)} />
+            <View style={styles.overflowMenu}>
+              <Pressable
+                style={styles.overflowRow}
+                onPress={() => {
+                  setIsOverflowOpen(false);
+                  setIsConfirmingDeactivate(true);
                 }}
-                onCancelDeactivate={() => setConfirmingDeleteVariantId(null)}
-              />
-            )}
-          />
+              >
+                <Ionicons name="archive-outline" size={18} color={colors.danger} />
+                <Text style={styles.overflowRowText}>Deactivate product</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : null}
 
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {product.image_url || product.category ? (
+            <View style={styles.identityRow}>
+              {product.image_url ? (
+                <Image source={{ uri: product.image_url }} style={styles.identityImage} />
+              ) : (
+                <View style={styles.identityImagePlaceholder}>
+                  <Ionicons name="image-outline" size={20} color={colors.textSecondary} />
+                </View>
+              )}
+              {product.category ? (
+                <View style={styles.categoryPill}>
+                  <Text style={styles.categoryPillText}>{product.category}</Text>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
+
+          <Text style={styles.sectionLabel}>Variants</Text>
+
+          {isLoadingVariants ? (
+            <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.lg }} />
+          ) : activeVariants.length === 0 ? (
+            <View style={styles.emptyVariants}>
+              <Text style={styles.emptyVariantsText}>This product has no sizes yet</Text>
+              <View style={styles.emptyVariantsButton}>
+                <PrimaryButton title="Add variant" onPress={openAddVariant} />
+              </View>
+            </View>
+          ) : (
+            <FlatList
+              data={activeVariants}
+              keyExtractor={(v) => v.id}
+              scrollEnabled={false}
+              renderItem={({ item }) => (
+                <VariantRow
+                  variant={item}
+                  currency={baker?.currency}
+                  styles={styles}
+                  colors={colors}
+                  onPress={() => openEditVariant(item)}
+                  onDeactivate={() => setConfirmingDeleteVariantId(item.id)}
+                  isConfirmingDeactivate={confirmingDeleteVariantId === item.id}
+                  onConfirmDeactivate={() => {
+                    deactivateVariant.mutate(item.id);
+                    setConfirmingDeleteVariantId(null);
+                  }}
+                  onCancelDeactivate={() => setConfirmingDeleteVariantId(null)}
+                />
+              )}
+            />
+          )}
+        </ScrollView>
+      </View>
+
+      {activeVariants.length > 0 ? (
+        <View style={styles.footer}>
           <View style={styles.actionRow}>
             <View style={styles.actionButtonSecondary}>
               <PrimaryButton title="Add variant" onPress={openAddVariant} variant="secondary" />
@@ -183,8 +207,8 @@ export default function ProductDetailScreen() {
           {!defaultVariant ? (
             <Text style={styles.disabledHint}>Add a variant first</Text>
           ) : null}
-        </>
-      )}
+        </View>
+      ) : null}
 
       <VariantFormSheet
         visible={isVariantSheetOpen}
@@ -261,6 +285,7 @@ function VariantRow({
 
 function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
+    content: { flex: 1, paddingHorizontal: spacing.lg },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -269,14 +294,29 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
     title: { ...typography.displaySm, color: colors.textPrimary, flex: 1, textAlign: 'center' },
+    overflowScrim: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 5,
+    },
     overflowMenu: {
-      alignSelf: 'flex-end',
+      position: 'absolute',
+      top: 56,
+      right: 0,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radii.md,
-      marginBottom: spacing.md,
       overflow: 'hidden',
+      zIndex: 10,
+      elevation: 6,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 6,
     },
     overflowRow: {
       flexDirection: 'row',
@@ -287,13 +327,34 @@ function makeStyles(colors: Record<ColorToken, string>) {
       minHeight: 44,
     },
     overflowRowText: { ...typography.body, color: colors.danger },
+    scroll: { flex: 1 },
+    scrollContent: { paddingBottom: spacing.xxl },
+    identityRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.md,
+      marginBottom: spacing.xl,
+    },
+    identityImage: {
+      width: 56,
+      height: 56,
+      borderRadius: radii.md,
+      backgroundColor: colors.surfaceMuted,
+    },
+    identityImagePlaceholder: {
+      width: 56,
+      height: 56,
+      borderRadius: radii.md,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     categoryPill: {
       alignSelf: 'flex-start',
       backgroundColor: colors.surfaceMuted,
       borderRadius: radii.full,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.xs,
-      marginBottom: spacing.lg,
     },
     categoryPillText: { ...typography.caption, color: colors.textSecondary },
     sectionLabel: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.md },
@@ -346,7 +407,15 @@ function makeStyles(colors: Record<ColorToken, string>) {
       borderRadius: radii.sm,
     },
     inlineConfirmConfirmText: { ...typography.bodySm, color: colors.danger, fontWeight: '600' },
-    actionRow: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg },
+    footer: {
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.lg,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    actionRow: { flexDirection: 'row', gap: spacing.md },
     actionButtonSecondary: { flex: 1 },
     actionButtonPrimary: { flex: 1 },
     disabledHint: {

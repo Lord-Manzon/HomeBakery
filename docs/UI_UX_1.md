@@ -210,10 +210,15 @@ cosmetic, it's the same distinction the audit log needs.
 threshold. *Empty* — "Add ingredients to track stock."
 
 ### 5. Products list (More)
-**Layout:** title, search icon, `+` icon (top right), helper line ("Tap a
-product to see its variants"), list of product cards. Each card: icon tile,
-name, "`N` variants · `min`–`max` price range", chevron.
-**Taps:** `+` → New product (full screen, see 5a). Search icon → inline
+**Layout:** title, search icon, helper line ("Tap a product to see its
+variants"), list of product cards. Each card: photo (or a neutral
+placeholder tile when none is set), name, up to 3 variant chips (name +
+price) with a "+N more" chip once a product has more than that, chevron.
+A floating action button (FAB, bottom-right) opens New product — the same
+pattern already used on the Ingredients tab, adopted here in place of the
+original top-right `+` icon for consistency across the app's two
+list-with-quick-add screens (see `docs/DECISIONS.md`, 2026-08-18).
+**Taps:** FAB → New product (full screen, see 5a). Search icon → inline
 search field replaces the helper line, filters live by name. Product card →
 Product detail (5b) — a real routed screen (`/more/products/[id]`), not an
 inline expansion, so it gets its own back button, deep link, and loading
@@ -427,3 +432,5 @@ which already fits this — no change needed there.)
 - **Variant serving/yield note (added 2026-08-15):** folded into the
   variant `name` field rather than a new DB column — see section E.5c and
   `docs/DECISIONS.md`. Revisit only if this reads awkwardly in practice.
+
+

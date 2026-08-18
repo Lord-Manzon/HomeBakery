@@ -15,7 +15,7 @@ export function FormField({ label, error, style, ...inputProps }: FormFieldProps
 
   return (
     <View style={styles.container}>
-      <Text style={styles.label}>{label}</Text>
+      {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
         style={[styles.input, error ? styles.inputError : null, style]}
         placeholderTextColor={colors.textSecondary}
