@@ -44,6 +44,7 @@ What a customer sees and buys.
 | `id` | uuid, PK |
 | `baker_id` | FK → bakers |
 | `name` | |
+| `category` | nullable text, free text (baker-entered, no fixed list) — see docs/PRODUCT.md and docs/DECISIONS.md's 2026-08-17 entry. Same free-text pattern as `ingredients.category`/`expenses.category` |
 | `description` | nullable |
 | `image_url` | nullable, Supabase Storage |
 | `margin_percent` | nullable — overrides the baker default for every variant of this product, unless a variant overrides it further |

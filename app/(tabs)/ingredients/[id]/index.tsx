@@ -10,14 +10,17 @@ import {
   useRestockIngredient,
   useUpdateIngredient,
 } from '../../../../src/hooks/useIngredients';
-import { isLowStock, type InventoryMovement } from '../../../../src/types/ingredient';
+import { useBakerProfile } from '../../../../src/hooks/useBakerProfile';
+import type { InventoryMovement, MovementType } from '../../../../src/types/ingredient';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../../src/components/PrimaryButton';
+import { StockGauge } from '../../../../src/components/StockGauge';
 import { IngredientFormSheet } from '../../../../src/components/IngredientFormSheet';
 import { UseWasteSheet } from '../../../../src/components/UseWasteSheet';
 import { RestockSheet } from '../../../../src/components/RestockSheet';
 import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
 import { Screen } from '../../../../src/components/Screen';
+import { getIngredientGauge, type GaugeSensitivity } from '../../../../src/services/stockGauge';
 import { colors, radii, spacing, typography } from '../../../../src/theme';
 
 export default function IngredientDetailScreen() {
@@ -26,6 +29,7 @@ export default function IngredientDetailScreen() {
 
   const { data: ingredient, isLoading, isError } = useIngredient(id);
   const { data: history } = useMovementHistory(id);
+  const { data: baker } = useBakerProfile();
   const updateIngredient = useUpdateIngredient(id);
   const recordUseOrWaste = useRecordUseOrWaste(id);
   const restockIngredient = useRestockIngredient(id);
@@ -53,7 +57,18 @@ export default function IngredientDetailScreen() {
     );
   }
 
-  const lowStock = isLowStock(ingredient);
+  const sensitivity: GaugeSensitivity = baker?.gauge_sensitivity ?? 'balanced';
+  const gauge = getIngredientGauge(ingredient, sensitivity);
+  const statusLabel =
+    gauge.status === 'out' ? 'Out of stock' : gauge.status === 'low' ? 'Low stock' : 'In stock';
+  const statusColor =
+    gauge.status === 'out' || gauge.status === 'low' ? colors.danger : colors.success;
+
+  // history is already sorted created_at desc (see getMovementHistory), so
+  // the first 'restock' row is the most recent one — no extra query
+  // needed for RestockSheet's "Last time" chip.
+  const lastRestockQuantity =
+    history?.find((m) => m.movement_type === 'restock')?.quantity_change ?? null;
 
   const handleDelete = () => {
     setDeleteError(null);
@@ -104,19 +119,34 @@ export default function IngredientDetailScreen() {
       <Text style={styles.name}>{ingredient.name}</Text>
       {ingredient.category ? <Text style={styles.category}>{ingredient.category}</Text> : null}
 
+      <View style={styles.heroCard}>
+        <View style={styles.heroTopRow}>
+          <View>
+            <Text style={styles.heroLabel}>Current stock</Text>
+            <Text style={styles.heroValue}>
+              {ingredient.current_stock} {ingredient.unit}
+            </Text>
+          </View>
+          <View style={[styles.statusChip, { backgroundColor: `${statusColor}1F` }]}>
+            <Text style={[styles.statusChipText, { color: statusColor }]}>{statusLabel}</Text>
+          </View>
+        </View>
+        <StockGauge percent={gauge.percent} status={gauge.status} />
+        {ingredient.low_stock_threshold != null ? (
+          <Text style={styles.heroFootnote}>
+            Alert set at {ingredient.low_stock_threshold} {ingredient.unit}
+          </Text>
+        ) : null}
+      </View>
+
       <View style={styles.statGrid}>
-        <StatTile label="Current stock" value={`${ingredient.current_stock} ${ingredient.unit}`} />
-        <StatTile
-          label="Status"
-          value={lowStock ? 'Low stock' : 'In stock'}
-          valueColor={lowStock ? colors.danger : colors.success}
-        />
         <StatTile label="Cost per unit" value={ingredient.cost_per_unit.toFixed(2)} />
         <StatTile
           label="Low-stock alert"
           value={
             ingredient.low_stock_threshold != null ? String(ingredient.low_stock_threshold) : '—'
           }
+          onPress={() => setIsEditOpen(true)}
         />
       </View>
 
@@ -125,7 +155,11 @@ export default function IngredientDetailScreen() {
           <PrimaryButton title="Restock" onPress={() => setIsRestockOpen(true)} />
         </View>
         <View style={{ flex: 1, marginLeft: spacing.sm }}>
-          <PrimaryButton title="Use / waste" onPress={() => setIsUseWasteOpen(true)} />
+          <PrimaryButton
+            title="Use / waste"
+            variant="secondary"
+            onPress={() => setIsUseWasteOpen(true)}
+          />
         </View>
       </View>
       <Pressable onPress={() => setIsEditOpen(true)} style={styles.editLink}>
@@ -175,6 +209,7 @@ export default function IngredientDetailScreen() {
         }
         isSaving={restockIngredient.isPending}
         errorMessage={restockIngredient.isError ? "Couldn't save. Try again." : null}
+        lastRestockQuantity={lastRestockQuantity}
       />
     </Screen>
   );
@@ -184,17 +219,42 @@ function StatTile({
   label,
   value,
   valueColor,
+  onPress,
 }: {
   label: string;
   value: string;
   valueColor?: string;
+  /** When set, the tile becomes tappable (e.g. Low-stock alert -> Edit
+   * ingredient) and shows a small pencil affordance so it doesn't look
+   * tappable-but-secretly-isn't. */
+  onPress?: () => void;
 }) {
-  return (
-    <View style={styles.statTile}>
-      <Text style={styles.statLabel}>{label}</Text>
+  const content = (
+    <>
+      <View style={styles.statLabelRow}>
+        <Text style={styles.statLabel}>{label}</Text>
+        {onPress ? (
+          <Ionicons name="pencil-outline" size={12} color={colors.textSecondary} />
+        ) : null}
+      </View>
       <Text style={[styles.statValue, valueColor ? { color: valueColor } : null]}>{value}</Text>
-    </View>
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        style={styles.statTile}
+        accessibilityRole="button"
+        accessibilityLabel={`Edit ${label.toLowerCase()}`}
+      >
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={styles.statTile}>{content}</View>;
 }
 
 // Reason labels shown to the baker, per docs/UI_UX.md — never the raw
@@ -205,15 +265,35 @@ function movementLabel(movement: InventoryMovement): string {
   return movement.note ?? (movement.movement_type === 'usage' ? 'Used' : 'Wasted');
 }
 
+// Icon + tint per movement type, so Stock history reads at a glance
+// (restock = green truck, usage = red flame, waste = red trash,
+// adjustment = neutral pencil) instead of relying on text alone.
+function movementIcon(type: MovementType): { name: keyof typeof Ionicons.glyphMap; color: string } {
+  switch (type) {
+    case 'restock':
+      return { name: 'cube-outline', color: colors.success };
+    case 'usage':
+      return { name: 'flame-outline', color: colors.danger };
+    case 'waste':
+      return { name: 'trash-outline', color: colors.danger };
+    case 'adjustment':
+      return { name: 'create-outline', color: colors.textSecondary };
+  }
+}
+
 function HistoryRow({ movement, unit }: { movement: InventoryMovement; unit: string }) {
   const isPositive = movement.quantity_change > 0;
+  const icon = movementIcon(movement.movement_type);
   const date = new Date(movement.created_at).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
   });
   return (
     <View style={styles.historyRow}>
-      <View>
+      <View style={[styles.historyIconTile, { backgroundColor: `${icon.color}1F` }]}>
+        <Ionicons name={icon.name} size={14} color={icon.color} />
+      </View>
+      <View style={{ flex: 1 }}>
         <Text style={styles.historyLabel}>{movementLabel(movement)}</Text>
         <Text style={styles.historyDate}>{date}</Text>
       </View>
@@ -231,7 +311,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
   },
   deleteButton: {
     width: 36,
@@ -241,23 +321,56 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  name: { ...typography.titleLg, color: colors.textPrimary },
+  name: { ...typography.displaySm, color: colors.textPrimary },
   category: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xxs },
+  heroCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.lg,
+    padding: spacing.lg,
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  heroTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.md,
+  },
+  heroLabel: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.xxs },
+  heroValue: { fontSize: 24, lineHeight: 30, fontWeight: '600', color: colors.textPrimary },
+  statusChip: {
+    borderRadius: radii.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  statusChipText: { ...typography.bodySm, fontWeight: '600' },
+  heroFootnote: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
   statGrid: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: spacing.sm,
-    marginTop: spacing.lg,
     marginBottom: spacing.lg,
   },
   statTile: {
-    width: '48%',
+    flex: 1,
     backgroundColor: colors.surfaceMuted,
     borderRadius: radii.md,
     padding: spacing.md,
   },
+  statLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   statLabel: { ...typography.caption, color: colors.textSecondary },
   statValue: { ...typography.titleSm, color: colors.textPrimary, marginTop: spacing.xxs },
+  costHint: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: -spacing.md,
+    marginBottom: spacing.lg,
+  },
   actionRow: { flexDirection: 'row', marginBottom: spacing.sm },
   editLink: { alignItems: 'center', paddingVertical: spacing.sm, marginBottom: spacing.lg },
   editLinkText: { ...typography.bodySm, color: colors.primary },
@@ -265,11 +378,18 @@ const styles = StyleSheet.create({
   noHistory: { ...typography.bodySm, color: colors.textSecondary },
   historyRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: spacing.sm,
     paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+  },
+  historyIconTile: {
+    width: 28,
+    height: 28,
+    borderRadius: radii.full,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   historyLabel: { ...typography.body, color: colors.textPrimary },
   historyDate: { ...typography.caption, color: colors.textSecondary },

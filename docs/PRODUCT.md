@@ -51,7 +51,7 @@ A home-based baker, usually solo, who:
 
 | Area | MVP | Later |
 |---|---|---|
-| Products & variants | Yes | Product photos, categories, bundles |
+| Products & variants | Yes (incl. optional free-text category) | Product photos, bundles |
 | Recipes & costing | Yes (cost calc + suggested price) | Recipe versioning, sub-recipes |
 | Ingredients & inventory | Yes (stock, cost, low-stock) | Supplier tracking, purchase orders |
 | Inventory movement history | Yes (basic log) | Full audit UI with filters |
@@ -74,6 +74,13 @@ A home-based baker, usually solo, who:
   size/option of that product with its own price. Costing and recipe-portion
   logic live at the **variant** level, since different sizes of the same
   product use different amounts of the recipe and different packaging.
+- A product's **category** is optional free text the baker types themselves
+  (e.g. "Cakes," "Pasalubong") — there's no fixed list. A product with no
+  category set simply appears under the "All" filter with no category chip
+  of its own. The Products list's category filter row shows every distinct
+  category value currently in use by that baker's products, "All" always
+  first, generated dynamically rather than from a stored list — so removing
+  the last product in a category quietly drops that chip too.
 - A **recipe** is an independent record (ingredients + quantities + yield). A
   variant references a recipe and how much of one recipe batch it consumes —
   this lets one recipe be reused across multiple variants or products (e.g.

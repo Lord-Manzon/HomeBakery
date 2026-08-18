@@ -125,8 +125,8 @@ delivery or pickup, notes) → saves → Order detail → from here: Edit / togg
 Payment / Mark delivered / Delete.
 
 **Create product** *(Phase 4 detail below in section E.5–E.6a)*
-Products (`+`) → New product (name, photo — optional; category is a later
-feature, not MVP, see docs/PRODUCT.md) → Product detail (empty variants) →
+Products (`+`) → New product (name, optional category, optional photo — see
+docs/DECISIONS.md's 2026-08-17 entry) → Product detail (empty variants) →
 Add variant (sheet: name, selling price, packaging cost) → variant appears
 in the list → Recipe & costing (Phase 4: placeholder; Phase 6: ingredients +
 cost breakdown auto-calculate using the resolved margin — variant → product
@@ -210,32 +210,64 @@ cosmetic, it's the same distinction the audit log needs.
 threshold. *Empty* — "Add ingredients to track stock."
 
 ### 5. Products list (More)
-**Layout:** title, search icon, helper line ("Tap a product to see its
-variants"), list of product cards. Each card: photo (or a neutral
-placeholder tile when none is set), name, up to 3 variant chips (name +
-price) with a "+N more" chip once a product has more than that, chevron.
-A floating action button (FAB, bottom-right) opens New product — the same
-pattern already used on the Ingredients tab, adopted here in place of the
-original top-right `+` icon for consistency across the app's two
-list-with-quick-add screens (see `docs/DECISIONS.md`, 2026-08-18).
+**CHANGED 2026-08-17:** card layout and category filtering below replace
+this section's original spec — see `docs/DECISIONS.md`'s 2026-08-17 entry
+("Reopened: product categories are now MVP").
+
+**CHANGED 2026-08-18:** primary "add" action moved from the top-right `+`
+icon (below) to a floating action button (FAB, bottom-right) — see
+`docs/DECISIONS.md`'s 2026-08-18 entry. Matches the pattern already
+shipped on the Ingredients tab.
+
+**MERGE NOTE (2026-08-18):** this section combines detail from two
+branches that each described part of this screen — the category filter
+row and full per-variant price-chip list came from one version, the FAB
+and product-photo/placeholder-tile detail from the other. Worth a quick
+read-through against the actual built screen to confirm this matches,
+since it was reconciled by combining docs, not by re-checking the code.
+
+**Layout:** title, category filter chip row (see below), search icon, a
+floating action button (FAB, bottom-right) opens New product — the same
+pattern already used on the Ingredients tab, replacing the original
+top-right `+` icon for consistency across the app's two list-with-quick-add
+screens (see `docs/DECISIONS.md`, 2026-08-18). List of product cards. Each
+card: photo (or a neutral placeholder tile when none is set), name, and
+**one price chip per active variant** shown inline (e.g. "Small ₱450 ·
+Medium ₱850 · Large ₱1,350") — replacing the earlier "`N` variants ·
+`min`–`max` price range" summary line, since seeing each size/price at a
+glance is more useful to a baker scanning the list than a compressed
+range. No chevron — the whole card is tappable.
+**Category filter row:** chips generated dynamically from the distinct
+`category` values currently in use across the baker's own products —
+"All" always first and always present, then one chip per distinct
+category in use, alphabetical. A product with no category set shows under
+"All" only. No fixed/curated list, no empty placeholder chips for unused
+categories — removing the last product in a category quietly removes that
+chip too. Same interaction pattern as the Ingredients list's category row
+(horizontal scroll, not wrap).
 **Taps:** FAB → New product (full screen, see 5a). Search icon → inline
-search field replaces the helper line, filters live by name. Product card →
-Product detail (5b) — a real routed screen (`/more/products/[id]`), not an
-inline expansion, so it gets its own back button, deep link, and loading
-state per `docs/CODING_STANDARDS.md`.
+search field replaces the helper line, filters live by name. Category chip
+→ filters the list to that category (single-select, same as Ingredients).
+Product card → Product detail (5b) — a real routed screen
+(`/more/products/[id]`), not an inline expansion, so it gets its own back
+button, deep link, and loading state per `docs/CODING_STANDARDS.md`.
 **States:** *Loading* — skeleton cards, no spinner. *Empty (no products
 yet)* — friendly onboarding card (illustration/icon + one line + primary
-button "Add your first product") → New product screen. *Error* — retry,
-plain language, no jargon. *Search, no matches* — "No products match
-'`query`'" with a clear-search action, distinct from the true empty state.
+button "Add your first product") → New product screen; category row
+hidden entirely (nothing to filter yet). *Error* — retry, plain language,
+no jargon. *Search, no matches* — "No products match '`query`'" with a
+clear-search action, distinct from the true empty state.
 
 ### 5a. New product (full screen)
 Reached from: Products list `+`, or the empty-state CTA.
-**Fields:** Name (required, text) · Photo (optional, image picker →
-Supabase Storage). No category field — deferred to Later per
-`docs/PRODUCT.md`.
-**Validation (Zod):** `name` required, 1–100 chars, trimmed. `image_url`
-optional.
+**CHANGED 2026-08-17:** category is now MVP — see
+`docs/DECISIONS.md`'s 2026-08-17 entry.
+**Fields:** Name (required, text) · Category (optional — chips of the
+baker's existing categories shown as quick-pick, plus a way to type a new
+one; free text under the hood, same as Ingredients/Expenses) · Photo
+(optional, image picker → Supabase Storage).
+**Validation (Zod):** `name` required, 1–100 chars, trimmed. `category`
+optional, 1–50 chars if provided, trimmed. `image_url` optional.
 **States:** *Default* — Save disabled until name is non-empty. *Saving* —
 spinner, fields disabled. *Error* — inline banner, fields stay filled,
 retry by re-tapping Save. *Photo upload failure* — handled separately from
@@ -422,10 +454,10 @@ which already fits this — no change needed there.)
 
 ## Open notes from this merge
 
-- **Product categories:** the "create product" flow mentions category as an
-  option, but docs/PRODUCT.md explicitly defers categories to *Later*, not
-  MVP, and docs/DATABASE.md's `products` table has no category column. MVP
-  "New product" is name + optional photo only.
+- **Product categories — resolved 2026-08-17:** was an open contradiction
+  between this doc and docs/PRODUCT.md's "Later, not MVP" call. Reopened
+  and settled — category is now MVP, optional free text, no fixed list.
+  See docs/DECISIONS.md's 2026-08-17 entry and section E.5/5a above.
 - **Theme token migration:** `src/theme/` needs updating from Phase 1's
   placeholder values to the tokens in section F, including adding Nunito as
   a font dependency. Tracked as a follow-up, not yet done.
@@ -434,3 +466,13 @@ which already fits this — no change needed there.)
   `docs/DECISIONS.md`. Revisit only if this reads awkwardly in practice.
 
 
+> **FLAGGED, not resolved (2026-08-18 merge):** a draft "find/replace"
+> instructions file I (Claude) wrote for applying the gauge feature's
+> UI_UX edits was appended here verbatim on the `main`-branch side of this
+> file, rather than the edits actually being applied to section E.4
+> (Ingredients) and the Components section. Section E.4 above still has
+> the pre-gauge description (no stock gauge, no category filter, no
+> sensitivity picker mentioned). Needs a proper pass to actually apply
+> those edits to E.4 and the Components section — not done as part of
+> this merge, since rewriting spec prose isn't a safe thing to auto-merge
+> from two branches' worth of draft text.
