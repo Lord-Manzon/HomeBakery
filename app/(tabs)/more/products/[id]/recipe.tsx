@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,6 +15,7 @@ import {
 } from '../../../../../src/services/costing';
 import { BottomSheet } from '../../../../../src/components/BottomSheet';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
+import { SuccessBanner } from '../../../../../src/components/SuccessBanner';
 import { FormField } from '../../../../../src/components/FormField';
 import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
 import { Screen } from '../../../../../src/components/Screen';
@@ -52,10 +53,22 @@ export default function RecipeAndCostingScreen() {
   const updateSuggestedPrice = useUpdateVariantSuggestedPrice(id);
 
   const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isVariantSwitcherOpen, setIsVariantSwitcherOpen] = useState(false);
   const [portionDraft, setPortionDraft] = useState('');
   const [marginDraft, setMarginDraft] = useState('');
   const [portionError, setPortionError] = useState<string | null>(null);
   const [marginError, setMarginError] = useState<string | null>(null);
+  const [showSaved, setShowSaved] = useState(false);
+  const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear any pending auto-dismiss timer if the screen unmounts mid-countdown
+  // (e.g. baker taps back right after saving) — otherwise it fires setState
+  // on an unmounted component.
+  useEffect(() => {
+    return () => {
+      if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (variant) {
@@ -146,7 +159,20 @@ export default function RecipeAndCostingScreen() {
         onSuccess: () => {
           // Persist the freshly computed suggestion for reference/history,
           // per docs/DATABASE.md — never a baker-typed value.
-          updateSuggestedPrice.mutate({ variantId: variant.id, suggestedPrice: suggestedPrice });
+          updateSuggestedPrice.mutate(
+            { variantId: variant.id, suggestedPrice: suggestedPrice },
+            {
+              onSuccess: () => {
+                // No navigation on purpose — this screen's value is watching
+                // Suggested price / Actual profit update live as portion or
+                // margin change, so we let the baker keep looking at the
+                // breakdown and back out manually when they're satisfied.
+                if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current);
+                setShowSaved(true);
+                savedTimeoutRef.current = setTimeout(() => setShowSaved(false), 2500);
+              },
+            }
+          );
         },
       }
     );
@@ -164,9 +190,18 @@ export default function RecipeAndCostingScreen() {
         <View style={styles.iconButton} />
       </View>
 
-      <Text style={styles.subtitle}>
-        {product.name} — {variant.name}
-      </Text>
+      <Pressable
+        style={styles.subtitleRow}
+        onPress={() => (variants && variants.length > 1 ? setIsVariantSwitcherOpen(true) : undefined)}
+        accessibilityLabel="Switch variant"
+      >
+        <Text style={styles.subtitle} numberOfLines={1}>
+          {product.name} — {variant.name}
+        </Text>
+        {variants && variants.length > 1 ? (
+          <Ionicons name="chevron-down" size={14} color={colors.textSecondary} />
+        ) : null}
+      </Pressable>
 
       <ScrollView showsVerticalScrollIndicator={false}>
         {!variant.recipe_id ? (
@@ -261,6 +296,8 @@ export default function RecipeAndCostingScreen() {
               <ErrorBanner message="Couldn't save. Try again." />
             ) : null}
 
+            {showSaved ? <SuccessBanner message="Saved" /> : null}
+
             <View style={styles.saveButton}>
               <PrimaryButton
                 title="Save"
@@ -277,6 +314,22 @@ export default function RecipeAndCostingScreen() {
         recipes={allRecipes ?? []}
         onDismiss={() => setIsPickerOpen(false)}
         onSelect={handleLinkRecipe}
+        colors={colors}
+      />
+
+      <VariantSwitcherSheet
+        visible={isVariantSwitcherOpen}
+        variants={variants ?? []}
+        currentVariantId={variant.id}
+        currency={baker?.currency}
+        onDismiss={() => setIsVariantSwitcherOpen(false)}
+        onSelect={(v) => {
+          setIsVariantSwitcherOpen(false);
+          // replace, not push — switching variants shouldn't stack a new
+          // screen per variant; back should return to the product, not
+          // walk through every variant you glanced at along the way.
+          router.replace(`/more/products/${id}/recipe?variantId=${v.id}`);
+        }}
         colors={colors}
       />
     </Screen>
@@ -309,6 +362,65 @@ function CostRow({
         {value}
       </Text>
     </View>
+  );
+}
+
+function VariantSwitcherSheet({
+  visible,
+  variants,
+  currentVariantId,
+  currency,
+  onDismiss,
+  onSelect,
+  colors,
+}: {
+  visible: boolean;
+  variants: { id: string; name: string; selling_price: number }[];
+  currentVariantId: string;
+  currency: string | null | undefined;
+  onDismiss: () => void;
+  onSelect: (variant: { id: string; name: string; selling_price: number }) => void;
+  colors: Record<ColorToken, string>;
+}) {
+  return (
+    <BottomSheet visible={visible} onDismiss={onDismiss}>
+      <Text style={{ ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.md }}>
+        Switch variant
+      </Text>
+      <View>
+        {variants.map((item) => {
+          const isCurrent = item.id === currentVariantId;
+          return (
+            <Pressable
+              key={item.id}
+              onPress={() => onSelect(item)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                paddingVertical: spacing.sm + 2,
+                paddingHorizontal: spacing.sm,
+                borderRadius: radii.md,
+                backgroundColor: isCurrent ? colors.surfaceMuted : 'transparent',
+              }}
+            >
+              <Text
+                style={{
+                  ...typography.body,
+                  color: isCurrent ? colors.primary : colors.textPrimary,
+                  fontWeight: isCurrent ? '600' : '400',
+                }}
+              >
+                {item.name}
+              </Text>
+              <Text style={{ ...typography.bodySm, color: colors.textSecondary }}>
+                {formatCurrency(item.selling_price, currency)}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </BottomSheet>
   );
 }
 
@@ -375,7 +487,15 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     iconButton: { width: 44, height: 44, borderRadius: radii.full, alignItems: 'center', justifyContent: 'center' },
     title: { ...typography.titleLg, color: colors.textPrimary, flex: 1, textAlign: 'center' },
-    subtitle: { ...typography.bodySm, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.xl },
+    subtitle: { ...typography.bodySm, color: colors.textSecondary, textAlign: 'center' },
+    subtitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xxs,
+      marginBottom: spacing.xl,
+      alignSelf: 'center',
+    },
     noRecipeCard: {
       alignItems: 'center',
       backgroundColor: colors.surfaceMuted,
