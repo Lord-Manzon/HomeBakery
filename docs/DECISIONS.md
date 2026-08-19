@@ -536,3 +536,49 @@ background and tab bar. This is a bug fix restoring the intended
 2026-08-15 behavior, not a new design decision.
 **Follow-up:** Other screens outside the Products flow haven't been
 audited for the same static-import bug; worth a dedicated sweep later.
+
+
+### 2026-08-19 — Reverted to 4-tab nav (Ingredients folded into More), floating
+pill nav + FAB with scroll-to-hide, and a contextual Quick Add popup card
+
+**Decision:** Bottom nav changes from a 5-tab fixed bar to a 4-tab floating
+pill (Home · Orders · Production · More) with a separate floating + button
+beside it — both hover above content rather than spanning the screen width,
+and both slide down + fade out together on scroll-down, reappearing on
+scroll-up. Ingredients moves under More (browsable list/detail, same as
+Products). Tapping + opens a small popup card anchored bottom-right, directly
+above the FAB — not a full-width bottom sheet — listing 1–4 actions
+contextual to the current tab, top item visually weighted. The card
+auto-closes if the nav hides mid-open (scrolling away), so there's never a
+floating card with no visible FAB to dismiss it from. This supersedes the
+5-tab decision from 2026-08-13 (reaffirmed 2026-08-15) — not rewritten, but
+no longer current.
+
+**Why floating + scroll-hide:** maximizes visible content on data-dense
+screens (Ingredients, Orders, Reports, Products) while keeping the same
+one-handed reachability everywhere else in the app already relies on.
+
+**Why a popup card over a full bottom sheet or radial fan:** evaluated
+three options — radial fan (rejected: harder to guarantee the 44×44px
+touch-target minimum per UI_UX_1.md section F, and more custom motion code
+than a "fast, boring add action" warrants, per ARCHITECTURE.md's
+simplicity-over-trendiness priority), expanding horizontal row (rejected:
+cramped with 4 items + labels on narrow phones, doesn't scale to a 5th
+item), and the popup card (chosen: same vertical icon+label list pattern
+already used everywhere else, e.g. bottom sheets — least new pattern to
+learn, easiest to keep accessible).
+
+**Per-tab Quick Add contents:** unchanged from the entry above — Home (Add
+order, Add ingredient, Add product, Add expense), Orders (Add order only),
+Production (Add order, Restock ingredient, Add expense — no "create
+production" action, production has no creatable entity), More (Add product,
+Add ingredient, Add recipe, Add expense).
+
+**Implementation note:** requires a custom nav shell (Expo Router's default
+tab bar doesn't support floating/scroll-reactive behavior) — every
+scrollable screen needs to report scroll direction up to the same shared
+show/hide logic, not just Home. Flagged as a real build cost, not a config
+tweak.
+
+**Follow-up:** `docs/UI_UX_1.md` sections B, C, E, and the new section G are
+updated in this same change.

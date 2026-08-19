@@ -15,6 +15,7 @@ import {
   useCreateProduct,
   useDeleteProductCategory,
   useProductCategories,
+  useProducts,
 } from '../../../../src/hooks/useProducts';
 import { productFormSchema } from '../../../../src/utils/validation/productSchemas';
 import { getCategoryVisual } from '../../../../src/utils/productCategoryIcon';
@@ -33,6 +34,11 @@ export default function NewProductScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const createProduct = useCreateProduct();
   const { data: categories } = useProductCategories();
+  // Only used to count how many products a category deletion would
+  // affect, for the confirm dialog below — not for deriving the chip
+  // list itself, that still comes from product_categories (see the
+  // comment on existingCategories).
+  const { data: allProducts } = useProducts();
 
   const [name, setName] = useState('');
   const [category, setCategory] = useState('');
@@ -108,6 +114,12 @@ export default function NewProductScreen() {
 
   return (
     <View style={styles.container}>
+      <Pressable
+        style={styles.editDismissWrapper}
+        onPress={() => {
+          if (isEditingCategories) setIsEditingCategories(false);
+        }}
+      >
       <View style={styles.headerRow}>
         <Pressable onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
@@ -145,14 +157,7 @@ export default function NewProductScreen() {
           error={errors.name}
         />
 
-        <View style={styles.categoryLabelRow}>
-          <Text style={styles.label}>Category (optional)</Text>
-          {isEditingCategories ? (
-            <Pressable onPress={() => setIsEditingCategories(false)}>
-              <Text style={styles.categoryDoneText}>Done</Text>
-            </Pressable>
-          ) : null}
-        </View>
+        <Text style={styles.label}>Category (optional)</Text>
         <View style={styles.categoryChipRow}>
           {existingCategories.map((cat) => (
             <CategoryChip
@@ -192,26 +197,38 @@ export default function NewProductScreen() {
       <ConfirmDialog
         visible={!!pendingDeleteCategory}
         title="Delete this category?"
-        message={`"${pendingDeleteCategory?.name}" will be removed. Any product that already used this category keeps its name, it just won't show this icon anymore.`}
+        message={
+          pendingDeleteCategory
+            ? (() => {
+                const affected = (allProducts ?? []).filter(
+                  (p) => p.category === pendingDeleteCategory.name
+                ).length;
+                return affected > 0
+                  ? `"${pendingDeleteCategory.name}" will be removed, and cleared from ${affected} product${affected === 1 ? '' : 's'} currently using it. This can't be undone.`
+                  : `"${pendingDeleteCategory.name}" will be removed. No products are currently using it.`;
+              })()
+            : ''
+        }
         confirmLabel="Delete"
         onConfirm={() => {
           if (!pendingDeleteCategory) return;
           if (category === pendingDeleteCategory.name) setCategory('');
-          deleteCategory.mutate(pendingDeleteCategory.id);
+          deleteCategory.mutate({ id: pendingDeleteCategory.id, name: pendingDeleteCategory.name });
           setPendingDeleteCategory(null);
         }}
         onCancel={() => setPendingDeleteCategory(null)}
       />
+      </Pressable>
     </View>
   );
 }
 
 // Long-press any chip to enter "editing" mode (all chips wiggle + grow
 // an x badge, like iOS home-screen icons) — tap a chip's x to remove
-// that category, tap "Done" to exit. Deleting only removes the
-// product_categories row; any product already carrying that category
-// name keeps it, per docs/DECISIONS.md's 2026-08-18 entry — see the
-// ConfirmDialog message above for the plain-language version of that.
+// that category, tap anywhere else on the screen to exit (see
+// editDismissWrapper above). Deleting cascades to clear `category` off
+// every product currently carrying that name — see
+// docs/DECISIONS.md's 2026-08-19 entry.
 function CategoryChip({
   category,
   isSelected,
@@ -284,6 +301,7 @@ function CategoryChip({
 function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background, padding: spacing.xl },
+    editDismissWrapper: { flex: 1 },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -317,17 +335,12 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.lg,
     },
     label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.sm },
-    categoryLabelRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'space-between',
-    },
-    categoryDoneText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     categoryChipRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: spacing.sm,
       marginBottom: spacing.sm,
+      paddingTop: spacing.sm,
     },
     categoryChip: {
       flexDirection: 'row',

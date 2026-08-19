@@ -167,12 +167,19 @@ export function useCreateProductCategory() {
   });
 }
 
+// Cascades: also clears `category` on every product that had this
+// name, since deleteProductCategory() now does that server-side (see
+// docs/DECISIONS.md's 2026-08-19 entry). productsKey is invalidated
+// too — not just productCategoriesKey — so the Products list's card
+// grid, its category filter chips, and any open Product Detail screen
+// all reflect the cleared category, not just the category picker itself.
 export function useDeleteProductCategory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => deleteProductCategory(id),
+    mutationFn: (input: { id: string; name: string }) => deleteProductCategory(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: productCategoriesKey });
+      queryClient.invalidateQueries({ queryKey: productsKey });
     },
   });
 }

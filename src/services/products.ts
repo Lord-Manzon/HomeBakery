@@ -102,15 +102,32 @@ export async function createProductCategory(input: {
 }
 
 /**
- * Removes a category row only — does NOT touch any product currently
- * carrying that name in products.category (that's plain text, not a
- * foreign key, per supabase/migrations/0007_product_categories.sql).
- * Those products keep their category text; they just fall back to the
- * default icon in getCategoryVisual() once this row is gone.
+ * Deletes a category AND clears it off every product currently carrying
+ * that name — a real cascade, per docs/DECISIONS.md's 2026-08-19
+ * "category deletion cascades to products" entry (this replaced an
+ * earlier, less destructive version that only removed the lookup row
+ * and left products' category text untouched). The clear-first-then-
+ * delete order matters: if the category row were deleted first and the
+ * products update failed partway through, we'd be left with orphaned
+ * category text and no way to re-look-up its icon; clearing first means
+ * a failure here just leaves the category row (and its products) as
+ * they were, nothing half-done.
  */
-export async function deleteProductCategory(id: string): Promise<void> {
-  const { error } = await supabase.from('product_categories').delete().eq('id', id);
-  if (error) throw error;
+export async function deleteProductCategory(input: { id: string; name: string }): Promise<void> {
+  const bakerId = await getCurrentBakerId();
+
+  const { error: clearError } = await supabase
+    .from('products')
+    .update({ category: null })
+    .eq('baker_id', bakerId)
+    .eq('category', input.name);
+  if (clearError) throw clearError;
+
+  const { error: deleteError } = await supabase
+    .from('product_categories')
+    .delete()
+    .eq('id', input.id);
+  if (deleteError) throw deleteError;
 }
 
 export async function getVariants(productId: string): Promise<ProductVariant[]> {

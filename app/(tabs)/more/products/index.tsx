@@ -336,12 +336,23 @@ export default function ProductsListScreen() {
       <ConfirmDialog
         visible={!!pendingDeleteCategory}
         title="Delete this category?"
-        message={`"${pendingDeleteCategory?.name}" will be removed. Any product that already used this category keeps its name, it just won't show this icon anymore.`}
+        message={
+          pendingDeleteCategory
+            ? (() => {
+                const affected = (products ?? []).filter(
+                  (p) => p.category === pendingDeleteCategory.name
+                ).length;
+                return affected > 0
+                  ? `"${pendingDeleteCategory.name}" will be removed, and cleared from ${affected} product${affected === 1 ? '' : 's'} currently using it. This can't be undone.`
+                  : `"${pendingDeleteCategory.name}" will be removed. No products are currently using it.`;
+              })()
+            : ''
+        }
         confirmLabel="Delete"
         onConfirm={() => {
           if (!pendingDeleteCategory) return;
           if (selectedCategory === pendingDeleteCategory.name) setSelectedCategory('All');
-          deleteCategory.mutate(pendingDeleteCategory.id);
+          deleteCategory.mutate({ id: pendingDeleteCategory.id, name: pendingDeleteCategory.name });
           setPendingDeleteCategory(null);
         }}
         onCancel={() => setPendingDeleteCategory(null)}

@@ -25,12 +25,12 @@ HomeBakery app
 │   ├── Day selector (Today / Tomorrow / pick a date)
 │   ├── Bake list (grouped by product → variant → quantity)
 │   └── Ingredient checklist → tap missing ingredient → Ingredients
-├── Ingredients
-│   ├── Ingredient list (sortable by low stock)
-│   └── Ingredient detail
-│       ├── Stock adjustment (bottom sheet)
-│       └── Restock / purchase (full screen form)
 └── More
+    ├── Ingredients
+    │   ├── Ingredient list (sortable by low stock)
+    │   └── Ingredient detail (same as above — reached from More now)
+    |         ├── Stock adjustment (bottom sheet)
+    │         └── Restock / purchase (full screen form)
     ├── Products
     │   ├── Product list
     │   └── Product detail
@@ -55,9 +55,11 @@ HomeBakery app
 
 ## B. Navigation structure
 
-**Bottom nav: Home · Orders · Production · Ingredients · More**
+**Bottom nav: Home · Orders · Production · More**
 
-Five tabs, kept deliberately at that count — everything on the bar gets
+Four tabs, plus a global + button in a fixed position beside the tab bar
+(same visual weight, so the bar still *reads* as five elements even though
+only four are navigation destinations). — everything on the bar gets
 touched *daily*; setup-heavy or weekly-review work lives under More, where
 it doesn't compete for thumb space.
 
@@ -80,9 +82,9 @@ it doesn't compete for thumb space.
   pre-scrolled and ready to restock — the tab is for browsing/checking stock
   cold, the deep links are for acting on a specific shortage.
 
-**Reaffirmed 2026-08-15:** a second mockup again proposed folding
-Ingredients into More and giving Recipes its own top-level tab. Same
-reasoning as above still holds — declined again. See `docs/DECISIONS.md`.
+**Revisited 2026-08-19:** reverted to folding Ingredients into More,
+now that the global Quick Add FAB (see section G) covers the fast-access
+need a dedicated tab was originally protecting. See `docs/DECISIONS.md`.
 
 **Interaction weight — when to use what:**
 
@@ -106,7 +108,7 @@ reasoning as above still holds — declined again. See `docs/DECISIONS.md`.
 | New order | FAB on Orders, Home quick action |
 | Production | Bottom nav |
 | Ingredient checklist (within Production) | Scroll within Production |
-| Ingredients list | Bottom nav |
+| Ingredients list | More menu, or Quick Add → Restock/Add ingredient |
 | Ingredient detail | Tap ingredient in Ingredients, or tap a missing-ingredient row in Production/Home |
 | Products list | More menu |
 | Product detail | Tap a product |
@@ -537,3 +539,45 @@ which already fits this — no change needed there.)
 > those edits to E.4 and the Components section — not done as part of
 > this merge, since rewriting spec prose isn't a safe thing to auto-merge
 > from two branches' worth of draft text.
+
+---
+
+## G. Global + button (Quick Add)
+
+The bottom nav (4 tabs) and the + button are two separate floating
+elements, not a single fixed bar — the tab pill and the FAB sit above
+content with visible gaps around them, same position/size on every main
+tab (Home, Orders, Production, More). Both hide together: scrolling down
+inside any list slides them down and fades them out; scrolling back up
+brings them back. If the nav hides while the Quick Add card is open, the
+card closes with it — there's never a floating card left with no visible
+FAB to dismiss it.
+
+Tapping + opens a small popup card anchored bottom-right, directly above
+the FAB (not a full-width bottom sheet) — a vertical list of 1–4 actions
+relevant to the current tab, icon + label per row, top item visually
+weighted since it's the tab's single most likely action.
+
+| Tab | Quick Add contents | Notes |
+|---|---|---|
+| Home | Add order, Add ingredient, Add product, Add expense | Broadest menu — Home has no single obvious action |
+| Orders | Add order | Still shown as a Quick Add card, for visual consistency — not a bare single-action FAB |
+| Production | Add order, Restock ingredient, Add expense | No "create production" — production has no creatable entity (view over `order_items`, see DECISIONS.md 2026-08-12) |
+| More | Add product, Add ingredient, Add recipe, Add expense | Doubles as fast access to Ingredients/Recipes, which no longer have their own tab |
+
+**Why floating + scroll-to-hide instead of a fixed bar:** maximizes
+visible content on data-dense screens (Ingredients, Orders, Reports,
+Products) without giving up one-handed reachability — the nav reappears
+the moment the baker scrolls back up or stops scrolling near the top.
+
+**Why a popup card instead of a full-width sheet or radial fan:** see
+`docs/DECISIONS.md`'s 2026-08-19 entry for the full comparison — a popup
+card keeps the same icon+label vertical-list pattern used everywhere else
+(bottom sheets), stays within the 44×44px touch-target minimum (section F)
+without crowding, and needs far less custom motion code than a radial fan.
+
+**Why contextual instead of identical everywhere:** a fixed four-option
+menu on every screen would feel like a generic launcher rather than part
+of that screen. Ordering within each menu puts the tab's single most
+likely action first/most visually prominent (e.g. "Add order" leads on
+both Orders and Production).
