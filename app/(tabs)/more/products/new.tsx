@@ -1,18 +1,31 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withRepeat,
+  withSequence,
+  withTiming,
+} from 'react-native-reanimated';
 import { useThemeColors } from '../../../../src/theme/ThemeContext';
-import { useCreateProduct, useProductCategories } from '../../../../src/hooks/useProducts';
+import {
+  useCreateProduct,
+  useDeleteProductCategory,
+  useProductCategories,
+} from '../../../../src/hooks/useProducts';
 import { productFormSchema } from '../../../../src/utils/validation/productSchemas';
 import { getCategoryVisual } from '../../../../src/utils/productCategoryIcon';
 import { FormField } from '../../../../src/components/FormField';
 import { PrimaryButton } from '../../../../src/components/PrimaryButton';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
+import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
 import { uploadProductPhoto } from '../../../../src/services/products';
-import { spacing, radii, typography } from '../../../../src/theme';
+import { spacing, radii, typography, motionDuration, motionEasing } from '../../../../src/theme';
 import type { ColorToken } from '../../../../src/theme/colors';
+import type { ProductCategory } from '../../../../src/types/product';
 
 export default function NewProductScreen() {
   const router = useRouter();
@@ -26,6 +39,11 @@ export default function NewProductScreen() {
   const [imageUri, setImageUri] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [errors, setErrors] = useState<{ name?: string; category?: string }>({});
+  const [isEditingCategories, setIsEditingCategories] = useState(false);
+  const [pendingDeleteCategory, setPendingDeleteCategory] = useState<ProductCategory | null>(
+    null
+  );
+  const deleteCategory = useDeleteProductCategory();
 
   // Quick-pick chips now come from the product_categories table rather
   // than being derived from distinct values already in use on products
@@ -127,39 +145,33 @@ export default function NewProductScreen() {
           error={errors.name}
         />
 
-        <Text style={styles.label}>Category (optional)</Text>
+        <View style={styles.categoryLabelRow}>
+          <Text style={styles.label}>Category (optional)</Text>
+          {isEditingCategories ? (
+            <Pressable onPress={() => setIsEditingCategories(false)}>
+              <Text style={styles.categoryDoneText}>Done</Text>
+            </Pressable>
+          ) : null}
+        </View>
         <View style={styles.categoryChipRow}>
-          {existingCategories.map((cat) => {
-            const isSelected = category === cat.name;
-            const visual = getCategoryVisual(cat.name, existingCategories);
-            return (
-              <Pressable
-                key={cat.id}
-                onPress={() => setCategory(isSelected ? '' : cat.name)}
-                style={[
-                  styles.categoryChip,
-                  isSelected && { backgroundColor: visual.color, borderColor: visual.color },
-                ]}
-              >
-                <Ionicons
-                  name={visual.icon as keyof typeof Ionicons.glyphMap}
-                  size={14}
-                  color={isSelected ? colors.textInverse : colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.categoryChipText,
-                    isSelected && styles.categoryChipTextSelected,
-                  ]}
-                >
-                  {cat.name}
-                </Text>
-              </Pressable>
-            );
-          })}
+          {existingCategories.map((cat) => (
+            <CategoryChip
+              key={cat.id}
+              category={cat}
+              isSelected={category === cat.name}
+              isEditing={isEditingCategories}
+              onSelect={() => setCategory(category === cat.name ? '' : cat.name)}
+              onLongPress={() => setIsEditingCategories(true)}
+              onRequestDelete={() => setPendingDeleteCategory(cat)}
+              styles={styles}
+              colors={colors}
+            />
+          ))}
           <Pressable
-            onPress={() => router.push('/more/products/categories/new')}
-            style={styles.categoryChipNew}
+            onPress={
+              isEditingCategories ? undefined : () => router.push('/more/products/categories/new')
+            }
+            style={[styles.categoryChipNew, isEditingCategories && styles.categoryChipNewDisabled]}
           >
             <Ionicons name="add" size={14} color={colors.primary} />
             <Text style={styles.categoryChipNewText}>New</Text>
@@ -176,7 +188,96 @@ export default function NewProductScreen() {
           />
         </View>
       </ScrollView>
+
+      <ConfirmDialog
+        visible={!!pendingDeleteCategory}
+        title="Delete this category?"
+        message={`"${pendingDeleteCategory?.name}" will be removed. Any product that already used this category keeps its name, it just won't show this icon anymore.`}
+        confirmLabel="Delete"
+        onConfirm={() => {
+          if (!pendingDeleteCategory) return;
+          if (category === pendingDeleteCategory.name) setCategory('');
+          deleteCategory.mutate(pendingDeleteCategory.id);
+          setPendingDeleteCategory(null);
+        }}
+        onCancel={() => setPendingDeleteCategory(null)}
+      />
     </View>
+  );
+}
+
+// Long-press any chip to enter "editing" mode (all chips wiggle + grow
+// an x badge, like iOS home-screen icons) — tap a chip's x to remove
+// that category, tap "Done" to exit. Deleting only removes the
+// product_categories row; any product already carrying that category
+// name keeps it, per docs/DECISIONS.md's 2026-08-18 entry — see the
+// ConfirmDialog message above for the plain-language version of that.
+function CategoryChip({
+  category,
+  isSelected,
+  isEditing,
+  onSelect,
+  onLongPress,
+  onRequestDelete,
+  styles,
+  colors,
+}: {
+  category: ProductCategory;
+  isSelected: boolean;
+  isEditing: boolean;
+  onSelect: () => void;
+  onLongPress: () => void;
+  onRequestDelete: () => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Record<ColorToken, string>;
+}) {
+  const visual = getCategoryVisual(category.name, [category]);
+  const wiggle = useSharedValue(0);
+
+  useEffect(() => {
+    if (isEditing) {
+      wiggle.value = withRepeat(
+        withSequence(
+          withTiming(-1, { duration: motionDuration.instant, easing: motionEasing.standard }),
+          withTiming(1, { duration: motionDuration.instant * 2, easing: motionEasing.standard }),
+          withTiming(0, { duration: motionDuration.instant, easing: motionEasing.standard })
+        ),
+        -1
+      );
+    } else {
+      wiggle.value = withTiming(0, { duration: motionDuration.fast });
+    }
+  }, [isEditing]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${wiggle.value * 2}deg` }],
+  }));
+
+  return (
+    <Animated.View style={animatedStyle}>
+      <Pressable
+        onPress={isEditing ? undefined : onSelect}
+        onLongPress={isEditing ? undefined : onLongPress}
+        style={[
+          styles.categoryChip,
+          isSelected && { backgroundColor: visual.color, borderColor: visual.color },
+        ]}
+      >
+        <Ionicons
+          name={visual.icon as keyof typeof Ionicons.glyphMap}
+          size={14}
+          color={isSelected ? colors.textInverse : colors.textSecondary}
+        />
+        <Text style={[styles.categoryChipText, isSelected && styles.categoryChipTextSelected]}>
+          {category.name}
+        </Text>
+      </Pressable>
+      {isEditing ? (
+        <Pressable onPress={onRequestDelete} style={styles.categoryChipDeleteBadge} hitSlop={8}>
+          <Ionicons name="close" size={10} color={colors.textInverse} />
+        </Pressable>
+      ) : null}
+    </Animated.View>
   );
 }
 
@@ -216,6 +317,12 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.lg,
     },
     label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.sm },
+    categoryLabelRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    categoryDoneText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     categoryChipRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -246,6 +353,20 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.sm,
     },
     categoryChipNewText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
+    categoryChipNewDisabled: { opacity: 0.4 },
+    categoryChipDeleteBadge: {
+      position: 'absolute',
+      top: -6,
+      right: -6,
+      width: 18,
+      height: 18,
+      borderRadius: radii.full,
+      backgroundColor: colors.danger,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: colors.background,
+    },
     saveButton: { marginTop: spacing.sm },
   });
 }

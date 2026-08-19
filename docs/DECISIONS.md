@@ -272,6 +272,96 @@ for the same reasons as the earlier Products mockup correction.
 **Why:** `docs/AGENTS.md` requires UX to be designed before
 implementation starts; this closes that step for Phase 5.
 
+
+### 2026-08-18 — Product categories get their own table, with a baker-chosen icon per category
+
+**Decision:** New `product_categories` table (`id`, `baker_id`, `name`,
+`icon`, `created_at` — see `supabase/migrations/0007_product_categories.sql`),
+created via a dedicated full-screen "New category" flow (name + a
+10-icon curated grid, reached via a "+ New" chip). `products.category`
+stays plain text, unchanged — it's matched against this table by name
+at render time, not linked by a foreign key. Category quick-pick chips
+on New Product (and the Products list filter row) now read from this
+table instead of being derived from distinct values already in use on
+existing products, so a category can exist — and show its icon — before
+any product actually uses it.
+**Color is not stored.** It's derived by hashing the category name into
+one of the app's 6 existing curated accent swatches (now shared via the
+new `src/theme/accentSwatches.ts`, extracted out of `appearance.tsx`),
+so the same name always renders the same color with nothing extra
+persisted, consistent with the 2026-08-15 "curated colors only"
+precedent from the Appearance screen.
+**Why:** The baker wanted to deliberately choose an icon per category
+(shown in chips, filters, and the product detail category pill), which
+free text alone can't carry — that choice needs to persist and be
+looked up wherever the category name shows up again.
+**Alternatives considered:** A static enum → icon lookup, the pattern
+already used for Ingredient categories (`src/utils/ingredientCategoryIcon.ts`)
+— rejected because Ingredient categories are a small fixed dropdown,
+while Product categories are free text/open-ended; a static map can't
+cover an unbounded set of baker-typed names.
+**Manual step required after migrating:** per the 2026-08-15 "disabled
+auto-expose" decision, `product_categories` had to be manually exposed
+in Supabase Dashboard → Project Settings → API → Exposed tables.
+**Doc impact:** `docs/DATABASE.md`'s table list and `docs/UI_UX.md`
+section E updated (see below).
+
+### 2026-08-18 — Category chips: long-press to wiggle, tap × to delete (with confirm)
+
+**Decision:** On New Product's category chips, a long-press on any chip
+enters an editing state — every chip wiggles and grows a small × badge
+(iOS-homescreen-style), with a "Done" link next to the section label to
+exit. Tapping × opens the existing shared `ConfirmDialog` (not an
+instant delete) before removing the category.
+**Why:** `docs/CODING_STANDARDS.md` requires a confirmation step before
+any destructive action — every other delete in the app (variant
+removal, product deactivation) already goes through `ConfirmDialog`, so
+this stays consistent rather than being the one silent-delete exception.
+**Behavior worth remembering:** deleting a `product_categories` row does
+**not** touch any product already carrying that name in its plain-text
+`products.category` field — that product keeps the category name, it
+just falls back to the default icon (`getCategoryVisual`'s fallback)
+since there's no longer a matching row. This is a direct consequence of
+category being matched by name rather than foreign-keyed, per the
+entry above.
+
+### 2026-08-18 — Product name is editable inline from Product Detail
+
+**Decision:** Tapping the product name in the Product Detail header
+turns it into an editable text field (pencil icon signals it's
+tappable); committing (blur or keyboard "Done") saves via the same
+`useUpdateProduct` mutation the photo-upload feature already used.
+**Why:** There was previously no way to fix a product name typo without
+deleting and recreating the product.
+**Implementation note:** `updateProduct`'s service function always
+expects the full `{name, category, image_url}` payload, so the name-save
+call explicitly re-sends the product's existing `category` and
+`image_url` alongside the new name — sending `{name}` alone would have
+silently cleared the other two fields. Worth remembering if more
+inline-editable fields get added to this screen later.
+
+### 2026-08-18 — Products list moves from a list-row layout to an image-forward grid, adds sort
+
+**Decision:** The Products list card pattern changed from the standard
+"List row card" (per the Components table in `docs/UI_UX.md`, previously
+shared with Orders/Expenses/Ingredients) to a 2-column grid of cards
+with a large top-anchored photo, name, and up to 2 variant chips (+"N
+more"). The "Tap a product to see its variants" helper line was
+removed. A new sort control (icon left of search: Name A–Z / Z–A /
+Newest first) was added, using the same dismiss-on-outside-tap dropdown
+pattern as the Product Detail overflow menu.
+**Why:** The baker's product photos are a meaningful part of deciding
+what to tap into (unlike, say, an expense row), and the previous 56×56
+thumbnail undersold that. The helper line became redundant once the
+UI itself (photos, chips) made the screen's purpose self-evident.
+**Alternatives considered:** Keeping the List row card pattern with a
+larger thumbnail — considered simpler/more consistent with the rest of
+the app, but didn't give photos enough visual weight to work as the
+primary way of recognizing a product at a glance.
+**Doc impact:** `docs/UI_UX.md`'s Components table and section E.5
+updated (see below) — Products is now the one exception to the List row
+card pattern; Orders/Expenses/Ingredients are unaffected and keep it.
+
 ### 2026-08-16 — Two Phase 5 interaction patterns changed after on-device testing
 
 **Decision 1 — Restock moved from full-screen to a bottom sheet.**

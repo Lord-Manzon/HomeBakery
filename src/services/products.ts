@@ -101,6 +101,18 @@ export async function createProductCategory(input: {
   return data as ProductCategory;
 }
 
+/**
+ * Removes a category row only — does NOT touch any product currently
+ * carrying that name in products.category (that's plain text, not a
+ * foreign key, per supabase/migrations/0007_product_categories.sql).
+ * Those products keep their category text; they just fall back to the
+ * default icon in getCategoryVisual() once this row is gone.
+ */
+export async function deleteProductCategory(id: string): Promise<void> {
+  const { error } = await supabase.from('product_categories').delete().eq('id', id);
+  if (error) throw error;
+}
+
 export async function getVariants(productId: string): Promise<ProductVariant[]> {
   const { data, error } = await supabase
     .from('product_variants')
@@ -232,5 +244,47 @@ export async function deactivateVariant(id: string): Promise<void> {
     .from('product_variants')
     .update({ is_active: false })
     .eq('id', id);
+  if (error) throw error;
+}
+
+/**
+ * Links (or unlinks, with recipeId=null) a recipe to a variant, sets
+ * recipe_portion, and optionally overrides margin_percent at the variant
+ * level — the fields the Phase 4 Add/edit variant sheet deliberately
+ * excludes (see docs/UI_UX_1.md section E.5c), now editable from the
+ * Recipe & costing screen instead, per Phase 6.
+ */
+export async function updateVariantRecipeLink(
+  variantId: string,
+  input: { recipe_id: string | null; recipe_portion: number | null; margin_percent: number | null }
+): Promise<ProductVariant> {
+  const { data, error } = await supabase
+    .from('product_variants')
+    .update({
+      recipe_id: input.recipe_id,
+      recipe_portion: input.recipe_portion,
+      margin_percent: input.margin_percent,
+    })
+    .eq('id', variantId)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as ProductVariant;
+}
+
+/**
+ * Persists a freshly computed suggested_price for reference/history, per
+ * docs/DATABASE.md ("last computed suggestion, stored for reference").
+ * Never called with a baker-typed value — only ever the output of
+ * src/services/costing.ts's calculateSuggestedPrice.
+ */
+export async function updateVariantSuggestedPrice(
+  variantId: string,
+  suggestedPrice: number | null
+): Promise<void> {
+  const { error } = await supabase
+    .from('product_variants')
+    .update({ suggested_price: suggestedPrice })
+    .eq('id', variantId);
   if (error) throw error;
 }

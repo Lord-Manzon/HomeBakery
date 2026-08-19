@@ -125,8 +125,9 @@ delivery or pickup, notes) → saves → Order detail → from here: Edit / togg
 Payment / Mark delivered / Delete.
 
 **Create product** *(Phase 4 detail below in section E.5–E.6a)*
-Products (`+`) → New product (name, optional category, optional photo — see
-docs/DECISIONS.md's 2026-08-17 entry) → Product detail (empty variants) →
+Products (FAB) → New product (name, optional category — icon-backed
+quick-pick chips or "+ New" to create one, see docs/DECISIONS.md's
+2026-08-18 entry — optional photo) → Product detail (empty variants) →
 Add variant (sheet: name, selling price, packaging cost) → variant appears
 in the list → Recipe & costing (Phase 4: placeholder; Phase 6: ingredients +
 cost breakdown auto-calculate using the resolved margin — variant → product
@@ -226,46 +227,69 @@ and product-photo/placeholder-tile detail from the other. Worth a quick
 read-through against the actual built screen to confirm this matches,
 since it was reconciled by combining docs, not by re-checking the code.
 
-**Layout:** title, category filter chip row (see below), search icon, a
+**CHANGED 2026-08-18 (second entry):** card layout moved from a
+single-column list-row card to a 2-column image-forward grid, capped at
+2 variant price chips (+"N more") per card instead of one chip per
+variant; a sort control was added; category chips gained icons and a
+trailing "+ New" chip. See `docs/DECISIONS.md`'s 2026-08-18 "Products
+list moves from a list-row layout to an image-forward grid" entry and
+the Grid card entry in section F's Components list.
+
+**Layout:** title, a sort icon (dropdown: Name A–Z / Name Z–A / Newest
+first, dismissible by tapping outside — same pattern as Product Detail's
+overflow menu), search icon, a category filter chip row (see below), a
 floating action button (FAB, bottom-right) opens New product — the same
-pattern already used on the Ingredients tab, replacing the original
-top-right `+` icon for consistency across the app's two list-with-quick-add
-screens (see `docs/DECISIONS.md`, 2026-08-18). List of product cards. Each
-card: photo (or a neutral placeholder tile when none is set), name, and
-**one price chip per active variant** shown inline (e.g. "Small ₱450 ·
-Medium ₱850 · Large ₱1,350") — replacing the earlier "`N` variants ·
-`min`–`max` price range" summary line, since seeing each size/price at a
-glance is more useful to a baker scanning the list than a compressed
-range. No chevron — the whole card is tappable.
+pattern already used on the Ingredients tab. A 2-column grid of product
+cards (see the Grid card entry in section F): each card shows a large
+top-anchored photo (or a neutral placeholder tile when none is set),
+name (wraps up to 2 lines rather than truncating), and up to 2 variant
+price chips with a "+N more" chip once a product has more than that —
+capped down from the earlier "one price chip per active variant" design
+since a narrower grid card has less room per card than the old
+full-width row did. No chevron — the whole card is tappable.
 **Category filter row:** chips generated dynamically from the distinct
 `category` values currently in use across the baker's own products —
 "All" always first and always present, then one chip per distinct
-category in use, alphabetical. A product with no category set shows under
-"All" only. No fixed/curated list, no empty placeholder chips for unused
-categories — removing the last product in a category quietly removes that
-chip too. Same interaction pattern as the Ingredients list's category row
-(horizontal scroll, not wrap).
-**Taps:** FAB → New product (full screen, see 5a). Search icon → inline
-search field replaces the helper line, filters live by name. Category chip
-→ filters the list to that category (single-select, same as Ingredients).
-Product card → Product detail (5b) — a real routed screen
-(`/more/products/[id]`), not an inline expansion, so it gets its own back
-button, deep link, and loading state per `docs/CODING_STANDARDS.md`.
-**States:** *Loading* — skeleton cards, no spinner. *Empty (no products
-yet)* — friendly onboarding card (illustration/icon + one line + primary
-button "Add your first product") → New product screen; category row
-hidden entirely (nothing to filter yet). *Error* — retry, plain language,
-no jargon. *Search, no matches* — "No products match '`query`'" with a
-clear-search action, distinct from the true empty state.
+category in use, alphabetical, each showing its icon (looked up from
+`product_categories` by name — see `docs/DECISIONS.md`'s 2026-08-18
+"Product categories get their own table" entry). A product with no
+category set shows under "All" only. No fixed/curated list, no empty
+placeholder chips for unused categories — removing the last product in a
+category quietly removes that chip too. The row ends with a trailing
+"+ New" chip that opens the category creator screen (5d). Same
+interaction pattern as the Ingredients list's category row (horizontal
+scroll, not wrap).
+**Taps:** FAB → New product (full screen, see 5a). Sort icon → the sort
+dropdown. Search icon → inline search field, filters live by name.
+Category chip → filters the grid to that category (single-select, same
+as Ingredients); "+ New" chip → New category (5d). Product card →
+Product detail (5b) — a real routed screen (`/more/products/[id]`), not
+an inline expansion, so it gets its own back button, deep link, and
+loading state per `docs/CODING_STANDARDS.md`.
+**States:** *Loading* — skeleton grid tiles, no spinner. *Empty (no
+products yet)* — friendly onboarding card (illustration/icon + one line
++ primary button "Add your first product") → New product screen;
+category row hidden entirely (nothing to filter yet). *Error* — retry,
+plain language, no jargon. *Search, no matches* — "No products match
+'`query`'" with a clear-search action, distinct from the true empty
+state.
 
 ### 5a. New product (full screen)
 Reached from: Products list `+`, or the empty-state CTA.
 **CHANGED 2026-08-17:** category is now MVP — see
 `docs/DECISIONS.md`'s 2026-08-17 entry.
-**Fields:** Name (required, text) · Category (optional — chips of the
-baker's existing categories shown as quick-pick, plus a way to type a new
-one; free text under the hood, same as Ingredients/Expenses) · Photo
+**Fields:** Name (required, text) · Category (optional — icon-backed
+quick-pick chips sourced from `product_categories`, ending in a "+ New"
+chip that opens the category creator (5d) instead of typing free text
+inline — see `docs/DECISIONS.md`'s 2026-08-18 entry; `products.category`
+itself is still plain text under the hood, same as Ingredients/Expenses,
+just always populated by picking a chip now rather than typing) · Photo
 (optional, image picker → Supabase Storage).
+**Editing categories:** long-press any category chip to enter an
+editable state — every chip wiggles and grows a small "×" badge
+(iOS-homescreen-style), "Done" exits. Tapping × opens a confirm dialog
+before removing that category (per `docs/CODING_STANDARDS.md`'s
+confirmation-before-delete rule), not an instant delete.
 **Validation (Zod):** `name` required, 1–100 chars, trimmed. `category`
 optional, 1–50 chars if provided, trimmed. `image_url` optional.
 **States:** *Default* — Save disabled until name is non-empty. *Saving* —
@@ -276,8 +300,26 @@ whole save on a flaky upload. *Success* — navigate to the new product's
 detail screen (empty variants, see 5b).
 
 ### 5b. Product detail
-**Layout:** product name as title, list of variant rows (name, price),
-"Add variant" (secondary) and "Recipe & costing" (primary) buttons.
+> **FLAGGED (2026-08-18):** this section still describes the original
+> list-row variant layout (name/price rows + a persistent two-button
+> footer). The actual screen was redesigned directly in code to a
+> full-width tappable hero photo, a 2-up variant card grid with
+> long-press-to-reveal delete, and a single "Recipe & costing" button —
+> not yet written up here. The two lines below (editable name, category
+> icon) are accurate as of 2026-08-18; the rest of this section needs a
+> proper pass against the actual screen, not a quick patch alongside
+> unrelated edits.
+
+**Layout:** product name as title — tappable to edit inline (pencil icon
+signals this; commits on blur or the keyboard's Done, reusing the same
+save call the photo-upload feature already used — see
+`docs/DECISIONS.md`'s 2026-08-18 "Product name is editable inline"
+entry), list of variant rows (name, price), "Add variant" (secondary)
+and "Recipe & costing" (primary) buttons.
+**Category:** shown as a pill with its icon, looked up from
+`product_categories` by name and falling back to a default icon if no
+matching row exists (e.g. the category was later deleted) — see
+`docs/DECISIONS.md`'s 2026-08-18 entries.
 **Empty variants (new product):** replace the variant list with "This
 product has no sizes yet" + a single prominent "Add variant" button. Hide
 "Recipe & costing" entirely until at least one variant exists — a disabled
@@ -321,6 +363,19 @@ never a toast. *Saving* — spinner, sheet can't be dismissed mid-save.
 *Error* — inline banner inside the sheet, fields stay filled.
 **Deactivating a variant:** same inline-confirm pattern, reached from the
 variant's own row — sets `is_active = false`, doesn't hard-delete.
+
+### 5d. New category (full screen)
+Reached from: the "+ New" chip on New Product's category row, or the
+Products list's category filter row.
+**Fields:** Name (required) · a 10-icon curated grid (required — Create
+disabled until both are set). No color picker — color is derived
+automatically from the name, see `docs/DECISIONS.md`'s 2026-08-18 entry.
+**On save:** inserts a `product_categories` row, then returns to
+wherever it was opened from; the new category appears as a selectable
+chip immediately (shared query cache), no further action needed to see
+it show up.
+**Deleting a category:** not from this screen — see the "Editing
+categories" note under 5a.
 
 ### 6. Recipe & costing
 Reached only from a variant's context — **never** a bottom-nav or
@@ -432,8 +487,14 @@ bundle, one less thing to get inconsistent across screens.
 - **Metric card:** label (12px, secondary) above a large number (22px,
   semibold), no border — just a filled surface tile.
 - **List row card:** bordered card, 10–12px radius, used for
-  orders/expenses/ingredients/products — bordered rather than shadowed, so
-  a long list doesn't look heavy.
+  orders/expenses/ingredients — bordered rather than shadowed, so
+  a long list doesn't look heavy. Products is the one exception — see
+  "Grid card" below and `docs/DECISIONS.md`'s 2026-08-18 entry.
+- **Grid card (Products only):** 2-column grid, large top-anchored photo
+  (or a neutral placeholder), name, up to 2 variant price chips + a
+  "+N more" chip once a product has more than that. Used specifically
+  because product photos carry real recognition value the other lists'
+  rows don't need.
 - **Bottom sheet:** for 2–4 field quick entry (expense, variant, stock
   adjustment) — always dismissible by swipe or tap-outside, primary action
   pinned at the bottom.

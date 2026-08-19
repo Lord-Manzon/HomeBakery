@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  createProduct,
+ createProduct,
   createProductCategory,
   createVariant,
   deactivateProduct,
   deactivateVariant,
+  deleteProductCategory,
   getProduct,
   getProductCategories,
   getProducts,
@@ -12,6 +13,8 @@ import {
   setDefaultVariant,
   updateProduct,
   updateVariant,
+  updateVariantRecipeLink,
+  updateVariantSuggestedPrice,
 } from '../services/products';
 import type { ProductFormInput, VariantFormInput } from '../utils/validation/productSchemas';
 
@@ -115,10 +118,59 @@ export function useProductCategories() {
   return useQuery({ queryKey: productCategoriesKey, queryFn: getProductCategories });
 }
 
+/**
+ * Links/unlinks a recipe to a variant and sets its portion + margin
+ * override — used by the real Phase 6 Recipe & costing screen. Product-
+ * level and variant-level caches both need invalidating: the Products
+ * list's per-variant price chips (and the product's own margin_percent
+ * lookup) can be affected by a margin change here.
+ */
+export function useUpdateVariantRecipeLink(productId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      variantId,
+      input,
+    }: {
+      variantId: string;
+      input: { recipe_id: string | null; recipe_portion: number | null; margin_percent: number | null };
+    }) => updateVariantRecipeLink(variantId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: variantsKey(productId) });
+      queryClient.invalidateQueries({ queryKey: productsKey });
+    },
+  });
+}
+
+/** Persists a freshly computed suggested_price for reference — see
+ * docs/DATABASE.md. Silently no-ops the UI beyond a normal mutation;
+ * nothing needs to visibly change since the caller already has the
+ * number it just computed. */
+export function useUpdateVariantSuggestedPrice(productId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ variantId, suggestedPrice }: { variantId: string; suggestedPrice: number | null }) =>
+      updateVariantSuggestedPrice(variantId, suggestedPrice),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: variantsKey(productId) });
+    },
+  });
+}
+
 export function useCreateProductCategory() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: { name: string; icon: string }) => createProductCategory(input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: productCategoriesKey });
+    },
+  });
+}
+
+export function useDeleteProductCategory() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteProductCategory(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: productCategoriesKey });
     },
