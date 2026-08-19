@@ -106,23 +106,55 @@ export default function ProductsListScreen() {
         }}
       >
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Products</Text>
-        <View style={styles.headerActions}>
-          <Pressable
-            onPress={() => setIsFilterOpen((v) => !v)}
-            style={styles.iconButton}
-            accessibilityLabel="Sort products"
-          >
-            <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
-          </Pressable>
-          <Pressable
-            onPress={() => setIsSearchOpen((v) => !v)}
-            style={styles.iconButton}
-            accessibilityLabel="Search products"
-          >
-            <Ionicons name="search" size={20} color={colors.textPrimary} />
-          </Pressable>
-        </View>
+        {isSearchOpen ? (
+          <>
+            <Pressable
+              onPress={() => {
+                setIsSearchOpen(false);
+                setSearch('');
+              }}
+              style={styles.iconButton}
+              accessibilityLabel="Close search"
+            >
+              <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+            </Pressable>
+            <TextInput
+              style={styles.searchInputInline}
+              placeholder="Search products"
+              placeholderTextColor={colors.textSecondary}
+              value={search}
+              onChangeText={setSearch}
+              autoFocus
+            />
+            <Pressable
+              onPress={() => setIsFilterOpen((v) => !v)}
+              style={styles.iconButton}
+              accessibilityLabel="Sort products"
+            >
+              <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={styles.title}>Products</Text>
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => setIsFilterOpen((v) => !v)}
+                style={styles.iconButton}
+                accessibilityLabel="Sort products"
+              >
+                <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
+              </Pressable>
+              <Pressable
+                onPress={() => setIsSearchOpen(true)}
+                style={styles.iconButton}
+                accessibilityLabel="Search products"
+              >
+                <Ionicons name="search" size={20} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+          </>
+        )}
       </View>
 
       {isFilterOpen ? (
@@ -188,16 +220,7 @@ export default function ProductsListScreen() {
         </>
       ) : null}
 
-      {isSearchOpen ? (
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search products"
-          placeholderTextColor={colors.textSecondary}
-          value={search}
-          onChangeText={setSearch}
-          autoFocus
-        />
-      ) : null}
+      
 
       {categories.length > 0 ? (
         <ScrollView
@@ -659,6 +682,12 @@ function makeStyles(colors: Record<ColorToken, string>) {
       color: colors.textPrimary,
       backgroundColor: colors.surface,
       marginBottom: spacing.md,
+    },
+    searchInputInline: {
+      flex: 1,
+      fontSize: typography.body.fontSize,
+      color: colors.textPrimary,
+      paddingHorizontal: spacing.sm,
     },
     // Height bumped from a flat 40 and a top inset added to
     // categoryRowContent — a horizontal ScrollView clips anything
