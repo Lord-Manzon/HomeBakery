@@ -200,7 +200,6 @@ export default function ProductDetailScreen() {
                 <Text style={styles.title} numberOfLines={1}>
                   {product.name}
                 </Text>
-                <Ionicons name="pencil-outline" size={12} color={colors.textSecondary} />
               </Pressable>
             )}
           </View>
