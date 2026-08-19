@@ -15,9 +15,9 @@ import {
   useVariants,
 } from '../../../../../src/hooks/useProducts';
 import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
-import { getCategoryVisual } from '../../../../../src/utils/productCategoryIcon';
 import { useThemeColors } from '../../../../../src/theme/ThemeContext';
 import { usePressScale } from '../../../../../src/hooks/usePressScale';
+import { getCategoryVisual } from '../../../../../src/utils/productCategoryIcon';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
 import { VariantFormSheet } from '../../../../../src/components/VariantFormSheet';
@@ -27,7 +27,7 @@ import { uploadProductPhoto } from '../../../../../src/services/products';
 import { formatCurrency } from '../../../../../src/utils/currency';
 import { spacing, radii, typography, motionDuration, motionEasing, motionStagger } from '../../../../../src/theme';
 import type { ColorToken } from '../../../../../src/theme/colors';
-import type { ProductVariant } from '../../../../../src/types/product';
+import type { ProductCategory, ProductVariant } from '../../../../../src/types/product';
 
 export default function ProductDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -50,16 +50,9 @@ export default function ProductDetailScreen() {
   const [editingVariant, setEditingVariant] = useState<ProductVariant | undefined>(undefined);
   const [isOverflowOpen, setIsOverflowOpen] = useState(false);
   const [isConfirmingDeactivate, setIsConfirmingDeactivate] = useState(false);
-  // Which variant card currently has its Cancel/Delete row revealed —
-  // opened via long-press instead of a permanent delete icon on every
-  // card (see docs/DECISIONS.md-style rationale in the comment above
-  // VariantCard below).
   const [revealedVariantId, setRevealedVariantId] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  // Optimistic local preview while a newly-picked photo uploads — kept
-  // separate from `product.image_url` so the hero updates instantly on
-  // pick instead of waiting on the upload + refetch round-trip.
   const [localImageUri, setLocalImageUri] = useState<string | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
@@ -67,6 +60,8 @@ export default function ProductDetailScreen() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
+
+  const [isCategoryPickerOpen, setIsCategoryPickerOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -123,10 +118,6 @@ export default function ProductDetailScreen() {
     router.push(`/more/products/${product.id}/recipe?variantId=${defaultVariant.id}`);
   };
 
-  // Tapping the hero picks a photo and uploads it right away — reuses the
-  // same uploadProductPhoto() + useUpdateProduct() plumbing New Product
-  // already has, just wired into this screen too so a missing/failed
-  // photo can be fixed here instead of only at creation time.
   const handlePickPhoto = async () => {
     setPhotoError(null);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -173,6 +164,15 @@ export default function ProductDetailScreen() {
       { name: trimmed, category: product.category, image_url: product.image_url },
       { onError: () => setNameError("Couldn't save the name. Please try again.") }
     );
+  };
+
+  // Selecting the already-set category again clears it — same
+  // tap-to-toggle behavior as the New Product chip picker, so this
+  // screen doesn't need a separate "remove category" affordance.
+  const handleSelectCategory = (name: string) => {
+    const next = product.category === name ? null : name;
+    updateProduct.mutate({ name: product.name, category: next, image_url: product.image_url });
+    setIsCategoryPickerOpen(false);
   };
 
   return (
@@ -246,18 +246,76 @@ export default function ProductDetailScreen() {
               colors={colors}
             />
             {photoError ? <Text style={styles.photoErrorText}>{photoError}</Text> : null}
-            {product.category ? (
-              <View style={styles.categoryPill}>
-                <Ionicons
-                  name={
-                    getCategoryVisual(product.category, productCategories ?? [])
-                      .icon as keyof typeof Ionicons.glyphMap
-                  }
-                  size={12}
-                  color={colors.textSecondary}
-                />
-                <Text style={styles.categoryPillText}>{product.category}</Text>
-              </View>
+
+            <Pressable
+              onPress={() => setIsCategoryPickerOpen((v) => !v)}
+              style={
+                product.category
+                  ? styles.categoryPill
+                  : [styles.categoryPill, styles.categoryPillEmpty]
+              }
+            >
+              {product.category ? (
+                <>
+                  <Ionicons
+                    name={
+                      getCategoryVisual(product.category, productCategories ?? [])
+                        .icon as keyof typeof Ionicons.glyphMap
+                    }
+                    size={12}
+                    color={colors.textSecondary}
+                  />
+                  <Text style={styles.categoryPillText}>{product.category}</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="add" size={12} color={colors.primary} />
+                  <Text style={styles.categoryPillEmptyText}>Add category</Text>
+                </>
+              )}
+            </Pressable>
+
+            {isCategoryPickerOpen ? (
+              <Animated.View
+                entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
+                style={styles.categoryPickerRow}
+              >
+                {(productCategories ?? []).map((cat) => {
+                  const isSelected = product.category === cat.name;
+                  const visual = getCategoryVisual(cat.name, productCategories ?? []);
+                  return (
+                    <Pressable
+                      key={cat.id}
+                      onPress={() => handleSelectCategory(cat.name)}
+                      style={[
+                        styles.categoryPickerChip,
+                        isSelected && { backgroundColor: visual.color, borderColor: visual.color },
+                      ]}
+                    >
+                      <Ionicons
+                        name={visual.icon as keyof typeof Ionicons.glyphMap}
+                        size={14}
+                        color={isSelected ? colors.textInverse : colors.textSecondary}
+                      />
+                      <Text
+                        style={[
+                          styles.categoryPickerChipText,
+                          isSelected && styles.categoryPickerChipTextSelected,
+                        ]}
+                      >
+                        {cat.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+                <Pressable
+                  onPress={() => router.push('/more/products/categories/new')}
+                  style={styles.categoryPickerChipNew}
+                >
+                  <Ionicons name="add" size={14} color={colors.primary} />
+                  <Text style={styles.categoryPickerChipNewText}>New</Text>
+                </Pressable>
+              </Animated.View>
             ) : null}
           </View>
 
@@ -344,11 +402,6 @@ export default function ProductDetailScreen() {
   );
 }
 
-// Full-width hero photo, tappable to add/change — replaces the old
-// 56x56 thumbnail that sat quietly next to the category pill and was
-// easy to miss (or, with no image_url at all, rendered nothing). Always
-// shows something tappable — an actual photo, or an inviting empty
-// state — so "no photo" reads as an available action, not a bug.
 function HeroPhoto({
   uri,
   isUploading,
@@ -394,22 +447,6 @@ function HeroPhoto({
   );
 }
 
-// Compact grid card, sized to its content instead of stretching the
-// full row width — a short name like "Small" no longer leaves a long
-// bar of empty space next to the price.
-//
-// Delete is reached by long-press instead of a permanent icon on every
-// card: deactivating is rare next to editing, so it doesn't need equal
-// visual weight on the default face. Long-press reveals an in-card
-// Cancel/Delete row (still the same two-step, deliberate pattern as
-// before — long-press-then-tap instead of tap-then-tap).
-//
-// Deactivating a variant is a soft delete (`is_active = false` — see
-// services/products.ts), so it's safe even if the variant is already
-// on a past order: `order_items.variant_id` still points to a real row,
-// and `unit_price` was already copied onto the order at the time it was
-// placed, per docs/DATABASE.md. Only new orders lose the option to pick
-// this size again.
 function VariantCard({
   variant,
   index,
@@ -436,8 +473,6 @@ function VariantCard({
   onConfirmDelete: () => void;
 }) {
   const press = usePressScale(0.97);
-  // Staggered entrance per motion.ts's motionStagger — capped so a long
-  // variant list doesn't make the last cards look sluggishly late.
   const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
 
   return (
@@ -557,16 +592,8 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     overflowRowText: { ...typography.body, color: colors.danger },
     scroll: { flex: 1 },
-    // No more paddingBottom carve-out for a fixed footer — the action
-    // button now scrolls with the content instead of pinning to the
-    // bottom of the screen. That's what was producing the large dead
-    // gap under the variant list on products with few variants: a
-    // full-height ScrollView with short content, topped by a footer
-    // nailed to the very bottom of the screen.
     scrollContent: { paddingBottom: spacing.xxl },
     heroBlock: { marginBottom: spacing.xl },
-    // 16:9-ish hero, not a fixed square — reads as a proper product
-    // photo rather than an icon-sized thumbnail.
     hero: {
       width: '100%',
       height: 180,
@@ -586,10 +613,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       borderRadius: radii.lg,
     },
     heroPlaceholderText: { ...typography.bodySm, color: colors.textSecondary },
-    // Small camera badge overlaid on the corner — shown whether or not a
-    // photo already exists, so "tap to change" stays discoverable even
-    // once a photo is set (there was previously no way to change a
-    // product's photo after creation at all).
     heroBadge: {
       position: 'absolute',
       right: spacing.sm,
@@ -625,7 +648,44 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.xs,
       marginTop: spacing.sm,
     },
+    categoryPillEmpty: {
+      backgroundColor: 'transparent',
+      borderWidth: 1,
+      borderColor: colors.primary,
+      borderStyle: 'dashed',
+    },
     categoryPillText: { ...typography.caption, color: colors.textSecondary },
+    categoryPillEmptyText: { ...typography.caption, color: colors.primary, fontWeight: '600' },
+    categoryPickerRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginTop: spacing.md,
+    },
+    categoryPickerChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+      backgroundColor: colors.surface,
+    },
+    categoryPickerChipText: { ...typography.bodySm, color: colors.textPrimary },
+    categoryPickerChipTextSelected: { color: colors.textInverse },
+    categoryPickerChipNew: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    categoryPickerChipNewText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     sectionLabel: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.md },
     emptyVariants: {
       alignItems: 'center',
@@ -635,9 +695,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     emptyVariantsText: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
     emptyVariantsButton: { minWidth: 180 },
-    // Wrapping 2-up grid — each card sized to ~47% width instead of the
-    // old full-width row, so short names/prices don't stretch into a
-    // long bar with dead space in the middle.
     variantsGrid: {
       flexDirection: 'row',
       flexWrap: 'wrap',
@@ -679,9 +736,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       justifyContent: 'center',
     },
     variantCardDeleteText: { ...typography.caption, color: colors.danger, fontWeight: '600' },
-    // Sits inside the grid as its own tile instead of a separate button
-    // below the list — one less CTA competing for attention, and it's
-    // exactly where your eye already is after scanning the sizes.
     addVariantTile: {
       width: '47%',
       minHeight: 64,
@@ -695,10 +749,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       gap: spacing.xs,
     },
     addVariantTileText: { ...typography.bodySm, color: colors.textSecondary },
-    // Replaces the old fixed-to-bottom `footer` — now just the last
-    // block inside the ScrollView, separated with a hairline instead of
-    // a full-width surface band. Only one button now ("Add variant"
-    // moved into the grid above), so no more two-button row.
     actionsSection: {
       marginTop: spacing.xl,
       paddingTop: spacing.lg,
