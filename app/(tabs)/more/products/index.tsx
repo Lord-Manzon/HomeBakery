@@ -139,18 +139,18 @@ export default function ProductsListScreen() {
             <Text style={styles.title}>Products</Text>
             <View style={styles.headerActions}>
               <Pressable
-                onPress={() => setIsFilterOpen((v) => !v)}
-                style={styles.iconButton}
-                accessibilityLabel="Sort products"
-              >
-                <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
-              </Pressable>
-              <Pressable
                 onPress={() => setIsSearchOpen(true)}
                 style={styles.iconButton}
                 accessibilityLabel="Search products"
               >
                 <Ionicons name="search" size={20} color={colors.textPrimary} />
+              </Pressable>
+              <Pressable
+                onPress={() => setIsFilterOpen((v) => !v)}
+                style={styles.iconButton}
+                accessibilityLabel="Sort products"
+              >
+                <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
               </Pressable>
             </View>
           </>
@@ -444,7 +444,7 @@ function ProductCard({
               ) : null}
             </View>
           ) : (
-            <Text style={styles.cardNoVariants}>No sizes yet</Text>
+            <Text style={styles.cardNoVariants}>Tap to add a price</Text>
           )}
         </View>
       </Pressable>
@@ -510,7 +510,7 @@ function ProductListCard({
               ) : null}
             </View>
           ) : (
-            <Text style={styles.cardNoVariants}>No sizes yet</Text>
+            <Text style={styles.cardNoVariants}>Tap to add a price</Text>
           )}
         </View>
       </Pressable>
@@ -798,7 +798,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     cardBody: { padding: spacing.md },
     cardName: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
-    cardNoVariants: { ...typography.bodySm, color: colors.textSecondary },
+    cardNoVariants: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     variantChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
     variantChip: {
       flexDirection: 'row',
