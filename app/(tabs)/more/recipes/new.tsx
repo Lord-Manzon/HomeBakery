@@ -21,16 +21,18 @@ export default function NewRecipeScreen() {
   const [name, setName] = useState('');
   const [yieldQuantity, setYieldQuantity] = useState('');
   const [yieldUnit, setYieldUnit] = useState('');
-  const [instructions, setInstructions] = useState('');
   const [marginPercent, setMarginPercent] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const handleSave = () => {
+    // Instructions aren't collected here — see docs/DECISIONS.md's
+    // 2026-08-21 entry. They're added afterward from Recipe Detail,
+    // where there's room for real step-by-step entry rather than a
+    // cramped box on an already-long creation form.
     const result = recipeFormSchema.safeParse({
       name,
       yield_quantity: yieldQuantity,
       yield_unit: yieldUnit,
-      instructions,
       margin_percent: marginPercent || null,
     });
     if (!result.success) {
@@ -58,10 +60,11 @@ export default function NewRecipeScreen() {
       <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
         <FormField label="Name" placeholder="e.g. Vanilla sponge" value={name} onChangeText={setName} error={errors.name} />
 
+        <Text style={styles.sectionLabel}>How much does one batch make?</Text>
         <View style={styles.row}>
-          <View style={styles.rowField}>
+          <View style={styles.rowFieldQty}>
             <FormField
-              label="Yield quantity"
+              label="How many"
               placeholder="1"
               keyboardType="decimal-pad"
               value={yieldQuantity}
@@ -69,10 +72,10 @@ export default function NewRecipeScreen() {
               error={errors.yield_quantity}
             />
           </View>
-          <View style={styles.rowField}>
+          <View style={styles.rowFieldUnit}>
             <FormField
-              label="Yield unit"
-              placeholder="8-inch cake"
+              label="Of what"
+              placeholder="e.g. 8-inch cake, cupcakes, dozen rolls"
               value={yieldUnit}
               onChangeText={setYieldUnit}
               error={errors.yield_unit}
@@ -80,19 +83,13 @@ export default function NewRecipeScreen() {
           </View>
         </View>
         <Text style={styles.hint}>
-          How much one full batch of this recipe makes — e.g. "1" / "8-inch cake", or "24" /
-          "cupcakes".
+          Think of one full bake, start to finish — one batch of this recipe makes how many of
+          what? A single 8-inch cake, or two dozen cupcakes, for example.
         </Text>
 
-        <FormField
-          label="Instructions (optional)"
-          placeholder="Steps, oven temp, notes..."
-          value={instructions}
-          onChangeText={setInstructions}
-          multiline
-          numberOfLines={4}
-          style={styles.multiline}
-        />
+        <Text style={styles.hint}>
+          You can add step-by-step instructions after saving — no need to write them out now.
+        </Text>
 
         <FormField
           label="Margin override (optional)"
@@ -129,10 +126,12 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     title: { ...typography.titleLg, color: colors.textPrimary },
     iconButton: { width: 44, height: 44, borderRadius: radii.full, alignItems: 'center', justifyContent: 'center' },
+    sectionLabel: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.sm },
     row: { flexDirection: 'row', gap: spacing.md },
-    rowField: { flex: 1 },
+    // Unit gets more room than quantity — "8-inch cake" needs it, "1" doesn't.
+    rowFieldQty: { flex: 1 },
+    rowFieldUnit: { flex: 2 },
     hint: { ...typography.caption, color: colors.textSecondary, marginTop: -spacing.sm, marginBottom: spacing.lg },
-    multiline: { minHeight: 90, textAlignVertical: 'top', paddingTop: spacing.sm + 2 },
     saveButton: { marginTop: spacing.md, marginBottom: spacing.xxxl },
   });
 }
