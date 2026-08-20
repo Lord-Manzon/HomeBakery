@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -16,7 +16,6 @@ import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
 import { useThemeColors } from '../../../../../src/theme/ThemeContext';
 import { calculateRecipeBatchCost, calculateSuggestedPrice } from '../../../../../src/services/costing';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
-import { FormField } from '../../../../../src/components/FormField';
 import { RecipeIngredientSheet } from '../../../../../src/components/RecipeIngredientSheet';
 import { Screen } from '../../../../../src/components/Screen';
 import { formatCurrency } from '../../../../../src/utils/currency';
@@ -44,6 +43,7 @@ export default function RecipeDetailScreen() {
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
+  const [nameError, setNameError] = useState<string | null>(null);
   const [isCostExpanded, setIsCostExpanded] = useState(false);
   const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
   const [ingredientSheet, setIngredientSheet] = useState<
@@ -75,19 +75,33 @@ export default function RecipeDetailScreen() {
 
   const startEditingName = () => {
     setNameDraft(recipe.name);
+    setNameError(null);
     setIsEditingName(true);
   };
 
-  const saveNameEdit = () => {
+  const commitNameEdit = () => {
+    const trimmed = nameDraft.trim();
+    setIsEditingName(false);
+    if (trimmed === recipe.name) return;
+    if (!trimmed) {
+      setNameError("Name can't be empty");
+      return;
+    }
     const result = recipeFormSchema.safeParse({
-      name: nameDraft,
+      name: trimmed,
       yield_quantity: recipe.yield_quantity,
       yield_unit: recipe.yield_unit,
       instructions: recipe.instructions,
       margin_percent: recipe.margin_percent,
     });
-    if (!result.success) return;
-    updateRecipe.mutate(result.data, { onSuccess: () => setIsEditingName(false) });
+    if (!result.success) {
+      setNameError('Something about that name is invalid.');
+      return;
+    }
+    setNameError(null);
+    updateRecipe.mutate(result.data, {
+      onError: () => setNameError("Couldn't save. Try again."),
+    });
   };
 
   return (
@@ -97,24 +111,57 @@ export default function RecipeDetailScreen() {
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </Pressable>
         {isEditingName ? (
-          <FormField label="" value={nameDraft} onChangeText={setNameDraft} autoFocus style={styles.nameInput} />
+          <TextInput
+            style={styles.titleInput}
+            value={nameDraft}
+            onChangeText={setNameDraft}
+            onBlur={commitNameEdit}
+            onSubmitEditing={commitNameEdit}
+            autoFocus
+            selectTextOnFocus
+            returnKeyType="done"
+            maxLength={100}
+          />
         ) : (
-          <Text style={styles.title} numberOfLines={1}>
-            {recipe.name}
-          </Text>
+          <Pressable onPress={startEditingName} style={styles.titlePressable}>
+            <Text style={styles.title} numberOfLines={1}>
+              {recipe.name}
+            </Text>
+          </Pressable>
         )}
         <Pressable
-          onPress={isEditingName ? saveNameEdit : startEditingName}
+          onPress={() => setIsDeleteConfirming((v) => !v)}
           style={styles.iconButton}
-          accessibilityLabel={isEditingName ? 'Save name' : 'Edit name'}
+          accessibilityLabel="Delete recipe"
         >
-          <Ionicons
-            name={isEditingName ? 'checkmark' : 'pencil-outline'}
-            size={20}
-            color={colors.primary}
-          />
+          <Ionicons name="trash-outline" size={20} color={colors.danger} />
         </Pressable>
       </View>
+
+      {nameError ? <Text style={styles.nameErrorText}>{nameError}</Text> : null}
+
+      {isDeleteConfirming ? (
+        <View style={styles.inlineConfirmRow}>
+          <Text style={styles.inlineConfirmText}>
+            Delete this recipe? Any product using it keeps working, but falls back to packaging
+            cost only until re-linked to a different recipe.
+          </Text>
+          <View style={styles.inlineConfirmActions}>
+            <Pressable onPress={() => setIsDeleteConfirming(false)} style={styles.inlineConfirmCancel}>
+              <Text style={styles.inlineConfirmCancelText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => deleteRecipe.mutate(id, { onSuccess: () => router.back() })}
+              style={styles.inlineConfirmDelete}
+              disabled={deleteRecipe.isPending}
+            >
+              <Text style={styles.inlineConfirmDeleteText}>
+                {deleteRecipe.isPending ? 'Deleting…' : 'Confirm delete'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       <ScrollView showsVerticalScrollIndicator={false}>
         <Text style={styles.yieldLine}>
@@ -198,6 +245,43 @@ export default function RecipeDetailScreen() {
           ))
         )}
 
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionHeader}>Instructions</Text>
+          <Pressable
+            onPress={() => router.push(`/more/recipes/${id}/instructions`)}
+            style={styles.addLink}
+          >
+            <Ionicons
+              name={recipe.instructions && recipe.instructions.length > 0 ? 'create-outline' : 'add'}
+              size={16}
+              color={colors.primary}
+            />
+            <Text style={styles.addLinkText}>
+              {recipe.instructions && recipe.instructions.length > 0 ? 'Edit' : 'Add'}
+            </Text>
+          </Pressable>
+        </View>
+
+        {!recipe.instructions || recipe.instructions.length === 0 ? (
+          <Pressable onPress={() => router.push(`/more/recipes/${id}/instructions`)}>
+            <Text style={styles.emptyIngredients}>
+              No steps yet — add them so they're not just in your head.
+            </Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={styles.instructionsCard}
+            onPress={() => router.push(`/more/recipes/${id}/instructions`)}
+          >
+            {recipe.instructions.map((step, i) => (
+              <View key={i} style={styles.stepRow}>
+                <Text style={styles.stepNumber}>{i + 1}.</Text>
+                <Text style={styles.stepText}>{step}</Text>
+              </View>
+            ))}
+          </Pressable>
+        )}
+
         {usage && usage.length > 0 ? (
           <>
             <Text style={styles.sectionHeader}>Used in</Text>
@@ -216,35 +300,6 @@ export default function RecipeDetailScreen() {
           </>
         ) : null}
 
-        <View style={styles.deleteBlock}>
-          <Text style={styles.deleteNote}>
-            Deleting a recipe won't remove any product that uses it — those variants just lose
-            their recipe link, and fall back to packaging cost only until re-linked.
-          </Text>
-          {isDeleteConfirming ? (
-            <View style={styles.inlineConfirmRow}>
-              <Text style={styles.inlineConfirmText}>Delete this recipe?</Text>
-              <View style={styles.inlineConfirmActions}>
-                <Pressable onPress={() => setIsDeleteConfirming(false)} style={styles.inlineConfirmCancel}>
-                  <Text style={styles.inlineConfirmCancelText}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => deleteRecipe.mutate(id, { onSuccess: () => router.back() })}
-                  style={styles.inlineConfirmDelete}
-                  disabled={deleteRecipe.isPending}
-                >
-                  <Text style={styles.inlineConfirmDeleteText}>
-                    {deleteRecipe.isPending ? 'Deleting…' : 'Confirm delete'}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          ) : (
-            <Pressable onPress={() => setIsDeleteConfirming(true)}>
-              <Text style={styles.deleteLink}>Delete recipe</Text>
-            </Pressable>
-          )}
-        </View>
       </ScrollView>
 
       <RecipeIngredientSheet
@@ -315,8 +370,23 @@ function makeStyles(colors: Record<ColorToken, string>) {
       alignItems: 'center',
       marginBottom: spacing.sm,
     },
-    title: { ...typography.titleLg, color: colors.textPrimary, flex: 1, textAlign: 'center' },
-    nameInput: { flex: 1, marginBottom: 0, marginHorizontal: spacing.sm },
+    titlePressable: { flex: 1 },
+    title: { ...typography.titleLg, color: colors.textPrimary, textAlign: 'center' },
+    titleInput: {
+      ...typography.titleLg,
+      color: colors.textPrimary,
+      flex: 1,
+      textAlign: 'center',
+      borderBottomWidth: 1,
+      borderBottomColor: colors.primary,
+      paddingBottom: spacing.xxs,
+    },
+    nameErrorText: {
+      ...typography.caption,
+      color: colors.danger,
+      textAlign: 'center',
+      marginBottom: spacing.sm,
+    },
     iconButton: { width: 44, height: 44, borderRadius: radii.full, alignItems: 'center', justifyContent: 'center' },
     yieldLine: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
     card: { backgroundColor: colors.surface, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.md },
@@ -360,13 +430,22 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.sm,
     },
     usageText: { ...typography.bodySm, color: colors.textPrimary },
-    deleteBlock: { marginTop: spacing.xxl, marginBottom: spacing.xxxl },
-    deleteNote: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.sm, textAlign: 'center' },
-    deleteLink: { ...typography.bodySm, color: colors.danger, fontWeight: '600', textAlign: 'center' },
+    instructionsCard: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.lg,
+      padding: spacing.lg,
+      marginBottom: spacing.lg,
+    },
+    stepRow: { flexDirection: 'row', marginBottom: spacing.sm },
+    stepNumber: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600', width: 22 },
+    stepText: { ...typography.bodySm, color: colors.textPrimary, flex: 1 },
     inlineConfirmRow: {
       backgroundColor: colors.dangerMuted,
       borderRadius: radii.md,
       padding: spacing.md,
+      marginBottom: spacing.lg,
     },
     inlineConfirmText: { ...typography.bodySm, color: colors.danger, marginBottom: spacing.sm },
     inlineConfirmActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
