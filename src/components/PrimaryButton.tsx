@@ -19,7 +19,7 @@ type PrimaryButtonProps = {
    * on the ingredient detail screen) can visually rank them instead of
    * both reading as equally primary.
    */
-  variant?: 'primary' | 'secondary';
+  variant?: 'primary' | 'secondary' | 'danger';
 };
 
 export function PrimaryButton({
@@ -33,6 +33,7 @@ export function PrimaryButton({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const isDisabled = disabled || isLoading;
   const isSecondary = variant === 'secondary';
+  const isDanger = variant === 'danger';
   // Motion: subtle press-in scale using the shared Motion tokens — see
   // docs/DECISIONS.md's 2026-08-17 "Motion design token system" entry.
   const press = usePressScale();
@@ -48,6 +49,7 @@ export function PrimaryButton({
         style={[
           styles.button,
           isSecondary && styles.buttonSecondary,
+          isDanger && styles.buttonDanger,
           isDisabled && (isSecondary ? styles.buttonSecondaryDisabled : styles.buttonDisabled),
           press.style,
         ]}
@@ -78,6 +80,9 @@ function makeStyles(colors: Record<ColorToken, string>) {
       backgroundColor: colors.surface,
       borderWidth: 1.5,
       borderColor: colors.primary,
+    },
+    buttonDanger: {
+      backgroundColor: colors.danger,
     },
     buttonDisabled: {
       opacity: 0.5,

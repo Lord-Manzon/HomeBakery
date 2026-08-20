@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useProduct, useUpdateVariantRecipeLink, useUpdateVariantSuggestedPrice, useVariants } from '../../../../../src/hooks/useProducts';
+import { useProduct, useUpdateVariant, useUpdateVariantRecipeLink, useUpdateVariantSuggestedPrice, useVariants } from '../../../../../src/hooks/useProducts';
 import { useRecipe, useRecipes } from '../../../../../src/hooks/useRecipes';
 import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
 import { useThemeColors } from '../../../../../src/theme/ThemeContext';
@@ -14,6 +14,7 @@ import {
   resolveMarginPercent,
 } from '../../../../../src/services/costing';
 import { BottomSheet } from '../../../../../src/components/BottomSheet';
+import { ConfirmDialog } from '../../../../../src/components/ConfirmDialog';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
 import { SuccessBanner } from '../../../../../src/components/SuccessBanner';
 import { FormField } from '../../../../../src/components/FormField';
@@ -51,6 +52,7 @@ export default function RecipeAndCostingScreen() {
 
   const updateLink = useUpdateVariantRecipeLink(id);
   const updateSuggestedPrice = useUpdateVariantSuggestedPrice(id);
+  const updateVariant = useUpdateVariant(id);
 
   const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [isVariantSwitcherOpen, setIsVariantSwitcherOpen] = useState(false);
@@ -60,6 +62,7 @@ export default function RecipeAndCostingScreen() {
   const [marginError, setMarginError] = useState<string | null>(null);
   const [showSaved, setShowSaved] = useState(false);
   const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pendingNav, setPendingNav] = useState<(() => void) | null>(null);
 
   // Clear any pending auto-dismiss timer if the screen unmounts mid-countdown
   // (e.g. baker taps back right after saving) — otherwise it fires setState
@@ -98,6 +101,20 @@ export default function RecipeAndCostingScreen() {
   const parsedPortion = portionDraft ? Number(portionDraft) : null;
   const parsedMargin = marginDraft ? Number(marginDraft) : null;
 
+  // Compares live drafts against the last-saved values (the same values
+  // the useEffect above seeds the drafts with) to detect unsaved edits.
+  const isDirty =
+    portionDraft !== (variant.recipe_portion != null ? String(variant.recipe_portion) : '') ||
+    marginDraft !== (variant.margin_percent != null ? String(variant.margin_percent) : '');
+
+  const confirmOrRun = (action: () => void) => {
+    if (isDirty) {
+      setPendingNav(() => action);
+    } else {
+      action();
+    }
+  };
+
   const cost =
     linkedRecipe && parsedPortion != null
       ? calculateVariantCost(linkedRecipe, { recipe_portion: parsedPortion, packaging_cost: variant.packaging_cost })
@@ -132,6 +149,18 @@ export default function RecipeAndCostingScreen() {
         },
       }
     );
+  };
+
+  const handleSyncSellingPrice = () => {
+    if (suggestedPrice == null) return;
+    // Reuses the same update path the variant edit form uses — name and
+    // packaging_cost are required by variantFormSchema even though only
+    // selling_price is changing here, so we pass the variant's current
+    // values through unchanged.
+    updateVariant.mutate({
+      variantId: variant.id,
+      input: { name: variant.name, selling_price: suggestedPrice, packaging_cost: variant.packaging_cost },
+    });
   };
 
   const handleSaveDetails = () => {
@@ -181,7 +210,7 @@ export default function RecipeAndCostingScreen() {
   return (
     <Screen style={styles.container}>
       <View style={styles.headerRow}>
-        <Pressable onPress={() => router.back()} style={styles.iconButton}>
+        <Pressable onPress={() => confirmOrRun(() => router.back())} style={styles.iconButton}>
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </Pressable>
         <Text style={styles.title} numberOfLines={1}>
@@ -290,6 +319,21 @@ export default function RecipeAndCostingScreen() {
                 colors={colors}
                 danger={isNegative}
               />
+              {isNegative && suggestedPrice != null ? (
+                <Pressable
+                  onPress={handleSyncSellingPrice}
+                  style={styles.syncPriceRow}
+                  disabled={updateVariant.isPending}
+                >
+                  <Ionicons name="arrow-up-circle-outline" size={16} color={colors.primary} />
+                  <Text style={styles.syncPriceText}>
+                    Update selling price to {formatCurrency(suggestedPrice, baker?.currency)}
+                  </Text>
+                  {updateVariant.isPending ? (
+                    <ActivityIndicator size="small" color={colors.primary} />
+                  ) : null}
+                </Pressable>
+              ) : null}
             </View>
 
             {updateLink.isError || updateSuggestedPrice.isError ? (
@@ -300,9 +344,10 @@ export default function RecipeAndCostingScreen() {
 
             <View style={styles.saveButton}>
               <PrimaryButton
-                title="Save"
+                title={isNegative ? 'Save (selling at a loss)' : 'Save'}
                 onPress={handleSaveDetails}
                 isLoading={updateLink.isPending || updateSuggestedPrice.isPending}
+                variant={isNegative ? 'danger' : 'primary'}
               />
             </View>
           </>
@@ -317,6 +362,19 @@ export default function RecipeAndCostingScreen() {
         colors={colors}
       />
 
+      <ConfirmDialog
+        visible={pendingNav != null}
+        title="Discard changes?"
+        message="Your portion or margin edits haven't been saved yet."
+        confirmLabel="Discard"
+        onConfirm={() => {
+          const action = pendingNav;
+          setPendingNav(null);
+          action?.();
+        }}
+        onCancel={() => setPendingNav(null)}
+      />
+
       <VariantSwitcherSheet
         visible={isVariantSwitcherOpen}
         variants={variants ?? []}
@@ -328,7 +386,7 @@ export default function RecipeAndCostingScreen() {
           // replace, not push — switching variants shouldn't stack a new
           // screen per variant; back should return to the product, not
           // walk through every variant you glanced at along the way.
-          router.replace(`/more/products/${id}/recipe?variantId=${v.id}`);
+          confirmOrRun(() => router.replace(`/more/products/${id}/recipe?variantId=${v.id}`));
         }}
         colors={colors}
       />
@@ -534,6 +592,16 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.lg,
     },
     costDivider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
+    syncPriceRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      marginTop: spacing.sm,
+      paddingTop: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    syncPriceText: { ...typography.bodySm, color: colors.primary, fontWeight: '600', flex: 1 },
     saveButton: { marginBottom: spacing.xxxl },
   });
 }
