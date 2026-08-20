@@ -13,9 +13,18 @@ export const recipeFormSchema = z.object({
     .refine((v) => Number.isNaN(Number(v)), {
       message: "This looks like a quantity — try 'rolls' or '8-inch cake' instead",
     }),
+  // Each element is one step in "Steps" mode, or the whole thing in "One
+  // block" mode — so a single element needs room for a full paragraph,
+  // not just a short instruction. The 4000-char total cap matches the
+  // old single-text-field limit it replaces; per-element is generous
+  // enough for "one block" while still catching a genuinely runaway
+  // paste.
   instructions: z
-    .array(z.string().trim().min(1).max(500, 'Keep each step under 500 characters'))
+    .array(z.string().trim().min(1).max(2000, 'That step is too long \u2014 try splitting it up'))
     .max(50, 'That\u2019s a lot of steps \u2014 consider splitting into two recipes')
+    .refine((arr) => arr.reduce((sum, s) => sum + s.length, 0) <= 4000, {
+      message: 'Instructions are too long overall (4000 characters max)',
+    })
     .optional()
     .nullable()
     .transform((v) => (v && v.length > 0 ? v : null)),

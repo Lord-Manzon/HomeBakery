@@ -87,21 +87,26 @@ export default function RecipeDetailScreen() {
       setNameError("Name can't be empty");
       return;
     }
-    const result = recipeFormSchema.safeParse({
-      name: trimmed,
-      yield_quantity: recipe.yield_quantity,
-      yield_unit: recipe.yield_unit,
-      instructions: recipe.instructions,
-      margin_percent: recipe.margin_percent,
-    });
-    if (!result.success) {
-      setNameError('Something about that name is invalid.');
+    // Only validate the name here — same reasoning as the Instructions
+    // screen's fix: re-validating the whole recipe would fail on any
+    // OTHER field carrying old data (e.g. a legacy yield_unit), and
+    // show a name-edit error about a field that isn't the name.
+    const nameResult = recipeFormSchema.shape.name.safeParse(trimmed);
+    if (!nameResult.success) {
+      setNameError(nameResult.error.issues[0]?.message ?? 'Something about that name is invalid.');
       return;
     }
     setNameError(null);
-    updateRecipe.mutate(result.data, {
-      onError: () => setNameError("Couldn't save. Try again."),
-    });
+    updateRecipe.mutate(
+      {
+        name: nameResult.data,
+        yield_quantity: recipe.yield_quantity,
+        yield_unit: recipe.yield_unit,
+        instructions: recipe.instructions,
+        margin_percent: recipe.margin_percent,
+      },
+      { onError: () => setNameError("Couldn't save. Try again.") }
+    );
   };
 
   return (

@@ -75,7 +75,7 @@ export default function NewRecipeScreen() {
           <View style={styles.rowFieldUnit}>
             <FormField
               label="Of what"
-              placeholder="e.g. 8-inch cake, cupcakes, dozen rolls"
+              placeholder="e.g. 8-inch cake, cupcakes,rolls"
               value={yieldUnit}
               onChangeText={setYieldUnit}
               error={errors.yield_unit}
@@ -83,12 +83,7 @@ export default function NewRecipeScreen() {
           </View>
         </View>
         <Text style={styles.hint}>
-          Think of one full bake, start to finish — one batch of this recipe makes how many of
-          what? A single 8-inch cake, or two dozen cupcakes, for example.
-        </Text>
-
-        <Text style={styles.hint}>
-          You can add step-by-step instructions after saving — no need to write them out now.
+          One full batch, start to finish — e.g. one 8-inch cake, or two dozen cupcakes.
         </Text>
 
         <FormField
@@ -100,9 +95,8 @@ export default function NewRecipeScreen() {
           error={errors.margin_percent}
         />
         <Text style={styles.hint}>
-          Only set this if this specific recipe's economics genuinely differ from your usual
-          margin — a product or variant can still override this further. Leave blank to use your
-          baker default.
+          Only if this recipe's costs genuinely differ from your usual margin — a product or
+          variant can still override this further. Leave blank otherwise.
         </Text>
 
         {createRecipe.isError ? <ErrorBanner message="Couldn't save. Try again." /> : null}
