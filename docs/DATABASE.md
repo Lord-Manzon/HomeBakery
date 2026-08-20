@@ -60,7 +60,7 @@ Independent of any one product — a recipe can be reused by multiple variants.
 | `baker_id` | FK → bakers |
 | `name` | |
 | `yield_quantity` / `yield_unit` | e.g. `1` / `"8-inch cake"`, or `24` / `"cupcakes"` |
-| `instructions` | text, nullable |
+| `instructions` | jsonb, nullable — array of step strings. A "one block" recipe is just a 1-item array; see `docs/DECISIONS.md`'s 2026-08-21 entry |
 | `margin_percent` | nullable — a recipe-inherent margin baseline (e.g. an ingredient-heavy recipe that needs a higher floor), used when neither the variant nor the product specifies one |
 | `created_at` / `updated_at` | |
 

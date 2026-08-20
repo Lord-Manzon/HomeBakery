@@ -6,7 +6,9 @@ export type Recipe = {
   name: string;
   yield_quantity: number;
   yield_unit: string;
-  instructions: string | null;
+  /** Array of step strings, jsonb in the DB. A "one block" recipe is
+   * just a 1-item array — see docs/DECISIONS.md's 2026-08-21 entry. */
+  instructions: string[] | null;
   margin_percent: number | null;
   created_at: string;
   updated_at: string;

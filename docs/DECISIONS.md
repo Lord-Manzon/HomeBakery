@@ -582,3 +582,70 @@ tweak.
 
 **Follow-up:** `docs/UI_UX_1.md` sections B, C, E, and the new section G are
 updated in this same change.
+
+
+### 2026-08-21 — Recipe instructions become step-based; header delete replaces bottom link; dedicated full-screen editor
+
+**Decision:** `recipes.instructions` changes from a single `text` block to a
+`jsonb` array of step strings (`supabase/migrations/0008_recipe_instructions_steps.sql`).
+A free-text recipe is simply a 1-item array under the new shape — no data
+lost, existing values were backfilled automatically. Recipe Detail gains a
+new Instructions card (empty-state prompt if none exist, preview + edit
+link if they do), and editing happens on a new dedicated screen
+(`app/(tabs)/more/recipes/[id]/instructions.tsx`) with two modes: "Steps"
+(numbered rows, add/remove) and "One block" (single textarea, saves as a
+1-item array) — not a bottom sheet.
+
+Also, on Recipe Detail: the header's edit-pencil icon is replaced with
+tap-the-name-to-edit (mirrors the 2026-08-18 "Product name is editable
+inline" pattern — tap opens an inline text field, blur/Done commits). The
+icon slot that used to hold the pencil now holds a delete (trash) icon,
+which opens an inline confirm banner directly under the header. The
+previous "Delete recipe" text link + confirm block at the bottom of the
+screen is **removed** — there was no reason for two delete triggers doing
+the same thing on one screen.
+
+New Recipe's free-text Instructions field is removed from that form
+entirely; instructions are now only added/edited from Recipe Detail's new
+Instructions card, after the recipe exists. New Recipe's yield fields are
+reframed from two generic-labeled boxes ("Yield quantity" / "Yield unit")
+into a single guided line ("This recipe makes ___ of ___") — the old
+layout gave both fields equal visual weight, which is how a baker ended up
+typing a number into the unit field (e.g. "1", saved before
+`recipeSchemas.ts`'s existing anti-numeric-unit validation existed),
+producing card text like "Yields 1 1".
+
+**Why:** A baker read as "Yields 1 1" on the Recipes list, traced to two
+issues: (1) `recipeSchemas.ts` already blocks a numeric yield unit going
+forward — the malformed data was legacy, not a live bug — but the form
+still didn't make it obvious why quantity and unit are separate fields,
+which was worth fixing anyway; and (2) instructions were never viewable or
+editable from Recipe Detail at all, so a baker who skipped them at
+creation (an optional field) had no way back in. A single free-text box
+also doesn't fit how a baker actually thinks through a recipe — as steps —
+so the editor supports genuine step-by-step entry rather than one
+paragraph.
+
+**Why a full-screen editor, not a bottom sheet:** per `UI_UX_1.md`
+section B's interaction-weight table, sheets are for 2–4 quick,
+dismissible fields (Add expense, Add/edit variant) — not a
+variable-length list of multiline steps a baker wants to read back and
+edit carefully. There's also a concrete precedent to avoid: the
+2026-08-16 entry documents real Android keyboard-handling pain inside
+`BottomSheet.tsx`; a dynamically growing list of text inputs inside a
+sheet is exactly the scenario most likely to reproduce that class of bug.
+A full-screen route sidesteps it, the same way New Recipe already does.
+
+**Alternatives considered:** Keeping a plain textarea on New Recipe
+alongside the new step editor — rejected to avoid maintaining two
+different instruction-editing UIs for the same field. Header delete
+icon jumping to the existing bottom confirm instead of replacing it —
+rejected as pointless indirection once the header can hold the action
+directly.
+
+**Doc impact:** `docs/DATABASE.md`'s `recipes.instructions` row updated
+(see below). `docs/UI_UX_1.md`'s Recipe & costing section (E.6) is **not**
+updated as part of this change — it already describes Phase 4's
+placeholder screen, not the standalone Recipes list/detail flow that's
+actually built, and rewriting that gap properly is separate work, not a
+side effect of this fix. Still open, flagged here again so it isn't lost.

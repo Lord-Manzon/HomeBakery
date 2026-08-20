@@ -13,7 +13,12 @@ export const recipeFormSchema = z.object({
     .refine((v) => Number.isNaN(Number(v)), {
       message: "This looks like a quantity — try 'rolls' or '8-inch cake' instead",
     }),
-  instructions: z.string().trim().max(4000, 'Instructions are too long').optional().or(z.literal('')).transform((v) => (v ? v : null)).nullable(),
+  instructions: z
+    .array(z.string().trim().min(1).max(500, 'Keep each step under 500 characters'))
+    .max(50, 'That\u2019s a lot of steps \u2014 consider splitting into two recipes')
+    .optional()
+    .nullable()
+    .transform((v) => (v && v.length > 0 ? v : null)),
   // Optional recipe-level margin override — resolution order in
   // src/services/costing.ts's resolveMarginPercent. null/omitted means
   // "fall through to the baker default (or product/variant override)."
