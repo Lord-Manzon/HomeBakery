@@ -29,6 +29,14 @@ export default function MoreScreen() {
 
       <Pressable
         style={styles.menuRow}
+        onPress={() => router.push('/more/ingredients')}
+      >
+        <Text style={styles.menuRowLabel}>Ingredients</Text>
+        <Text style={styles.menuRowChevron}>›</Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.menuRow}
         onPress={() => router.push('/more/products')}
       >
         <Text style={styles.menuRowLabel}>Products</Text>

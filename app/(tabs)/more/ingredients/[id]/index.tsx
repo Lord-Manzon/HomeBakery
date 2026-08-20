@@ -9,19 +9,19 @@ import {
   useRecordUseOrWaste,
   useRestockIngredient,
   useUpdateIngredient,
-} from '../../../../src/hooks/useIngredients';
-import { useBakerProfile } from '../../../../src/hooks/useBakerProfile';
-import type { InventoryMovement, MovementType } from '../../../../src/types/ingredient';
-import { ErrorBanner } from '../../../../src/components/ErrorBanner';
-import { PrimaryButton } from '../../../../src/components/PrimaryButton';
-import { StockGauge } from '../../../../src/components/StockGauge';
-import { IngredientFormSheet } from '../../../../src/components/IngredientFormSheet';
-import { UseWasteSheet } from '../../../../src/components/UseWasteSheet';
-import { RestockSheet } from '../../../../src/components/RestockSheet';
-import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
-import { Screen } from '../../../../src/components/Screen';
-import { getIngredientGauge, type GaugeSensitivity } from '../../../../src/services/stockGauge';
-import { colors, radii, spacing, typography } from '../../../../src/theme';
+} from '../../../../../src/hooks/useIngredients';
+import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
+import type { InventoryMovement, MovementType } from '../../../../../src/types/ingredient';
+import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
+import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
+import { StockGauge } from '../../../../../src/components/StockGauge';
+import { IngredientFormSheet } from '../../../../../src/components/IngredientFormSheet';
+import { UseWasteSheet } from '../../../../../src/components/UseWasteSheet';
+import { RestockSheet } from '../../../../../src/components/RestockSheet';
+import { ConfirmDialog } from '../../../../../src/components/ConfirmDialog';
+import { Screen } from '../../../../../src/components/Screen';
+import { getIngredientGauge, type GaugeSensitivity } from '../../../../../src/services/stockGauge';
+import { colors, radii, spacing, typography } from '../../../../../src/theme';
 
 export default function IngredientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();

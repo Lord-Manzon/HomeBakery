@@ -1,22 +1,25 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useCreateIngredient, useIngredients } from '../../../src/hooks/useIngredients';
-import { useBakerProfile, useUpdateBakerProfile } from '../../../src/hooks/useBakerProfile';
-import { isLowStock, INGREDIENT_CATEGORIES, type Ingredient } from '../../../src/types/ingredient';
-import { ErrorBanner } from '../../../src/components/ErrorBanner';
-import { PrimaryButton } from '../../../src/components/PrimaryButton';
-import { IngredientFormSheet } from '../../../src/components/IngredientFormSheet';
-import { GaugeSensitivitySheet } from '../../../src/components/GaugeSensitivitySheet';
-import { StockGauge } from '../../../src/components/StockGauge';
-import { Screen } from '../../../src/components/Screen';
-import { getIngredientGauge, gaugeSortValue, type GaugeSensitivity } from '../../../src/services/stockGauge';
-import { getCategoryIcon } from '../../../src/utils/ingredientCategoryIcon';
-import { colors, radii, spacing, typography } from '../../../src/theme';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useHideNavOnScroll } from '../../../../src/hooks/useHideNavOnScroll';
+import { useCreateIngredient, useIngredients } from '../../../../src/hooks/useIngredients';
+import { useBakerProfile, useUpdateBakerProfile } from '../../../../src/hooks/useBakerProfile';
+import { isLowStock, INGREDIENT_CATEGORIES, type Ingredient } from '../../../../src/types/ingredient';
+import { ErrorBanner } from '../../../../src/components/ErrorBanner';
+import { PrimaryButton } from '../../../../src/components/PrimaryButton';
+import { IngredientFormSheet } from '../../../../src/components/IngredientFormSheet';
+import { GaugeSensitivitySheet } from '../../../../src/components/GaugeSensitivitySheet';
+import { StockGauge } from '../../../../src/components/StockGauge';
+import { Screen } from '../../../../src/components/Screen';
+import { getIngredientGauge, gaugeSortValue, type GaugeSensitivity } from '../../../../src/services/stockGauge';
+import { getCategoryIcon } from '../../../../src/utils/ingredientCategoryIcon';
+import { colors, radii, spacing, typography } from '../../../../src/theme';
 
 export default function IngredientsListScreen() {
   const router = useRouter();
+  const { openAdd } = useLocalSearchParams<{ openAdd?: string }>();
+  const onScroll = useHideNavOnScroll();
   const { data: ingredients, isLoading, isError, refetch } = useIngredients();
   const { data: baker } = useBakerProfile();
   const updateBakerProfile = useUpdateBakerProfile();
@@ -26,6 +29,16 @@ export default function IngredientsListScreen() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isSensitivityOpen, setIsSensitivityOpen] = useState(false);
   const createIngredient = useCreateIngredient();
+
+  // Opened via the global Quick Add card's "Add ingredient" action
+  // (?openAdd=1) — see docs/DECISIONS.md's 2026-08-19 entry. Only fires
+  // once per navigation, not on every re-render.
+  useEffect(() => {
+    if (openAdd === '1') {
+      setIsAddOpen(true);
+      router.setParams({ openAdd: undefined });
+    }
+  }, [openAdd]);
 
   // Defaults to 'balanced' while the baker profile is still loading, so
   // the gauge has a sensible reading immediately rather than waiting.
@@ -163,7 +176,9 @@ export default function IngredientsListScreen() {
           <FlatList
             data={filtered}
             keyExtractor={(item) => item.id}
-            contentContainerStyle={{ paddingBottom: spacing.xl }}
+            onScroll={onScroll}
+            scrollEventThrottle={16}
+            contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
             ListEmptyComponent={
               <Text style={styles.noMatch}>No ingredients match "{search}"</Text>
             }
@@ -171,17 +186,11 @@ export default function IngredientsListScreen() {
               <IngredientCard
                 ingredient={item}
                 sensitivity={sensitivity}
-                onPress={() => router.push(`/ingredients/${item.id}`)}
+                onPress={() => router.push(`/more/ingredients/${item.id}`)}
               />
             )}
           />
         </>
-      )}
-
-      {!isEmpty && (
-        <Pressable onPress={() => setIsAddOpen(true)} style={styles.fab}>
-          <Ionicons name="add" size={28} color={colors.textInverse} />
-        </Pressable>
       )}
 
       <IngredientFormSheet
@@ -270,22 +279,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.full,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  fab: {
-    position: 'absolute',
-    right: spacing.xl,
-    bottom: spacing.xl,
-    width: 56,
-    height: 56,
-    borderRadius: radii.full,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
   },
   skeletonCard: {
     height: 64,

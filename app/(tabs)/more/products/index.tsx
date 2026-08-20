@@ -17,6 +17,7 @@ import {
   useProducts,
 } from '../../../../src/hooks/useProducts';
 import { useBakerProfile } from '../../../../src/hooks/useBakerProfile';
+import { useHideNavOnScroll } from '../../../../src/hooks/useHideNavOnScroll';
 import { useThemeColors } from '../../../../src/theme/ThemeContext';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
 import { Screen } from '../../../../src/components/Screen';
@@ -50,6 +51,7 @@ const DISPLAY_OPTIONS: { label: string; value: ViewMode; icon: keyof typeof Ioni
 
 export default function ProductsListScreen() {
   const router = useRouter();
+  const onScroll = useHideNavOnScroll();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { data: products, isLoading, isError, refetch } = useProducts();
@@ -318,6 +320,8 @@ export default function ProductsListScreen() {
           keyExtractor={(item) => item.id}
           onRefresh={refetch}
           refreshing={isLoading}
+          onScroll={onScroll}
+          scrollEventThrottle={16}
           showsVerticalScrollIndicator={false}
           numColumns={viewMode === 'grid' ? 2 : 1}
           columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
@@ -345,16 +349,6 @@ export default function ProductsListScreen() {
           }
         />
       )}
-
-      {!isLoading && !isEmptyCatalog ? (
-        <Pressable
-          onPress={() => router.push('/more/products/new')}
-          style={styles.fab}
-          accessibilityLabel="Add product"
-        >
-          <Ionicons name="add" size={28} color={colors.textInverse} />
-        </Pressable>
-      ) : null}
 
       <ConfirmDialog
         visible={!!pendingDeleteCategory}
@@ -819,22 +813,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.xxs + 1,
     },
     variantChipMoreText: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
-    fab: {
-      position: 'absolute',
-      right: spacing.xl,
-      bottom: spacing.xl,
-      width: 56,
-      height: 56,
-      borderRadius: radii.full,
-      backgroundColor: colors.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      elevation: 4,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 4,
-    },
     emptyState: {
       alignItems: 'center',
       paddingTop: spacing.xxxl,

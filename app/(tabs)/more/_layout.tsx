@@ -4,6 +4,7 @@ export default function MoreLayout() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
+      <Stack.Screen name="ingredients" />
       <Stack.Screen name="appearance" />
     </Stack>
   );

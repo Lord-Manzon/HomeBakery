@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useIngredient, useRestockIngredient } from '../../../../src/hooks/useIngredients';
-import { restockFormSchema } from '../../../../src/utils/validation/ingredientSchemas';
-import { FormField } from '../../../../src/components/FormField';
-import { PrimaryButton } from '../../../../src/components/PrimaryButton';
-import { ErrorBanner } from '../../../../src/components/ErrorBanner';
-import { colors, spacing, typography } from '../../../../src/theme';
+import { useIngredient, useRestockIngredient } from '../../../../../src/hooks/useIngredients';
+import { restockFormSchema } from '../../../../../src/utils/validation/ingredientSchemas';
+import { FormField } from '../../../../../src/components/FormField';
+import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
+import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
+import { colors, spacing, typography } from '../../../../../src/theme';
 
 export default function RestockScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
