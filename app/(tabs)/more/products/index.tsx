@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { FlatList, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Animated, {
@@ -311,7 +311,7 @@ export default function ProductsListScreen() {
           </View>
         )
       ) : (
-        <FlatList
+        <Animated.FlatList
           // Forcing a remount on view-mode change is the standard RN fix
           // for FlatList's restriction against changing `numColumns`
           // after the first render.

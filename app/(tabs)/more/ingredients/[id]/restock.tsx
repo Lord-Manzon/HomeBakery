@@ -1,3 +1,4 @@
+import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
 import { useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -9,6 +10,7 @@ import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
 import { colors, spacing, typography } from '../../../../../src/theme';
 
 export default function RestockScreen() {
+  useHideFloatingNav();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { data: ingredient, isLoading } = useIngredient(id);

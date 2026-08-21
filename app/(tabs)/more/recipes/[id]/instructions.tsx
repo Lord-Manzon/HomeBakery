@@ -1,3 +1,4 @@
+import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +15,7 @@ import type { ColorToken } from '../../../../../src/theme/colors';
 type Mode = 'steps' | 'block';
 
 export default function RecipeInstructionsScreen() {
+  useHideFloatingNav();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useThemeColors();

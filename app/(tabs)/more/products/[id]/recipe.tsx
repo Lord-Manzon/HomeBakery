@@ -232,7 +232,7 @@ export default function RecipeAndCostingScreen() {
         ) : null}
       </Pressable>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}>
         {!variant.recipe_id ? (
           <View style={styles.noRecipeCard}>
             <Ionicons name="restaurant-outline" size={32} color={colors.textSecondary} />

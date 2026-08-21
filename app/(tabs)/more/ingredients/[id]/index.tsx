@@ -170,6 +170,7 @@ export default function IngredientDetailScreen() {
       <FlatList
         data={history ?? []}
         keyExtractor={(item) => item.id}
+        contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
         ListEmptyComponent={<Text style={styles.noHistory}>No stock changes yet.</Text>}
         renderItem={({ item }) => <HistoryRow movement={item} unit={ingredient.unit} />}
       />

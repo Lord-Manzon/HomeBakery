@@ -90,16 +90,19 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { navHidden } = useScrollNav();
+  const { navHidden, forceHiddenCount } = useScrollNav();
   const [isCardOpen, setIsCardOpen] = useState(false);
 
   const activeRouteName = state.routes[state.index]?.name ?? 'index';
   const items = QUICK_ADD[activeRouteName] ?? [];
 
-  const navAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: withTiming(navHidden.value * 90, { duration: motionDuration.medium, easing: motionEasing.standard }) }],
-    opacity: withTiming(navHidden.value ? 0 : 1, { duration: motionDuration.medium, easing: motionEasing.standard }),
-  }));
+  const navAnimatedStyle = useAnimatedStyle(() => {
+    const hidden = navHidden.value > 0 || forceHiddenCount.value > 0 ? 1 : 0;
+    return {
+      transform: [{ translateY: withTiming(hidden * 90, { duration: motionDuration.medium, easing: motionEasing.standard }) }],
+      opacity: withTiming(hidden ? 0 : 1, { duration: motionDuration.medium, easing: motionEasing.standard }),
+    };
+  });
 
   function handleQuickAddPress(item: QuickAddItem) {
     setIsCardOpen(false);
@@ -112,7 +115,7 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   }
 
   return (
-    <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, spacing.md) }]} pointerEvents="box-none">
+    <View style={[styles.wrap, { paddingBottom: insets.bottom + spacing.md }]} pointerEvents="box-none">
       {isCardOpen ? (
         <Animated.View
           entering={FadeIn.duration(motionDuration.fast)}
@@ -197,12 +200,12 @@ function makeStyles(colors: Record<ColorToken, string>) {
       left: 0,
       right: 0,
       bottom: 0,
-      alignItems: 'flex-end',
       paddingHorizontal: spacing.lg,
     },
     row: {
       flexDirection: 'row',
       alignItems: 'center',
+      alignSelf: 'center', // center the pill+FAB group as a whole, independent of the card's right-anchor below
       gap: spacing.sm,
     },
     pill: {
@@ -247,6 +250,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     card: {
       width: 200,
+      alignSelf: 'flex-end', // right-anchored above the FAB regardless of the nav row's centering
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,

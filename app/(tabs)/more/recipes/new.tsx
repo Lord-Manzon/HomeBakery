@@ -1,3 +1,4 @@
+import { useHideFloatingNav } from '../../../../src/hooks/useHideFloatingNav';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +14,7 @@ import type { ColorToken } from '../../../../src/theme/colors';
 import { recipeFormSchema } from '../../../../src/utils/validation/recipeSchemas';
 
 export default function NewRecipeScreen() {
+  useHideFloatingNav();
   const router = useRouter();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);

@@ -649,3 +649,31 @@ updated as part of this change — it already describes Phase 4's
 placeholder screen, not the standalone Recipes list/detail flow that's
 actually built, and rewriting that gap properly is separate work, not a
 side effect of this fix. Still open, flagged here again so it isn't lost.
+
+### 2026-08-21 — Floating nav hides on full-screen, single-purpose routes
+
+**Decision:** The floating pill nav + FAB (2026-08-19 entry) now hides
+itself entirely — not just on scroll — while any full-screen,
+single-purpose route is on top of the stack: New Product, New Category,
+New Recipe, Recipe Instructions editor, Restock. It stays visible on
+browse/detail-style screens: Product Detail, Recipe Detail, Ingredient
+Detail, Recipe & Costing, and all list screens.
+
+**Why:** The nav was rendered once at the (tabs) layout level, so it kept
+floating over every nested screen in every tab, including full-screen
+forms that already pin their own primary Save button at the bottom —
+producing visual overlap and contradicting `UI_UX_1.md` section B's own
+interaction-weight distinction between focused full-screen forms and
+browse screens. Quick Add's contents (tab-level actions like "Add
+ingredient") also stop being relevant once a baker is deep inside editing
+one specific record.
+
+**Implementation:** `ScrollNavContext` gained a second shared value,
+`forceHiddenCount` — a mount-count rather than a boolean, so a screen
+stacked on top of another still-mounted full-screen route doesn't
+prematurely reveal the nav when it unmounts. Screens opt in via
+`useHideFloatingNav()`, called once at the top of the component.
+
+**Follow-up:** `docs/UI_UX_1.md` section G updated to state this
+distinction explicitly, rather than leaving "which screens the global nav
+covers" implicit.

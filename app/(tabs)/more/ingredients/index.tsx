@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useHideNavOnScroll } from '../../../../src/hooks/useHideNavOnScroll';
@@ -173,7 +174,7 @@ export default function IngredientsListScreen() {
             </Pressable>
           )}
 
-          <FlatList
+          <Animated.FlatList
             data={filtered}
             keyExtractor={(item) => item.id}
             onScroll={onScroll}

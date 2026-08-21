@@ -168,7 +168,7 @@ export default function RecipeDetailScreen() {
         </View>
       ) : null}
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}>
         <Text style={styles.yieldLine}>
           Yields {recipe.yield_quantity} {recipe.yield_unit}
         </Text>

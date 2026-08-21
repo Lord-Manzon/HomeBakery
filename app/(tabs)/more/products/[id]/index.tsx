@@ -591,7 +591,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     overflowRowText: { ...typography.body, color: colors.danger },
     scroll: { flex: 1 },
-    scrollContent: { paddingBottom: spacing.xxl },
+    scrollContent: { paddingBottom: spacing.xxxl + 96 },
     heroBlock: { marginBottom: spacing.xl },
     hero: {
       width: '100%',
