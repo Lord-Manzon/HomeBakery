@@ -297,7 +297,7 @@ function StatTile({
         onPressOut={press.onPressOut}
         accessibilityRole="button"
         accessibilityLabel={`Edit ${label.toLowerCase()}`}
-        style={{ flex: 0.4 }}
+        style={{ flex: 1.1 }}
       >
         <Animated.View style={[styles.statTile, press.style]}>{content}</Animated.View>
       </Pressable>
