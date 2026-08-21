@@ -1,10 +1,14 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { BottomSheet } from './BottomSheet';
 import { PrimaryButton } from './PrimaryButton';
 import { StockGauge } from './StockGauge';
 import { getStockGaugePercent, type GaugeSensitivity } from '../services/stockGauge';
-import { colors, radii, spacing, typography } from '../theme';
+import { usePressScale } from '../hooks/usePressScale';
+import { useThemeColors } from '../theme/ThemeContext';
+import { radii, spacing, typography } from '../theme';
+import type { ColorToken } from '../theme/colors';
 
 type GaugeSensitivitySheetProps = {
   visible: boolean;
@@ -46,6 +50,12 @@ const OPTIONS: { key: GaugeSensitivity; label: string; description: string }[] =
 const EXAMPLE_STOCK = 5;
 const EXAMPLE_THRESHOLD = 6;
 
+// UPDATED 2026-08-21: switched from the static `colors` import to
+// useThemeColors() + a per-render makeStyles(colors) (see BottomSheet.tsx,
+// FormField.tsx, IngredientFormSheet.tsx for the same pattern) so the
+// sheet reacts to the baker's accent color / light-dark preference.
+// Option cards now use usePressScale() for the same tactile press
+// feedback used elsewhere in the Ingredients flow.
 export function GaugeSensitivitySheet({
   visible,
   onDismiss,
@@ -54,6 +64,8 @@ export function GaugeSensitivitySheet({
   isSaving,
 }: GaugeSensitivitySheetProps) {
   const [selected, setSelected] = useState<GaugeSensitivity>(value);
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   return (
     <BottomSheet visible={visible} onDismiss={onDismiss} dismissDisabled={isSaving}>
@@ -66,27 +78,15 @@ export function GaugeSensitivitySheet({
         const isSelected = selected === opt.key;
         const percent = getStockGaugePercent(EXAMPLE_STOCK, EXAMPLE_THRESHOLD, opt.key);
         return (
-          <Pressable
+          <SensitivityOption
             key={opt.key}
+            label={opt.label}
+            description={opt.description}
+            percent={percent}
+            isSelected={isSelected}
+            styles={styles}
             onPress={() => setSelected(opt.key)}
-            accessibilityRole="radio"
-            accessibilityState={{ selected: isSelected }}
-            style={[styles.option, isSelected && styles.optionSelected]}
-          >
-            <View style={styles.optionHeader}>
-              <Text style={styles.optionLabel}>{opt.label}</Text>
-              <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
-                {isSelected ? <View style={styles.radioInner} /> : null}
-              </View>
-            </View>
-            <Text style={styles.optionDescription}>{opt.description}</Text>
-            <View style={styles.previewRow}>
-              <View style={{ flex: 1 }}>
-                <StockGauge percent={percent} status="ok" />
-              </View>
-              <Text style={styles.previewLabel}>Butter, 5kg stock</Text>
-            </View>
-          </Pressable>
+          />
         );
       })}
 
@@ -99,46 +99,92 @@ export function GaugeSensitivitySheet({
   );
 }
 
-const styles = StyleSheet.create({
-  title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.xs },
-  subtitle: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
-  option: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  optionSelected: { borderWidth: 2, borderColor: colors.primary },
-  optionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xs,
-  },
-  optionLabel: { ...typography.titleSm, color: colors.textPrimary },
-  radioOuter: {
-    width: 18,
-    height: 18,
-    borderRadius: radii.full,
-    borderWidth: 2,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  radioOuterSelected: { borderColor: colors.primary },
-  radioInner: {
-    width: 9,
-    height: 9,
-    borderRadius: radii.full,
-    backgroundColor: colors.primary,
-  },
-  optionDescription: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
-  },
-  previewRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  previewLabel: { ...typography.caption, color: colors.textSecondary },
-});
+function SensitivityOption({
+  label,
+  description,
+  percent,
+  isSelected,
+  styles,
+  onPress,
+}: {
+  label: string;
+  description: string;
+  percent: number | null;
+  isSelected: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  onPress: () => void;
+}) {
+  const press = usePressScale();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: isSelected }}
+    >
+      <Animated.View style={[styles.option, isSelected && styles.optionSelected, press.style]}>
+        <View style={styles.optionHeader}>
+          <Text style={styles.optionLabel}>{label}</Text>
+          <View style={[styles.radioOuter, isSelected && styles.radioOuterSelected]}>
+            {isSelected ? <View style={styles.radioInner} /> : null}
+          </View>
+        </View>
+        <Text style={styles.optionDescription}>{description}</Text>
+        <View style={styles.previewRow}>
+          <View style={{ flex: 1 }}>
+            <StockGauge percent={percent} status="ok" />
+          </View>
+          <Text style={styles.previewLabel}>Butter, 5kg stock</Text>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function makeStyles(colors: Record<ColorToken, string>) {
+  return StyleSheet.create({
+    title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.xs },
+    subtitle: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
+    option: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.lg,
+      padding: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    optionSelected: { borderWidth: 2, borderColor: colors.primary },
+    optionHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.xs,
+    },
+    optionLabel: { ...typography.titleSm, color: colors.textPrimary },
+    radioOuter: {
+      width: 18,
+      height: 18,
+      borderRadius: radii.full,
+      borderWidth: 2,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    radioOuterSelected: { borderColor: colors.primary },
+    radioInner: {
+      width: 9,
+      height: 9,
+      borderRadius: radii.full,
+      backgroundColor: colors.primary,
+    },
+    optionDescription: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      marginBottom: spacing.sm,
+    },
+    previewRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    previewLabel: { ...typography.caption, color: colors.textSecondary },
+  });
+}

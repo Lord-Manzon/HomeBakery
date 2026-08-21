@@ -291,7 +291,7 @@ function IngredientCard({
       entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
     >
       <Pressable onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}>
-        <Animated.View style={[styles.card, press.style]}>
+        <Animated.View style={[styles.card, gauge.status === 'out' && styles.cardOut, press.style]}>
           <View style={styles.cardTopRow}>
             <View style={[styles.iconTile, { backgroundColor: `${tintColor}1F` }]}>
               <Ionicons name={iconName} size={16} color={tintColor} />
@@ -398,6 +398,9 @@ function makeStyles(colors: Record<ColorToken, string>) {
       borderRadius: radii.lg,
       padding: spacing.md,
       marginBottom: spacing.sm,
+    },
+    cardOut: {
+      borderColor: colors.danger,
     },
     cardTopRow: {
       flexDirection: 'row',
