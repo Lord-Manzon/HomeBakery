@@ -1,11 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import Animated from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useHideNavOnScroll } from '../../../../src/hooks/useHideNavOnScroll';
 import { useCreateIngredient, useIngredients } from '../../../../src/hooks/useIngredients';
 import { useBakerProfile, useUpdateBakerProfile } from '../../../../src/hooks/useBakerProfile';
+import { usePressScale } from '../../../../src/hooks/usePressScale';
+import { useThemeColors } from '../../../../src/theme/ThemeContext';
 import { isLowStock, INGREDIENT_CATEGORIES, type Ingredient } from '../../../../src/types/ingredient';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../../src/components/PrimaryButton';
@@ -15,12 +17,22 @@ import { StockGauge } from '../../../../src/components/StockGauge';
 import { Screen } from '../../../../src/components/Screen';
 import { getIngredientGauge, gaugeSortValue, type GaugeSensitivity } from '../../../../src/services/stockGauge';
 import { getCategoryIcon } from '../../../../src/utils/ingredientCategoryIcon';
-import { colors, radii, spacing, typography } from '../../../../src/theme';
+import {
+  radii,
+  spacing,
+  typography,
+  motionDuration,
+  motionEasing,
+  motionStagger,
+} from '../../../../src/theme';
+import type { ColorToken } from '../../../../src/theme/colors';
 
 export default function IngredientsListScreen() {
   const router = useRouter();
   const { openAdd } = useLocalSearchParams<{ openAdd?: string }>();
   const onScroll = useHideNavOnScroll();
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const { data: ingredients, isLoading, isError, refetch } = useIngredients();
   const { data: baker } = useBakerProfile();
   const updateBakerProfile = useUpdateBakerProfile();
@@ -30,6 +42,7 @@ export default function IngredientsListScreen() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isSensitivityOpen, setIsSensitivityOpen] = useState(false);
   const createIngredient = useCreateIngredient();
+  const headerIconPress = usePressScale();
 
   // Opened via the global Quick Add card's "Add ingredient" action
   // (?openAdd=1) — see docs/DECISIONS.md's 2026-08-19 entry. Only fires
@@ -99,23 +112,29 @@ export default function IngredientsListScreen() {
         <Text style={styles.title}>Ingredients</Text>
         <Pressable
           onPress={() => setIsSensitivityOpen(true)}
+          onPressIn={headerIconPress.onPressIn}
+          onPressOut={headerIconPress.onPressOut}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel="Stock gauge sensitivity"
-          style={styles.headerIconButton}
         >
-          <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
+          <Animated.View style={[styles.headerIconButton, headerIconPress.style]}>
+            <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
+          </Animated.View>
         </Pressable>
       </View>
 
       {isEmpty ? (
-        <View style={styles.emptyContainer}>
+        <Animated.View
+          entering={FadeIn.duration(motionDuration.medium).easing(motionEasing.decelerate)}
+          style={styles.emptyContainer}
+        >
           <Text style={styles.emptyTitle}>No ingredients yet</Text>
           <Text style={styles.emptyNote}>Add one to start tracking your stock.</Text>
           <View style={styles.emptyButton}>
             <PrimaryButton title="Add ingredient" onPress={() => setIsAddOpen(true)} />
           </View>
-        </View>
+        </Animated.View>
       ) : (
         <>
           <View style={styles.searchBar}>
@@ -141,52 +160,49 @@ export default function IngredientsListScreen() {
             style={styles.categoryRow}
             contentContainerStyle={styles.categoryRowContent}
           >
-            {['All', ...INGREDIENT_CATEGORIES].map((c) => {
-              const isSelected = selectedCategory === c;
-              return (
-                <Pressable
-                  key={c}
-                  onPress={() => setSelectedCategory(c)}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected: isSelected }}
-                  style={[styles.categoryChip, isSelected && styles.categoryChipSelected]}
-                >
-                  <Text
-                    style={[styles.categoryChipText, isSelected && styles.categoryChipTextSelected]}
-                  >
-                    {c}
-                  </Text>
-                </Pressable>
-              );
-            })}
+            {['All', ...INGREDIENT_CATEGORIES].map((c) => (
+              <CategoryChip
+                key={c}
+                label={c}
+                isSelected={selectedCategory === c}
+                styles={styles}
+                onPress={() => setSelectedCategory(c)}
+              />
+            ))}
           </ScrollView>
 
           {lowStockCount > 0 && (
-            <Pressable
-              style={styles.attentionBanner}
-              onPress={() => setShowLowStockOnly((v) => !v)}
-            >
-              <Ionicons name="alert-circle" size={18} color={colors.danger} />
-              <Text style={styles.attentionText}>
-                {lowStockCount} ingredient{lowStockCount === 1 ? '' : 's'} need
-                {lowStockCount === 1 ? 's' : ''} attention · tap to {showLowStockOnly ? 'show all' : 'view'}
-              </Text>
-            </Pressable>
+            <Animated.View entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}>
+              <Pressable
+                style={styles.attentionBanner}
+                onPress={() => setShowLowStockOnly((v) => !v)}
+              >
+                <Ionicons name="alert-circle" size={18} color={colors.danger} />
+                <Text style={styles.attentionText}>
+                  {lowStockCount} ingredient{lowStockCount === 1 ? '' : 's'} need
+                  {lowStockCount === 1 ? 's' : ''} attention · tap to {showLowStockOnly ? 'show all' : 'view'}
+                </Text>
+              </Pressable>
+            </Animated.View>
           )}
 
           <Animated.FlatList
             data={filtered}
             keyExtractor={(item) => item.id}
+            showsVerticalScrollIndicator={false}
             onScroll={onScroll}
             scrollEventThrottle={16}
             contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
             ListEmptyComponent={
               <Text style={styles.noMatch}>No ingredients match "{search}"</Text>
             }
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => (
               <IngredientCard
                 ingredient={item}
                 sensitivity={sensitivity}
+                index={index}
+                styles={styles}
+                colors={colors}
                 onPress={() => router.push(`/more/ingredients/${item.id}`)}
               />
             )}
@@ -213,13 +229,51 @@ export default function IngredientsListScreen() {
   );
 }
 
+function CategoryChip({
+  label,
+  isSelected,
+  styles,
+  onPress,
+}: {
+  label: string;
+  isSelected: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  onPress: () => void;
+}) {
+  const press = usePressScale();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      accessibilityRole="button"
+      accessibilityState={{ selected: isSelected }}
+    >
+      <Animated.View
+        style={[styles.categoryChip, isSelected && styles.categoryChipSelected, press.style]}
+      >
+        <Text style={[styles.categoryChipText, isSelected && styles.categoryChipTextSelected]}>
+          {label}
+        </Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 function IngredientCard({
   ingredient,
   sensitivity,
+  index,
+  styles,
+  colors,
   onPress,
 }: {
   ingredient: Ingredient;
   sensitivity: GaugeSensitivity;
+  index: number;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Record<ColorToken, string>;
   onPress: () => void;
 }) {
   const lowStock = isLowStock(ingredient);
@@ -227,150 +281,157 @@ function IngredientCard({
   const iconName = getCategoryIcon(ingredient.category);
   const tintColor =
     gauge.status === 'out' ? colors.danger : gauge.status === 'low' ? colors.warning : colors.success;
+  const press = usePressScale();
+  // Staggered entrance per motion.ts's motionStagger — capped so a long
+  // ingredient list doesn't make the last rows look sluggishly late.
+  const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
 
   return (
-    <Pressable style={styles.card} onPress={onPress}>
-      <View style={styles.cardTopRow}>
-        <View style={[styles.iconTile, { backgroundColor: `${tintColor}1F` }]}>
-          <Ionicons name={iconName} size={16} color={tintColor} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.cardName}>{ingredient.name}</Text>
-          {ingredient.category ? (
-            <Text style={styles.cardCategory}>{ingredient.category}</Text>
-          ) : null}
-        </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <Text style={styles.cardStock}>
-            {ingredient.current_stock} {ingredient.unit}
-          </Text>
-          {lowStock ? (
-            <View style={styles.lowStockBadge}>
-              <Text style={styles.lowStockBadgeText}>
-                {gauge.status === 'out' ? 'Out of stock' : 'Low stock'}
-              </Text>
+    <Animated.View
+      entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
+    >
+      <Pressable onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}>
+        <Animated.View style={[styles.card, press.style]}>
+          <View style={styles.cardTopRow}>
+            <View style={[styles.iconTile, { backgroundColor: `${tintColor}1F` }]}>
+              <Ionicons name={iconName} size={16} color={tintColor} />
             </View>
-          ) : null}
-        </View>
-      </View>
-      <StockGauge percent={gauge.percent} status={gauge.status} />
-    </Pressable>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.cardName}>{ingredient.name}</Text>
+              {ingredient.category ? (
+                <Text style={styles.cardCategory}>{ingredient.category}</Text>
+              ) : null}
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.cardStock}>
+                {ingredient.current_stock} {ingredient.unit}
+              </Text>
+              {lowStock ? (
+                <View style={styles.lowStockBadge}>
+                  <Text style={styles.lowStockBadgeText}>
+                    {gauge.status === 'out' ? 'Out of stock' : 'Low stock'}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+          <StockGauge percent={gauge.percent} status={gauge.status} />
+        </Animated.View>
+      </Pressable>
+    </Animated.View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xl,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  title: { ...typography.displaySm, color: colors.textPrimary },
-  // 44x44 minimum touch target per docs/UI_UX.md's Spacing & radius spec
-  // ("this app gets used one-handed while a baker's other hand is full").
-  // The icon itself stays visually small (20px, set at the call site) —
-  // only the tappable area is 44x44.
-  headerIconButton: {
-    width: 44,
-    height: 44,
-    borderRadius: radii.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  skeletonCard: {
-    height: 64,
-    borderRadius: radii.md,
-    backgroundColor: colors.surfaceMuted,
-    marginBottom: spacing.sm,
-  },
-  searchBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    height: 44,
-    marginBottom: spacing.md,
-  },
-  searchInput: { flex: 1, ...typography.body, color: colors.textPrimary, padding: 0 },
-  categoryRow: { height: 40, maxHeight: 40, flexGrow: 0, flexShrink: 0, marginBottom: spacing.md },
-  // Horizontal-scroll row, not flexWrap — margin-based spacing kept
-  // consistent with IngredientFormSheet's chip rows regardless, per that
-  // component's note about `gap` + `flexWrap` failing on Android; this
-  // row doesn't wrap, but staying consistent avoids two different
-  // spacing conventions in the same feature.
-  categoryRowContent: { flexGrow: 0, alignItems: 'flex-start', paddingRight: spacing.xl },
-  categoryChip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radii.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    minHeight: 32,
-    justifyContent: 'center',
-    marginRight: spacing.sm,
-  },
-  categoryChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  categoryChipText: { ...typography.bodySm, color: colors.textPrimary },
-  categoryChipTextSelected: { color: colors.textInverse },
-  attentionBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.dangerMuted,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  attentionText: { ...typography.bodySm, color: colors.danger, flex: 1 },
-  card: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  cardTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  iconTile: {
-    width: 32,
-    height: 32,
-    borderRadius: radii.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardName: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
-  cardCategory: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xxs },
-  cardStock: { ...typography.body, color: colors.textPrimary },
-  lowStockBadge: {
-    backgroundColor: colors.dangerMuted,
-    borderRadius: radii.full,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    marginTop: spacing.xxs,
-  },
-  lowStockBadgeText: { ...typography.caption, color: colors.danger },
-  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  emptyTitle: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.xs },
-  emptyNote: {
-    ...typography.bodySm,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: spacing.xl,
-  },
-  emptyButton: { width: '100%' },
-  noMatch: { ...typography.bodySm, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
-});
+// Styles are built per-render from the live theme palette (rather than a
+// static module-level StyleSheet.create()) so the screen reacts when the
+// baker changes their accent color or light/dark mode. See PrimaryButton.tsx
+// and FloatingTabBar.tsx for the same pattern.
+function makeStyles(colors: Record<ColorToken, string>) {
+  return StyleSheet.create({
+    container: {
+      paddingHorizontal: spacing.xl,
+      paddingBottom: spacing.xl,
+    },
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.lg,
+    },
+    title: { ...typography.displaySm, color: colors.textPrimary },
+    headerIconButton: {
+      width: 44,
+      height: 44,
+      borderRadius: radii.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    skeletonCard: {
+      height: 64,
+      borderRadius: radii.md,
+      backgroundColor: colors.surfaceMuted,
+      marginBottom: spacing.sm,
+    },
+    searchBar: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      paddingHorizontal: spacing.md,
+      height: 44,
+      marginBottom: spacing.md,
+    },
+    searchInput: { flex: 1, ...typography.body, color: colors.textPrimary, padding: 0 },
+    categoryRow: { height: 40, maxHeight: 40, flexGrow: 0, flexShrink: 0, marginBottom: spacing.md },
+    categoryRowContent: { flexGrow: 0, alignItems: 'flex-start', paddingRight: spacing.xl },
+    categoryChip: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      minHeight: 32,
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
+    categoryChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+    categoryChipText: { ...typography.bodySm, color: colors.textPrimary },
+    categoryChipTextSelected: { color: colors.textInverse },
+    attentionBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      backgroundColor: colors.dangerMuted,
+      borderRadius: radii.md,
+      padding: spacing.md,
+      marginBottom: spacing.md,
+    },
+    attentionText: { ...typography.bodySm, color: colors.danger, flex: 1 },
+    card: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.lg,
+      padding: spacing.md,
+      marginBottom: spacing.sm,
+    },
+    cardTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    iconTile: {
+      width: 32,
+      height: 32,
+      borderRadius: radii.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    cardName: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
+    cardCategory: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xxs },
+    cardStock: { ...typography.body, color: colors.textPrimary },
+    lowStockBadge: {
+      backgroundColor: colors.dangerMuted,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      marginTop: spacing.xxs,
+    },
+    lowStockBadgeText: { ...typography.caption, color: colors.danger },
+    emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+    emptyTitle: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.xs },
+    emptyNote: {
+      ...typography.bodySm,
+      color: colors.textSecondary,
+      textAlign: 'center',
+      marginBottom: spacing.xl,
+    },
+    emptyButton: { width: '100%' },
+    noMatch: { ...typography.bodySm, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
+  });
+}
