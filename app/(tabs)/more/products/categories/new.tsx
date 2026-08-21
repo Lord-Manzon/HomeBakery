@@ -1,3 +1,4 @@
+import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -31,6 +32,7 @@ const ICON_OPTIONS = [
 ] as const;
 
 export default function NewCategoryScreen() {
+  useHideFloatingNav();
   const router = useRouter();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
