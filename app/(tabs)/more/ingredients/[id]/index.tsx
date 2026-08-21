@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import {
   useDeleteIngredient,
   useIngredient,
@@ -11,6 +12,8 @@ import {
   useUpdateIngredient,
 } from '../../../../../src/hooks/useIngredients';
 import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
+import { usePressScale } from '../../../../../src/hooks/usePressScale';
+import { useThemeColors } from '../../../../../src/theme/ThemeContext';
 import type { InventoryMovement, MovementType } from '../../../../../src/types/ingredient';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
@@ -21,11 +24,21 @@ import { RestockSheet } from '../../../../../src/components/RestockSheet';
 import { ConfirmDialog } from '../../../../../src/components/ConfirmDialog';
 import { Screen } from '../../../../../src/components/Screen';
 import { getIngredientGauge, type GaugeSensitivity } from '../../../../../src/services/stockGauge';
-import { colors, radii, spacing, typography } from '../../../../../src/theme';
+import {
+  radii,
+  spacing,
+  typography,
+  motionDuration,
+  motionEasing,
+  motionStagger,
+} from '../../../../../src/theme';
+import type { ColorToken } from '../../../../../src/theme/colors';
 
 export default function IngredientDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const { data: ingredient, isLoading, isError } = useIngredient(id);
   const { data: history } = useMovementHistory(id);
@@ -40,6 +53,9 @@ export default function IngredientDetailScreen() {
   const [isRestockOpen, setIsRestockOpen] = useState(false);
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const backPress = usePressScale();
+  const deletePress = usePressScale();
+  const editLinkPress = usePressScale();
 
   if (isLoading) {
     return (
@@ -93,15 +109,25 @@ export default function IngredientDetailScreen() {
   return (
     <Screen style={styles.container}>
       <View style={styles.headerRow}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
-          <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
+        <Pressable
+          onPress={() => router.back()}
+          onPressIn={backPress.onPressIn}
+          onPressOut={backPress.onPressOut}
+          hitSlop={12}
+        >
+          <Animated.View style={backPress.style}>
+            <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
+          </Animated.View>
         </Pressable>
         <Pressable
           onPress={() => setIsConfirmingDelete(true)}
+          onPressIn={deletePress.onPressIn}
+          onPressOut={deletePress.onPressOut}
           hitSlop={12}
-          style={styles.deleteButton}
         >
-          <Ionicons name="trash-outline" size={20} color={colors.danger} />
+          <Animated.View style={[styles.deleteButton, deletePress.style]}>
+            <Ionicons name="trash-outline" size={20} color={colors.danger} />
+          </Animated.View>
         </Pressable>
       </View>
 
@@ -119,7 +145,10 @@ export default function IngredientDetailScreen() {
       <Text style={styles.name}>{ingredient.name}</Text>
       {ingredient.category ? <Text style={styles.category}>{ingredient.category}</Text> : null}
 
-      <View style={styles.heroCard}>
+      <Animated.View
+        entering={FadeIn.duration(motionDuration.medium).easing(motionEasing.decelerate)}
+        style={styles.heroCard}
+      >
         <View style={styles.heroTopRow}>
           <View>
             <Text style={styles.heroLabel}>Current stock</Text>
@@ -137,16 +166,18 @@ export default function IngredientDetailScreen() {
             Alert set at {ingredient.low_stock_threshold} {ingredient.unit}
           </Text>
         ) : null}
-      </View>
+      </Animated.View>
 
       <View style={styles.statGrid}>
-        <StatTile label="Cost per unit" value={ingredient.cost_per_unit.toFixed(2)} />
+        <StatTile label="Cost per unit" value={ingredient.cost_per_unit.toFixed(2)} styles={styles} />
         <StatTile
           label="Low-stock alert"
           value={
             ingredient.low_stock_threshold != null ? String(ingredient.low_stock_threshold) : '—'
           }
           onPress={() => setIsEditOpen(true)}
+          styles={styles}
+          colors={colors}
         />
       </View>
 
@@ -162,17 +193,27 @@ export default function IngredientDetailScreen() {
           />
         </View>
       </View>
-      <Pressable onPress={() => setIsEditOpen(true)} style={styles.editLink}>
-        <Text style={styles.editLinkText}>Edit ingredient</Text>
+      <Pressable
+        onPress={() => setIsEditOpen(true)}
+        onPressIn={editLinkPress.onPressIn}
+        onPressOut={editLinkPress.onPressOut}
+        style={styles.editLink}
+      >
+        <Animated.Text style={[styles.editLinkText, editLinkPress.style]}>
+          Edit ingredient
+        </Animated.Text>
       </Pressable>
 
       <Text style={styles.historyTitle}>Stock history</Text>
       <FlatList
         data={history ?? []}
         keyExtractor={(item) => item.id}
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
         ListEmptyComponent={<Text style={styles.noHistory}>No stock changes yet.</Text>}
-        renderItem={({ item }) => <HistoryRow movement={item} unit={ingredient.unit} />}
+        renderItem={({ item, index }) => (
+          <HistoryRow movement={item} unit={ingredient.unit} index={index} styles={styles} colors={colors} />
+        )}
       />
 
       <IngredientFormSheet
@@ -221,6 +262,8 @@ function StatTile({
   value,
   valueColor,
   onPress,
+  styles,
+  colors,
 }: {
   label: string;
   value: string;
@@ -229,12 +272,16 @@ function StatTile({
    * ingredient) and shows a small pencil affordance so it doesn't look
    * tappable-but-secretly-isn't. */
   onPress?: () => void;
+  styles: ReturnType<typeof makeStyles>;
+  colors?: Record<ColorToken, string>;
 }) {
+  const press = usePressScale();
+
   const content = (
     <>
       <View style={styles.statLabelRow}>
         <Text style={styles.statLabel}>{label}</Text>
-        {onPress ? (
+        {onPress && colors ? (
           <Ionicons name="pencil-outline" size={12} color={colors.textSecondary} />
         ) : null}
       </View>
@@ -246,11 +293,13 @@ function StatTile({
     return (
       <Pressable
         onPress={onPress}
-        style={styles.statTile}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
         accessibilityRole="button"
         accessibilityLabel={`Edit ${label.toLowerCase()}`}
+        style={{ flex: 1.1 }}
       >
-        {content}
+        <Animated.View style={[styles.statTile, press.style]}>{content}</Animated.View>
       </Pressable>
     );
   }
@@ -269,7 +318,10 @@ function movementLabel(movement: InventoryMovement): string {
 // Icon + tint per movement type, so Stock history reads at a glance
 // (restock = green truck, usage = red flame, waste = red trash,
 // adjustment = neutral pencil) instead of relying on text alone.
-function movementIcon(type: MovementType): { name: keyof typeof Ionicons.glyphMap; color: string } {
+function movementIcon(
+  colors: Record<ColorToken, string>,
+  type: MovementType
+): { name: keyof typeof Ionicons.glyphMap; color: string } {
   switch (type) {
     case 'restock':
       return { name: 'cube-outline', color: colors.success };
@@ -282,15 +334,32 @@ function movementIcon(type: MovementType): { name: keyof typeof Ionicons.glyphMa
   }
 }
 
-function HistoryRow({ movement, unit }: { movement: InventoryMovement; unit: string }) {
+function HistoryRow({
+  movement,
+  unit,
+  index,
+  styles,
+  colors,
+}: {
+  movement: InventoryMovement;
+  unit: string;
+  index: number;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Record<ColorToken, string>;
+}) {
   const isPositive = movement.quantity_change > 0;
-  const icon = movementIcon(movement.movement_type);
+  const icon = movementIcon(colors, movement.movement_type);
   const date = new Date(movement.created_at).toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
   });
+  const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
+
   return (
-    <View style={styles.historyRow}>
+    <Animated.View
+      entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
+      style={styles.historyRow}
+    >
       <View style={[styles.historyIconTile, { backgroundColor: `${icon.color}1F` }]}>
         <Ionicons name={icon.name} size={14} color={icon.color} />
       </View>
@@ -302,97 +371,99 @@ function HistoryRow({ movement, unit }: { movement: InventoryMovement; unit: str
         {isPositive ? '+' : ''}
         {movement.quantity_change} {unit}
       </Text>
-    </View>
+    </Animated.View>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  deleteButton: {
-    width: 36,
-    height: 36,
-    borderRadius: radii.full,
-    backgroundColor: colors.dangerMuted,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  name: { ...typography.displaySm, color: colors.textPrimary },
-  category: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xxs },
-  heroCard: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    padding: spacing.lg,
-    marginTop: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  heroTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
-  },
-  heroLabel: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.xxs },
-  heroValue: { fontSize: 24, lineHeight: 30, fontWeight: '600', color: colors.textPrimary },
-  statusChip: {
-    borderRadius: radii.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-  },
-  statusChipText: { ...typography.bodySm, fontWeight: '600' },
-  heroFootnote: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
-  statGrid: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  statTile: {
-    flex: 1,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radii.md,
-    padding: spacing.md,
-  },
-  statLabelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  statLabel: { ...typography.caption, color: colors.textSecondary },
-  statValue: { ...typography.titleSm, color: colors.textPrimary, marginTop: spacing.xxs },
-  costHint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: -spacing.md,
-    marginBottom: spacing.lg,
-  },
-  actionRow: { flexDirection: 'row', marginBottom: spacing.sm },
-  editLink: { alignItems: 'center', paddingVertical: spacing.sm, marginBottom: spacing.lg },
-  editLinkText: { ...typography.bodySm, color: colors.primary },
-  historyTitle: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.sm },
-  noHistory: { ...typography.bodySm, color: colors.textSecondary },
-  historyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  historyIconTile: {
-    width: 28,
-    height: 28,
-    borderRadius: radii.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  historyLabel: { ...typography.body, color: colors.textPrimary },
-  historyDate: { ...typography.caption, color: colors.textSecondary },
-  historyQty: { ...typography.body, fontWeight: '600' },
-});
+function makeStyles(colors: Record<ColorToken, string>) {
+  return StyleSheet.create({
+    container: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.md,
+    },
+    deleteButton: {
+      width: 36,
+      height: 36,
+      borderRadius: radii.full,
+      backgroundColor: colors.dangerMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    name: { ...typography.displaySm, color: colors.textPrimary },
+    category: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xxs },
+    heroCard: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.lg,
+      padding: spacing.lg,
+      marginTop: spacing.lg,
+      marginBottom: spacing.md,
+    },
+    heroTopRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: spacing.md,
+    },
+    heroLabel: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.xxs },
+    heroValue: { fontSize: 24, lineHeight: 30, fontWeight: '600', color: colors.textPrimary },
+    statusChip: {
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+    },
+    statusChipText: { ...typography.bodySm, fontWeight: '600' },
+    heroFootnote: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
+    statGrid: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    statTile: {
+      flex: 1,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radii.md,
+      padding: spacing.md,
+    },
+    statLabelRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    statLabel: { ...typography.caption, color: colors.textSecondary },
+    statValue: { ...typography.titleSm, color: colors.textPrimary, marginTop: spacing.xxs },
+    costHint: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      marginTop: -spacing.md,
+      marginBottom: spacing.lg,
+    },
+    actionRow: { flexDirection: 'row', marginBottom: spacing.sm },
+    editLink: { alignItems: 'center', paddingVertical: spacing.sm, marginBottom: spacing.lg },
+    editLinkText: { ...typography.bodySm, color: colors.primary },
+    historyTitle: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.sm },
+    noHistory: { ...typography.bodySm, color: colors.textSecondary },
+    historyRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    historyIconTile: {
+      width: 28,
+      height: 28,
+      borderRadius: radii.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    historyLabel: { ...typography.body, color: colors.textPrimary },
+    historyDate: { ...typography.caption, color: colors.textSecondary },
+    historyQty: { ...typography.body, fontWeight: '600' },
+  });
+}

@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View, Pressable, TextInput } from 'react-native';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { BottomSheet } from './BottomSheet';
 import { FormField } from './FormField';
 import { PrimaryButton } from './PrimaryButton';
@@ -8,6 +9,8 @@ import { StockGauge } from './StockGauge';
 import { restockFormSchema, type RestockFormInput } from '../utils/validation/ingredientSchemas';
 import { calculateRestockCostPerUnit } from '../services/ingredients';
 import { useBakerProfile } from '../hooks/useBakerProfile';
+import { usePressScale } from '../hooks/usePressScale';
+import { useThemeColors } from '../theme/ThemeContext';
 import {
   getStockGaugePercent,
   getStockGaugeStatus,
@@ -15,7 +18,8 @@ import {
   type GaugeSensitivity,
 } from '../services/stockGauge';
 import type { Ingredient } from '../types/ingredient';
-import { colors, radii, spacing, typography } from '../theme';
+import { radii, spacing, typography, motionDuration, motionEasing } from '../theme';
+import type { ColorToken } from '../theme/colors';
 
 type RestockSheetProps = {
   visible: boolean;
@@ -41,35 +45,11 @@ const CUSTOM_CHIP = 'custom' as const;
 type ChipKey = 'lastTime' | 'topOff' | typeof CUSTOM_CHIP;
 
 /**
- * CHANGED 2026-08-15: was a full-screen route (per the original
- * docs/UI_UX.md section E.4.3 spec, matching the interaction-weight
- * table's "many fields → full screen" rule). Moved to a bottom sheet per
- * explicit direction during on-device testing — Restock only has 2
- * fields, closer to the "2-4 fields → sheet" bucket in practice than the
- * original call anticipated. docs/UI_UX.md and docs/DECISIONS.md need a
- * follow-up entry reflecting this reversal — not done automatically
- * here.
- *
- * CHANGED 2026-08-16: added a live weighted-average preview.
- *
- * CHANGED 2026-08-17: replaced generic round-number quick-add buttons
- * with two data-driven chips instead:
- * - "Last time" — the baker's own most recent restock amount for this
- *   specific ingredient, so the suggestion matches how they actually buy
- *   (e.g. "10 kg" for someone who always buys cheese in 10kg blocks)
- *   rather than an arbitrary preset that might not.
- * - "Restock to Full" (was "Top off" — renamed 2026-08-17) — computes
- *   exactly how much would bring the gauge to 100%
- *   full, using the SAME ceiling math as the gauge itself
- *   (getTopOffAmount, threshold * sensitivity multiplier) so this chip
- *   and the gauge preview below it can never disagree.
- * A third "Custom" state is selected automatically the moment the baker
- * types in the field directly — tapping a chip sets the field's value
- * without triggering Custom, since choosing a preset isn't "typing."
- * Also added a live gauge-percent preview (reusing StockGauge) showing
- * how full the bar will read AFTER this restock, not just the new
- * kg total — ties the number back to the same visual language used
- * throughout Ingredients.
+ * UPDATED 2026-08-21: switched from the static `colors` import to
+ * useThemeColors() + a per-render makeStyles(colors) (see IngredientFormSheet.tsx,
+ * GaugeSensitivitySheet.tsx for the same pattern), and quick-add chips
+ * now use usePressScale() for the same tactile feedback used elsewhere
+ * in the Ingredients flow.
  */
 export function RestockSheet({
   visible,
@@ -82,6 +62,8 @@ export function RestockSheet({
 }: RestockSheetProps) {
   const { data: baker } = useBakerProfile();
   const sensitivity: GaugeSensitivity = baker?.gauge_sensitivity ?? 'balanced';
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [quantity, setQuantity] = useState('');
   const [totalCostPaid, setTotalCostPaid] = useState('');
@@ -166,6 +148,7 @@ export function RestockSheet({
             label="Last time"
             sub={`${lastRestockQuantity} ${ingredient.unit}`}
             selected={selectedChip === 'lastTime'}
+            styles={styles}
             onPress={() => applyChip('lastTime', lastRestockQuantity)}
           />
         ) : null}
@@ -175,6 +158,7 @@ export function RestockSheet({
             sub={`${topOffAmount} ${ingredient.unit}`}
             selected={selectedChip === 'topOff'}
             accent
+            styles={styles}
             onPress={() => applyChip('topOff', topOffAmount)}
           />
         ) : null}
@@ -182,6 +166,7 @@ export function RestockSheet({
           label="Custom"
           sub="Type below"
           selected={selectedChip === CUSTOM_CHIP}
+          styles={styles}
           onPress={() => applyChip(CUSTOM_CHIP, null)}
         />
       </View>
@@ -192,6 +177,7 @@ export function RestockSheet({
         onChangeText={handleQuantityChange}
         keyboardType="decimal-pad"
         placeholder="0"
+        placeholderTextColor={colors.textSecondary}
         style={styles.quantityInput}
       />
       {fieldErrors.quantity ? <Text style={styles.fieldError}>{fieldErrors.quantity}</Text> : null}
@@ -209,7 +195,10 @@ export function RestockSheet({
       </Text>
 
       {addQty > 0 && (
-        <View style={styles.summaryCard}>
+        <Animated.View
+          entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
+          style={styles.summaryCard}
+        >
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>New stock</Text>
             <Text style={styles.summaryValue}>
@@ -230,7 +219,7 @@ export function RestockSheet({
               <Text style={styles.gaugeCaption}>Gauge will read {previewPercent}% full</Text>
             ) : null}
           </View>
-        </View>
+        </Animated.View>
       )}
 
       <PrimaryButton title="Save restock" onPress={handleSave} isLoading={isSaving} />
@@ -243,86 +232,98 @@ function QuickAddChip({
   sub,
   selected,
   accent,
+  styles,
   onPress,
 }: {
   label: string;
   sub: string;
   selected: boolean;
   accent?: boolean;
+  styles: ReturnType<typeof makeStyles>;
   onPress: () => void;
 }) {
+  const press = usePressScale();
+
   return (
     <Pressable
       onPress={onPress}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      style={[
-        styles.chip,
-        selected && styles.chipSelected,
-        accent && !selected && styles.chipAccentUnselected,
-      ]}
+      style={{ flex: 1 }}
     >
-      <Text style={styles.chipLabel}>{label}</Text>
-      <Text style={styles.chipSub}>{sub}</Text>
+      <Animated.View
+        style={[
+          styles.chip,
+          selected && styles.chipSelected,
+          accent && !selected && styles.chipAccentUnselected,
+          press.style,
+        ]}
+      >
+        <Text style={styles.chipLabel}>{label}</Text>
+        <Text style={styles.chipSub}>{sub}</Text>
+      </Animated.View>
     </Pressable>
   );
 }
 
-const styles = StyleSheet.create({
-  title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.xs },
-  subtitle: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
-  label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
-  chipRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xxs },
-  chip: {
-    flex: 1,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xxs,
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  chipSelected: { borderWidth: 2, borderColor: colors.primary },
-  chipAccentUnselected: { backgroundColor: colors.warningMuted },
-  chipLabel: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
-  chipSub: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-  chipHint: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
-  quantityInput: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    textAlign: 'center',
-    ...typography.body,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    backgroundColor: colors.surface,
-    marginBottom: spacing.md,
-  },
-  fieldError: { ...typography.bodySm, color: colors.danger, marginTop: -spacing.sm, marginBottom: spacing.md },
-  hint: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: -spacing.md,
-    marginBottom: spacing.lg,
-  },
-  summaryCard: {
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingBottom: spacing.xs,
-    marginBottom: spacing.xs,
-  },
-  summaryLabel: { ...typography.caption, color: colors.textSecondary },
-  summaryValue: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
-  gaugeCaption: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
-});
+function makeStyles(colors: Record<ColorToken, string>) {
+  return StyleSheet.create({
+    title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.xs },
+    subtitle: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
+    label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
+    chipRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.xxs },
+    chip: {
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+      borderRadius: radii.md,
+      paddingVertical: spacing.sm,
+      paddingHorizontal: spacing.xxs,
+      minHeight: 44,
+      justifyContent: 'center',
+    },
+    chipSelected: { borderWidth: 2, borderColor: colors.primary },
+    chipAccentUnselected: { backgroundColor: colors.warningMuted },
+    chipLabel: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
+    chipSub: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+    chipHint: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
+    quantityInput: {
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      textAlign: 'center',
+      ...typography.body,
+      fontWeight: '600',
+      color: colors.textPrimary,
+      backgroundColor: colors.surface,
+      marginBottom: spacing.md,
+    },
+    fieldError: { ...typography.bodySm, color: colors.danger, marginTop: -spacing.sm, marginBottom: spacing.md },
+    hint: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      marginTop: -spacing.md,
+      marginBottom: spacing.lg,
+    },
+    summaryCard: {
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radii.lg,
+      padding: spacing.md,
+      marginBottom: spacing.lg,
+    },
+    summaryRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingBottom: spacing.xs,
+      marginBottom: spacing.xs,
+    },
+    summaryLabel: { ...typography.caption, color: colors.textSecondary },
+    summaryValue: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
+    gaugeCaption: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
+  });
+}
