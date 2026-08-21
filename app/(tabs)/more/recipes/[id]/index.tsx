@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -44,6 +44,17 @@ export default function RecipeDetailScreen() {
   const [isEditingName, setIsEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState('');
   const [nameError, setNameError] = useState<string | null>(null);
+  const [isEditingYield, setIsEditingYield] = useState(false);
+  const [yieldQtyDraft, setYieldQtyDraft] = useState('');
+  const [yieldUnitDraft, setYieldUnitDraft] = useState('');
+  const [yieldError, setYieldError] = useState<string | null>(null);
+  // Two inputs share one "commit on tap-away" behavior. Moving focus
+  // from the quantity box to the unit box fires the quantity box's
+  // onBlur BEFORE the unit box's onFocus — without this, that in-between
+  // moment would look like "tapped away" and commit mid-edit. Delaying
+  // the commit slightly and canceling it if the sibling field gets
+  // focus in that window fixes it.
+  const yieldBlurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isCostExpanded, setIsCostExpanded] = useState(false);
   const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
   const [ingredientSheet, setIngredientSheet] = useState<
@@ -109,6 +120,58 @@ export default function RecipeDetailScreen() {
     );
   };
 
+  const startEditingYield = () => {
+    setYieldQtyDraft(String(recipe.yield_quantity));
+    setYieldUnitDraft(recipe.yield_unit);
+    setYieldError(null);
+    setIsEditingYield(true);
+  };
+
+  const cancelScheduledYieldCommit = () => {
+    if (yieldBlurTimeout.current) {
+      clearTimeout(yieldBlurTimeout.current);
+      yieldBlurTimeout.current = null;
+    }
+  };
+
+  const scheduleYieldCommit = () => {
+    cancelScheduledYieldCommit();
+    yieldBlurTimeout.current = setTimeout(commitYieldEdit, 80);
+  };
+
+  const commitYieldEdit = () => {
+    cancelScheduledYieldCommit();
+    const trimmedUnit = yieldUnitDraft.trim();
+    setIsEditingYield(false);
+    if (yieldQtyDraft.trim() === String(recipe.yield_quantity) && trimmedUnit === recipe.yield_unit) {
+      return;
+    }
+    // Validate only the two fields this edit actually touches — same
+    // reasoning as the name and instructions fixes: re-validating the
+    // whole recipe would fail on any OTHER field carrying old data.
+    const qtyResult = recipeFormSchema.shape.yield_quantity.safeParse(yieldQtyDraft);
+    if (!qtyResult.success) {
+      setYieldError(qtyResult.error.issues[0]?.message ?? 'Enter a valid quantity.');
+      return;
+    }
+    const unitResult = recipeFormSchema.shape.yield_unit.safeParse(trimmedUnit);
+    if (!unitResult.success) {
+      setYieldError(unitResult.error.issues[0]?.message ?? 'Enter a valid unit.');
+      return;
+    }
+    setYieldError(null);
+    updateRecipe.mutate(
+      {
+        name: recipe.name,
+        yield_quantity: qtyResult.data,
+        yield_unit: unitResult.data,
+        instructions: recipe.instructions,
+        margin_percent: recipe.margin_percent,
+      },
+      { onError: () => setYieldError("Couldn't save. Try again.") }
+    );
+  };
+
   return (
     <Screen style={styles.container}>
       <View style={styles.headerRow}>
@@ -169,9 +232,40 @@ export default function RecipeDetailScreen() {
       ) : null}
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}>
-        <Text style={styles.yieldLine}>
-          Yields {recipe.yield_quantity} {recipe.yield_unit}
-        </Text>
+        {isEditingYield ? (
+          <View style={styles.yieldEditRow}>
+            <Text style={styles.yieldEditLabel}>Yields</Text>
+            <TextInput
+              style={styles.yieldQtyInput}
+              value={yieldQtyDraft}
+              onChangeText={setYieldQtyDraft}
+              onBlur={scheduleYieldCommit}
+              onFocus={cancelScheduledYieldCommit}
+              onSubmitEditing={commitYieldEdit}
+              keyboardType="decimal-pad"
+              autoFocus
+              selectTextOnFocus
+              returnKeyType="next"
+            />
+            <TextInput
+              style={styles.yieldUnitInput}
+              value={yieldUnitDraft}
+              onChangeText={setYieldUnitDraft}
+              onBlur={scheduleYieldCommit}
+              onFocus={cancelScheduledYieldCommit}
+              onSubmitEditing={commitYieldEdit}
+              returnKeyType="done"
+              maxLength={30}
+            />
+          </View>
+        ) : (
+          <Pressable onPress={startEditingYield}>
+            <Text style={styles.yieldLine}>
+              Yields {recipe.yield_quantity} {recipe.yield_unit}
+            </Text>
+          </Pressable>
+        )}
+        {yieldError ? <Text style={styles.yieldErrorText}>{yieldError}</Text> : null}
 
         {/* Collapsed cost summary card — per docs/UI_UX_1.md section 6:
             most days a baker just wants to glance at "am I still
@@ -394,6 +488,25 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     iconButton: { width: 44, height: 44, borderRadius: radii.full, alignItems: 'center', justifyContent: 'center' },
     yieldLine: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
+    yieldEditRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, marginBottom: spacing.lg },
+    yieldEditLabel: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.xxs + 2 },
+    yieldQtyInput: {
+      ...typography.bodySm,
+      color: colors.textPrimary,
+      width: 48,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.primary,
+      paddingBottom: spacing.xxs,
+    },
+    yieldUnitInput: {
+      ...typography.bodySm,
+      color: colors.textPrimary,
+      flex: 1,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.primary,
+      paddingBottom: spacing.xxs,
+    },
+    yieldErrorText: { ...typography.caption, color: colors.danger, marginTop: -spacing.md, marginBottom: spacing.lg },
     card: { backgroundColor: colors.surface, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.md },
     skeleton: { height: 80, backgroundColor: colors.surfaceMuted, borderWidth: 0 },
     costCard: {
