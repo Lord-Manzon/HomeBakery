@@ -57,6 +57,7 @@ const MORE_SECTIONS: MoreSection[] = [
   { label: 'Ingredients', pathname: '/more/ingredients' },
   { label: 'Products', pathname: '/more/products' },
   { label: 'Appearance', pathname: '/more/appearance' },
+  { label: 'Recipes', pathname: '/more/recipes' },
 ];
 
 // Per-tab Quick Add contents — see docs/UI_UX_1.md section G and
