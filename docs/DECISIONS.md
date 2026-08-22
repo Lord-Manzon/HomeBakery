@@ -677,3 +677,70 @@ prematurely reveal the nav when it unmounts. Screens opt in via
 **Follow-up:** `docs/UI_UX_1.md` section G updated to state this
 distinction explicitly, rather than leaving "which screens the global nav
 covers" implicit.
+
+### 2026-08-22 — Simplified orders.status to 4 values; payment_method is now free text
+
+**Decision:** `orders.status`'s original 6-value design
+(`pending`/`confirmed`/`preparing`/`ready`/`completed`/`cancelled`) is
+reduced to 4: `pending` / `delivered` / `completed` / `cancelled`
+(`supabase/migrations/0009_orders_status_payment_method.sql`). New
+lifecycle: `pending` → `delivered` → `completed`, or `cancelled` (from
+`pending` or `delivered`, not from `completed`). **`completed` is never
+set directly by a baker action** — it's a derived side effect, applied
+automatically the moment an order is both `delivered` and
+`payment_status = 'paid'`, whichever happens last
+(`src/services/orderLogic.ts`'s `resolveStatusAfterMarking`). Order Detail
+exposes exactly two quick actions — "Mark Delivered"/"Mark Picked Up"
+(label depends on `fulfillment_type`) and "Mark Paid" — plus a separate
+"Cancel order" inline-confirm action, rather than a 5-step manual stepper.
+
+Separately, `orders.payment_method` changes from a 3-value check
+constraint (`gcash`/`cash`/`bank_transfer`) to nullable free text, same
+pattern as `products.category`/`ingredients.category`/`expenses.category`.
+The UI still offers curated quick-pick chips (Cash, GCash, Bank Transfer,
+PayPal, or type your own — `src/utils/validation/orderSchemas.ts`'s
+`PAYMENT_METHOD_OPTIONS`), defaulting to Cash, so data stays reportable
+without a DB-level cap.
+
+**Why (status):** `confirmed` and `preparing` were dropped because they'd
+duplicate what Phase 8's Production screen already tracks per item via
+`order_items.production_status` — an order-level status doesn't need to
+shadow that granularity. `ready` was renamed to `delivered` to match what
+the baker action actually means. This also resolves a stale term in
+`docs/UI_UX_1.md` section E.2 ("mark-delivered action"), which referred to
+a status value ("delivered") that didn't actually exist in the original
+6-value enum.
+
+**Why (payment_method):** the original 3-value list was Philippines-
+specific (GCash, Cash, Bank Transfer) and didn't fit a baker using PayPal,
+Venmo, or any other regional payment app. Free text with curated chips —
+the pattern already used for every other "categorize this, but let the
+baker's own words win" field in the app — avoids a repeat schema change
+every time a new payment method comes up, while still keeping Reports
+(Phase 11) able to group profit by payment method later.
+
+**Alternatives considered:** Keeping the original 6-status pipeline with a
+baker-facing "next status" stepper — considered closer to the original
+Phase 7 spec, but the baker's actual daily need is captured by two quick
+actions (delivered, paid), and forcing a manual walk through
+confirmed/preparing added steps without adding real information, since
+Production owns per-item progress separately. A fixed, larger
+`payment_method` enum (adding e.g. `paypal`, `venmo`) was also considered
+over free text — rejected because it just delays the same problem to the
+next unlisted payment app a baker outside the Philippines uses.
+
+**Doc impact:** `docs/DATABASE.md`'s `orders` table and `docs/PRODUCT.md`'s
+order business-rule bullet and workflow line updated to match. Existing
+order rows (there shouldn't be any yet — Orders UI didn't exist before
+this phase) are defensively remapped by the migration before the new,
+stricter check constraint is applied:
+`confirmed`/`preparing` → `pending`, `ready` → `delivered`.
+
+**Known follow-up, not resolved by this change:** `src/services/orders.ts`'s
+`updateOrder` currently replaces an order's line items wholesale on every
+edit (delete all `order_items`, re-insert fresh rows) rather than diffing
+by id. That's fine today — Production/inventory deduction (Phase 8)
+doesn't exist yet, so no `order_items.id` is referenced anywhere else yet —
+but it would orphan any future `inventory_movements.reference_id` once
+Phase 8 lands. Worth a proper diff-based update before or during Phase 8,
+flagged here so it isn't forgotten.
