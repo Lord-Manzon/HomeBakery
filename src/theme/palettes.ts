@@ -72,12 +72,12 @@ export function buildPalette(
     primaryPressed: darken(accent),
     ...neutrals,
     ...semantic,
-    // Order status colors — see colors.ts comment: Confirmed/Preparing
-    // aren't defined in docs/UI_UX.md section F, mapped as best guesses.
+    // Order status colors — see colors.ts's comment: every value now
+    // maps directly to an existing semantic/neutral token, per
+    // docs/DECISIONS.md's 2026-08-22 entry (Confirmed/Preparing dropped,
+    // Ready renamed to Delivered).
     statusPending: semantic.warning,
-    statusConfirmed: accent,
-    statusPreparing: mode === 'light' ? '#8A5FB0' : '#B08FD9',
-    statusReady: semantic.success,
+    statusDelivered: semantic.success,
     statusCompleted: neutrals.textSecondary,
     statusCancelled: semantic.danger,
   };

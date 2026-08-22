@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { calculateOrderTotals, canCancelOrder, resolveStatusAfterMarking } from './orderLogic';
+import { todayDateString } from '../utils/dateFormat';
 import type { Order, OrderItem, OrderItemWithNames, OrderListFilter, OrderWithItems } from '../types/order';
 import type { OrderFormInput } from '../utils/validation/orderSchemas';
 
@@ -38,14 +39,6 @@ function mapOrderWithItems(row: Order & { order_items: OrderItemRow[] }): OrderW
     ...order,
     items: (order_items ?? []).map(mapOrderItem),
   };
-}
-
-function todayDateString(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
 }
 
 /**

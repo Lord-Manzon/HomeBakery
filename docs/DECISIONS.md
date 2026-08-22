@@ -787,3 +787,54 @@ function gets added inside a Supabase-importing service file.
 
 **Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest` —
 4 suites, 50 tests, all passing.
+
+### 2026-08-22 — Built the Orders list screen; no per-screen FAB, following Products' precedent
+
+**Decision:** `app/(tabs)/orders.tsx` (a flat placeholder route) replaced
+with a folder-based route (`app/(tabs)/orders/_layout.tsx`,
+`app/(tabs)/orders/index.tsx`), matching the same Stack pattern already
+used by `more/products/` and `more/ingredients/`. The list screen has a
+search bar (filters by customer name, client-side), the four filter chips
+from `docs/UI_UX_1.md` section E.2 (Today/Upcoming/Unpaid/All), and order
+cards showing customer, an item summary ("2× Carrot Cake (Medium) +1
+more" — same "+N more" pattern as Products' variant price chips), status
+badge, payment badge, and total.
+
+`docs/UI_UX_1.md` section E.2 still describes "FAB for new order," but no
+per-screen FAB was built — the global floating + button's contextual Quick
+Add (see the 2026-08-19 entry) already covers "add an order" from every
+tab, and `more/products/index.tsx`'s actual shipped screen already
+dropped its own FAB in favor of that (only an empty-state "Add product"
+button remains there). Orders follows the same already-established
+precedent: no dedicated FAB, just an empty-state "New order" button (only
+shown on the true first-run empty state, i.e. the "All" filter with zero
+orders) plus the global Quick Add. `docs/UI_UX_1.md`'s "FAB for new
+order" line is now stale relative to the actual app, same category of
+drift as Product Detail's already-flagged section 5b — noted here rather
+than silently left inconsistent, full doc pass not done as part of this
+entry.
+
+**New helper file:** `src/utils/dateFormat.ts` (`formatOrderTime`,
+`formatOrderDate`, `todayDateString`) — `src/services/orders.ts` now
+imports `todayDateString` from here instead of keeping its own private
+copy, so the list's server-side "what counts as today" filter and the
+card's client-side "is this overdue" check can never quietly drift apart
+from each other.
+
+**Status colors updated to match the schema:** `src/theme/colors.ts` and
+`src/theme/palettes.ts` (the per-accent-swatch light/dark palette
+builder) both still had `statusConfirmed`/`statusPreparing`/`statusReady`
+from the pre-2026-08-22 6-value status model. Updated to
+`statusPending`/`statusDelivered`/`statusCompleted`/`statusCancelled`,
+matching this same date's earlier status-simplification entry — this was
+a mechanical follow-through on that decision, not a new one, since the
+mapping (Delivered=success, Completed=textSecondary, Cancelled=danger)
+was already implied by that entry's reasoning.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest`
+— 4 suites, 50 tests, all passing (list screen has no logic of its own to
+unit-test; the numbers it displays — totals, status — all come from
+already-tested `orderLogic.ts` functions and `formatCurrency`/
+`formatOrderTime`/`formatOrderDate`, which are pure display formatting,
+not business math, per `docs/CODING_STANDARDS.md`'s "computes a number a
+baker will trust" test requirement).
