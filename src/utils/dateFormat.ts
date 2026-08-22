@@ -57,3 +57,26 @@ export function todayDateString(): string {
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/**
+ * Converts a JS Date to "YYYY-MM-DD" for the order form's scheduled_date
+ * field, produced by @react-native-community/datetimepicker. Uses the
+ * date's LOCAL calendar fields, not `date.toISOString()` -- the latter
+ * converts to UTC first, which can silently roll over to the wrong
+ * calendar day depending on the device's timezone offset (the same
+ * reason formatOrderDate above parses date strings manually instead of
+ * handing them to `new Date(dateStr)`).
+ */
+export function toISODateString(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+/** Converts a JS Date's time-of-day to "HH:MM:SS" for scheduled_time. */
+export function toTimeString(date: Date): string {
+  const h = String(date.getHours()).padStart(2, '0');
+  const m = String(date.getMinutes()).padStart(2, '0');
+  return `${h}:${m}:00`;
+}

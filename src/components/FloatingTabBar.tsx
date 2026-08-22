@@ -101,7 +101,7 @@ const MORE_MENU_GROUPS: MoreMenuItem[][] = [
 // tab's specific list and ordering (top item = most likely action).
 const QUICK_ADD: Record<string, QuickAddItem[]> = {
   index: [
-    { label: 'Add order', icon: 'receipt-outline' }, // Phase 7, not built yet
+    { label: 'Add order', icon: 'receipt-outline', pathname: '/orders/new' },
     {
       label: 'Add ingredient',
       icon: 'nutrition-outline',
@@ -111,9 +111,9 @@ const QUICK_ADD: Record<string, QuickAddItem[]> = {
     { label: 'Add product', icon: 'cube-outline', pathname: '/more/products/new' },
     { label: 'Add expense', icon: 'wallet-outline' }, // Phase 9, not built yet
   ],
-  orders: [{ label: 'Add order', icon: 'receipt-outline' }], // Phase 7, not built yet
+  orders: [{ label: 'Add order', icon: 'receipt-outline', pathname: '/orders/new' }],
   production: [
-    { label: 'Add order', icon: 'receipt-outline' }, // Phase 7, not built yet
+    { label: 'Add order', icon: 'receipt-outline', pathname: '/orders/new' },
     { label: 'Restock ingredient', icon: 'refresh-outline', pathname: '/more/ingredients' },
     { label: 'Add expense', icon: 'wallet-outline' }, // Phase 9, not built yet
   ],

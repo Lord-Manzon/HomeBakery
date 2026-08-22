@@ -838,3 +838,59 @@ already-tested `orderLogic.ts` functions and `formatCurrency`/
 `formatOrderTime`/`formatOrderDate`, which are pure display formatting,
 not business math, per `docs/CODING_STANDARDS.md`'s "computes a number a
 baker will trust" test requirement).
+
+### 2026-08-22 — Built the New Order screen (multi-item cart)
+
+**Decision:** `app/(tabs)/orders/new.tsx` — full-screen form per
+`docs/UI_UX_1.md`'s interaction-weight table. Customer name/contact,
+Pickup/Delivery segmented toggle (delivery address + fee fields only
+appear for Delivery), date + time pickers
+(`@react-native-community/datetimepicker`, first real usage of that
+dependency added earlier), a multi-item cart, and notes. New component
+`src/components/OrderItemSheet.tsx` — a two-step picker (product, then
+one of its variants, then quantity), same pattern as
+`RecipeIngredientSheet.tsx`'s ingredient picker with an extra step for
+variant. A product with only one variant auto-selects it rather than
+making the baker pick from a list of one.
+
+The cart only ever sends `{product_id, variant_id, quantity}` to
+`orderFormSchema` — never a price. `selling_price` is shown in the picker
+sheet and used for the form's own running subtotal/total display, but
+`src/services/orders.ts`'s `createOrder` re-fetches each variant's
+current price at save time regardless (see that file's existing
+comments), so what's briefly shown while filling out the form is never
+what actually gets persisted.
+
+**Two bugs caught before shipping, not after:** the Delivery-only
+`delivery_address`/`delivery_fee` fields are hidden (not unmounted-and-
+cleared) when the baker switches back to Pickup, so their state doesn't
+reset on its own. Without a fix, switching Delivery → Pickup right before
+saving would have silently submitted a stale address/fee on a pickup
+order. Fixed by forcing both to their empty/zero values at submit time
+whenever `fulfillment_type` isn't `'delivery'`, rather than trusting
+whatever's left in the hidden fields' state.
+
+**Temporary substitution, flagged for Stage 4:** `docs/UI_UX_1.md`'s key
+flow says New Order "saves → Order detail," but Order Detail
+(`/orders/[id]`) doesn't exist until Stage 4. `onSuccess` currently
+navigates back to the Orders list (`router.replace('/orders')`) instead —
+noted in a code comment as needing to become
+`router.replace(\`/orders/${order.id}\`)` once Detail ships, so this
+isn't forgotten as a loose end.
+
+**Wired up:** `src/components/FloatingTabBar.tsx`'s "Add order" Quick Add
+entry now points to `/orders/new` in all three tabs that offer it (Home,
+Orders, Production) — previously disabled/no-op placeholders since Orders
+didn't exist yet.
+
+**New helpers:** `src/utils/dateFormat.ts` gained `toISODateString` and
+`toTimeString` — the inverse of the display formatters added in the
+previous entry, converting a native picker's `Date` back to the
+`"YYYY-MM-DD"`/`"HH:MM:SS"` strings the schema and database expect.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest`
+— 4 suites, 50 tests, all passing (no new business logic requiring its
+own test — the form's running subtotal/total display uses the same
+arithmetic as `calculateOrderTotals`, but isn't itself a separate
+function to test; the authoritative totals calculation still only lives
+in `orderLogic.ts`).
