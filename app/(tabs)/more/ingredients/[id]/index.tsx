@@ -59,7 +59,7 @@ export default function IngredientDetailScreen() {
 
   if (isLoading) {
     return (
-      <Screen style={styles.container}>
+      <Screen style={styles.loadingContainer}>
         <ActivityIndicator color={colors.primary} />
       </Screen>
     );
@@ -378,6 +378,11 @@ function HistoryRow({
 function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
     container: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
+    loadingContainer: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     headerRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',

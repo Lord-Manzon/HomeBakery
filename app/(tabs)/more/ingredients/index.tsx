@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -29,6 +29,19 @@ import type { ColorToken } from '../../../../src/theme/colors';
 
 export default function IngredientsListScreen() {
   const router = useRouter();
+  // Guards against a double-tap (or a slow re-render registering the
+  // same tap twice) pushing two copies of the same detail screen onto
+  // the stack. Shared across all cards in the list, not per-card, so
+  // rapidly tapping two DIFFERENT cards back-to-back is also debounced.
+  const isNavigatingRef = useRef(false);
+  const navigateToIngredient = (ingredientId: string) => {
+    if (isNavigatingRef.current) return;
+    isNavigatingRef.current = true;
+    router.push(`/more/ingredients/${ingredientId}`);
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 600);
+  };
   const { openAdd } = useLocalSearchParams<{ openAdd?: string }>();
   const onScroll = useHideNavOnScroll();
   const { colors } = useThemeColors();
@@ -203,7 +216,7 @@ export default function IngredientsListScreen() {
                 index={index}
                 styles={styles}
                 colors={colors}
-                onPress={() => router.push(`/more/ingredients/${item.id}`)}
+                onPress={() => navigateToIngredient(item.id)}
               />
             )}
           />
