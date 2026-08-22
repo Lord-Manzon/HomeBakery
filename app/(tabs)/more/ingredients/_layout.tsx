@@ -17,7 +17,6 @@ export default function IngredientsLayout() {
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="[id]/index" />
-      <Stack.Screen name="[id]/restock" />
     </Stack>
   );
 }
