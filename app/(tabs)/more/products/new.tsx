@@ -21,6 +21,7 @@ import {
 import { productFormSchema } from '../../../../src/utils/validation/productSchemas';
 import { getCategoryVisual } from '../../../../src/utils/productCategoryIcon';
 import { FormField } from '../../../../src/components/FormField';
+import { Screen } from '../../../../src/components/Screen';
 import { PrimaryButton } from '../../../../src/components/PrimaryButton';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
 import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
@@ -115,7 +116,7 @@ export default function NewProductScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <Screen style={styles.container}>
       <Pressable
         style={styles.editDismissWrapper}
         onPress={() => {
@@ -221,7 +222,7 @@ export default function NewProductScreen() {
         onCancel={() => setPendingDeleteCategory(null)}
       />
       </Pressable>
-    </View>
+    </Screen>
   );
 }
 
@@ -302,7 +303,7 @@ function CategoryChip({
 
 function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, padding: spacing.xl },
+    container: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
     editDismissWrapper: { flex: 1 },
     headerRow: {
       flexDirection: 'row',

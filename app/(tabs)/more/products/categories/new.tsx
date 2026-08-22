@@ -8,6 +8,7 @@ import { useThemeColors } from '../../../../../src/theme/ThemeContext';
 import { useCreateProductCategory } from '../../../../../src/hooks/useProducts';
 import { usePressScale } from '../../../../../src/hooks/usePressScale';
 import { FormField } from '../../../../../src/components/FormField';
+import { Screen } from '../../../../../src/components/Screen';
 import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
 import { spacing, radii, typography, motionDuration, motionEasing } from '../../../../../src/theme';
@@ -60,7 +61,7 @@ export default function NewCategoryScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <Screen style={styles.container}>
       <View style={styles.headerRow}>
         <Pressable onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
@@ -112,7 +113,7 @@ export default function NewCategoryScreen() {
           />
         </View>
       </ScrollView>
-    </View>
+    </Screen>
   );
 }
 
