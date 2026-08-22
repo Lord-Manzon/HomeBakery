@@ -4,13 +4,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import {
-  useDeleteIngredient,
   useIngredient,
   useMovementHistory,
   useRecordUseOrWaste,
+  useRemoveIngredient,
   useRestockIngredient,
   useUpdateIngredient,
 } from '../../../../../src/hooks/useIngredients';
+import type { BlockingRecipe } from '../../../../../src/services/ingredients';
 import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
 import { usePressScale } from '../../../../../src/hooks/usePressScale';
 import { useThemeColors } from '../../../../../src/theme/ThemeContext';
@@ -46,13 +47,14 @@ export default function IngredientDetailScreen() {
   const updateIngredient = useUpdateIngredient(id);
   const recordUseOrWaste = useRecordUseOrWaste(id);
   const restockIngredient = useRestockIngredient(id);
-  const deleteIngredient = useDeleteIngredient();
+  const removeIngredient = useRemoveIngredient();
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isUseWasteOpen, setIsUseWasteOpen] = useState(false);
   const [isRestockOpen, setIsRestockOpen] = useState(false);
-  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isConfirmingRemove, setIsConfirmingRemove] = useState(false);
+  const [removeError, setRemoveError] = useState<string | null>(null);
+  const [blockedRecipes, setBlockedRecipes] = useState<BlockingRecipe[] | null>(null);
   const backPress = usePressScale();
   const deletePress = usePressScale();
   const editLinkPress = usePressScale();
@@ -86,22 +88,27 @@ export default function IngredientDetailScreen() {
   const lastRestockQuantity =
     history?.find((m) => m.movement_type === 'restock')?.quantity_change ?? null;
 
-  const handleDelete = () => {
-    setDeleteError(null);
-    deleteIngredient.mutate(ingredient.id, {
-      onSuccess: () => router.back(),
-      onError: (err: any) => {
-        // Postgres 'on delete restrict' violation — recipe_ingredients
-        // still references this ingredient. Show the plain-language
-        // message from the Phase 5 spec instead of the raw DB error.
-        const isRestrictViolation =
-          err?.code === '23503' || String(err?.message ?? '').includes('foreign key');
-        setDeleteError(
-          isRestrictViolation
-            ? "This ingredient is used in a recipe and can't be deleted. Remove it from the recipe first."
-            : "Couldn't delete this ingredient. Try again."
-        );
-        setIsConfirmingDelete(false);
+  const handleRemove = () => {
+    setRemoveError(null);
+    setBlockedRecipes(null);
+    removeIngredient.mutate(ingredient.id, {
+      onSuccess: (result) => {
+        if (result.action === 'blocked') {
+          // Still used in a recipe right now — the one outcome that
+          // doesn't just quietly succeed. Close the confirm dialog and
+          // show which recipe(s) are blocking it, each name tappable
+          // (see BlockedRecipesNotice below).
+          setIsConfirmingRemove(false);
+          setBlockedRecipes(result.recipes);
+          return;
+        }
+        // 'deleted' and 'archived' both mean it's gone from the active
+        // list either way — same navigation for both.
+        router.back();
+      },
+      onError: () => {
+        setRemoveError("Couldn't remove this ingredient. Try again.");
+        setIsConfirmingRemove(false);
       },
     });
   };
@@ -120,7 +127,7 @@ export default function IngredientDetailScreen() {
           </Animated.View>
         </Pressable>
         <Pressable
-          onPress={() => setIsConfirmingDelete(true)}
+          onPress={() => setIsConfirmingRemove(true)}
           onPressIn={deletePress.onPressIn}
           onPressOut={deletePress.onPressOut}
           hitSlop={12}
@@ -132,15 +139,18 @@ export default function IngredientDetailScreen() {
       </View>
 
       <ConfirmDialog
-        visible={isConfirmingDelete}
-        title="Delete this ingredient?"
-        message={`This removes "${ingredient.name}" and its stock history. This can't be undone.`}
-        confirmLabel="Delete"
-        onCancel={() => setIsConfirmingDelete(false)}
-        onConfirm={handleDelete}
+        visible={isConfirmingRemove}
+        title="Remove this ingredient?"
+        message={`If "${ingredient.name}" has no stock history, it'll be deleted for good. If it's been restocked, used, or wasted before, it'll be archived instead — hidden from your list, with its history kept intact.`}
+        confirmLabel="Remove"
+        onCancel={() => setIsConfirmingRemove(false)}
+        onConfirm={handleRemove}
       />
 
-      {deleteError ? <ErrorBanner message={deleteError} /> : null}
+      {removeError ? <ErrorBanner message={removeError} /> : null}
+      {blockedRecipes ? (
+        <BlockedRecipesNotice recipes={blockedRecipes} styles={styles} />
+      ) : null}
 
       <Text style={styles.name}>{ingredient.name}</Text>
       {ingredient.category ? <Text style={styles.category}>{ingredient.category}</Text> : null}
@@ -254,6 +264,44 @@ export default function IngredientDetailScreen() {
         lastRestockQuantity={lastRestockQuantity}
       />
     </Screen>
+  );
+}
+
+// A recipe still referencing this ingredient is the one outcome that
+// blocks removal outright (see removeIngredient() in
+// src/services/ingredients.ts). Each recipe name is individually
+// tappable — nested <Text onPress> is the correct RN pattern for an
+// inline clickable span; a Pressable/Animated.View can't be nested
+// mid-paragraph inside Text without breaking the text flow, which is
+// why this doesn't use the same press-scale treatment as the rest of
+// the screen's buttons.
+function BlockedRecipesNotice({
+  recipes,
+  styles,
+}: {
+  recipes: BlockingRecipe[];
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const router = useRouter();
+
+  return (
+    <View style={styles.blockedNotice}>
+      <Text style={styles.blockedNoticeText}>
+        Can't remove this ingredient because it's used in{' '}
+        {recipes.map((recipe, index) => (
+          <Text key={recipe.id}>
+            <Text
+              style={styles.blockedNoticeLink}
+              onPress={() => router.push(`/more/recipes/${recipe.id}`)}
+            >
+              {recipe.name}
+            </Text>
+            {index < recipes.length - 2 ? ', ' : index === recipes.length - 2 ? ' and ' : ''}
+          </Text>
+        ))}
+        .
+      </Text>
+    </View>
   );
 }
 
@@ -398,6 +446,18 @@ function makeStyles(colors: Record<ColorToken, string>) {
       justifyContent: 'center',
     },
     name: { ...typography.displaySm, color: colors.textPrimary },
+    blockedNotice: {
+      backgroundColor: colors.dangerMuted,
+      borderRadius: radii.md,
+      padding: spacing.md,
+      marginBottom: spacing.md,
+    },
+    blockedNoticeText: { ...typography.bodySm, color: colors.danger },
+    blockedNoticeLink: {
+      color: colors.danger,
+      textDecorationLine: 'underline',
+      fontWeight: '600',
+    },
     category: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xxs },
     heroCard: {
       backgroundColor: colors.surface,
