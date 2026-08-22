@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import {
   useIngredient,
+  useIngredientRecipes,
   useMovementHistory,
   useRecordUseOrWaste,
   useRemoveIngredient,
@@ -13,6 +14,7 @@ import {
 } from '../../../../../src/hooks/useIngredients';
 import type { BlockingRecipe } from '../../../../../src/services/ingredients';
 import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
+import { formatCurrency } from '../../../../../src/utils/currency';
 import { usePressScale } from '../../../../../src/hooks/usePressScale';
 import { useThemeColors } from '../../../../../src/theme/ThemeContext';
 import type { InventoryMovement, MovementType } from '../../../../../src/types/ingredient';
@@ -43,6 +45,7 @@ export default function IngredientDetailScreen() {
 
   const { data: ingredient, isLoading, isError } = useIngredient(id);
   const { data: history } = useMovementHistory(id);
+  const { data: recipesUsing } = useIngredientRecipes(id);
   const { data: baker } = useBakerProfile();
   const updateIngredient = useUpdateIngredient(id);
   const recordUseOrWaste = useRecordUseOrWaste(id);
@@ -179,7 +182,11 @@ export default function IngredientDetailScreen() {
       </Animated.View>
 
       <View style={styles.statGrid}>
-        <StatTile label="Cost per unit" value={ingredient.cost_per_unit.toFixed(2)} styles={styles} />
+        <StatTile
+          label="Cost per unit"
+          value={formatCurrency(ingredient.cost_per_unit, baker?.currency)}
+          styles={styles}
+        />
         <StatTile
           label="Low-stock alert"
           value={
@@ -213,6 +220,11 @@ export default function IngredientDetailScreen() {
           Edit ingredient
         </Animated.Text>
       </Pressable>
+
+      <Text style={styles.historyTitle}>Used in</Text>
+      {recipesUsing ? (
+        <UsedInSection recipes={recipesUsing} styles={styles} colors={colors} />
+      ) : null}
 
       <Text style={styles.historyTitle}>Stock history</Text>
       <FlatList
@@ -302,6 +314,59 @@ function BlockedRecipesNotice({
         .
       </Text>
     </View>
+  );
+}
+
+function UsedInSection({
+  recipes,
+  styles,
+  colors,
+}: {
+  recipes: BlockingRecipe[];
+  styles: ReturnType<typeof makeStyles>;
+  colors: Record<ColorToken, string>;
+}) {
+  if (recipes.length === 0) {
+    return (
+      <View style={styles.usedInEmpty}>
+        <Text style={styles.usedInEmptyText}>Not used in any recipe yet</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.usedInList}>
+      {recipes.map((recipe) => (
+        <UsedInChip key={recipe.id} recipe={recipe} styles={styles} colors={colors} />
+      ))}
+    </View>
+  );
+}
+
+function UsedInChip({
+  recipe,
+  styles,
+  colors,
+}: {
+  recipe: BlockingRecipe;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Record<ColorToken, string>;
+}) {
+  const router = useRouter();
+  const press = usePressScale();
+
+  return (
+    <Pressable
+      onPress={() => router.push(`/more/recipes/${recipe.id}`)}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      accessibilityRole="button"
+    >
+      <Animated.View style={[styles.usedInChip, press.style]}>
+        <Ionicons name="restaurant-outline" size={13} color={colors.textSecondary} />
+        <Text style={styles.usedInChipText}>{recipe.name}</Text>
+      </Animated.View>
+    </Pressable>
   );
 }
 
@@ -511,6 +576,24 @@ function makeStyles(colors: Record<ColorToken, string>) {
     editLink: { alignItems: 'center', paddingVertical: spacing.sm, marginBottom: spacing.lg },
     editLinkText: { ...typography.bodySm, color: colors.primary },
     historyTitle: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.sm },
+    usedInEmpty: { marginBottom: spacing.lg },
+    usedInEmptyText: { ...typography.bodySm, color: colors.textSecondary },
+    usedInList: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    usedInChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xxs,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+    },
+    usedInChipText: { ...typography.bodySm, color: colors.textPrimary },
     noHistory: { ...typography.bodySm, color: colors.textSecondary },
     historyRow: {
       flexDirection: 'row',

@@ -13,6 +13,7 @@ import {
 } from '../utils/validation/ingredientSchemas';
 import { INGREDIENT_CATEGORIES, INGREDIENT_UNITS, type Ingredient } from '../types/ingredient';
 import { useBakerProfile } from '../hooks/useBakerProfile';
+import { useIngredients } from '../hooks/useIngredients';
 import { usePressScale } from '../hooks/usePressScale';
 import { useThemeColors } from '../theme/ThemeContext';
 import { getStockGaugePercent, getStockGaugeStatus } from '../services/stockGauge';
@@ -71,6 +72,15 @@ export function IngredientFormSheet({
   const isEdit = !!initialValue;
   const { data: baker } = useBakerProfile();
   const sensitivity = baker?.gauge_sensitivity ?? 'balanced';
+  // Reuses the same cached query the ingredients list already loaded
+  // (same queryKey in useIngredients.ts) — this doesn't fire a second
+  // network request, it just reads what's already in the React Query
+  // cache. Excludes the ingredient being edited so an unchanged name
+  // doesn't flag as a duplicate of itself.
+  const { data: allIngredients } = useIngredients();
+  const existingNames = (allIngredients ?? [])
+    .filter((i) => i.id !== initialValue?.id)
+    .map((i) => i.name);
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -84,7 +94,7 @@ export function IngredientFormSheet({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const handleSave = () => {
-    const parsed = ingredientFormSchema.safeParse({
+    const parsed = ingredientFormSchema(existingNames).safeParse({
       name,
       category,
       quantity,

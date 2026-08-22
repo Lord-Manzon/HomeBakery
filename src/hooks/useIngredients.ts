@@ -4,6 +4,7 @@ import {
   getIngredient,
   getIngredients,
   getMovementHistory,
+  getRecipesUsingIngredient,
   recordUseOrWaste,
   removeIngredient,
   restockIngredient,
@@ -25,6 +26,16 @@ export function useIngredient(id: string) {
 
 export function useMovementHistory(id: string) {
   return useQuery({ queryKey: movementsKey(id), queryFn: () => getMovementHistory(id), enabled: !!id });
+}
+
+const recipesUsingKey = (id: string) => ['ingredients', id, 'recipes'] as const;
+
+export function useIngredientRecipes(id: string) {
+  return useQuery({
+    queryKey: recipesUsingKey(id),
+    queryFn: () => getRecipesUsingIngredient(id),
+    enabled: !!id,
+  });
 }
 
 export function useCreateIngredient() {

@@ -131,16 +131,23 @@ export type RemoveIngredientResult =
  *  3. No recipe use, no history at all -> DELETED for real. Nothing to
  *     preserve.
  */
-export async function removeIngredient(id: string): Promise<RemoveIngredientResult> {
-  const { data: recipeRows, error: recipeError } = await supabase
+/**
+ * Every recipe currently referencing this ingredient. Shared by
+ * removeIngredient() (deciding whether removal is blocked) and the
+ * ingredient detail screen's permanent "Used in" section — same query
+ * either way, so it's factored out rather than duplicated.
+ */
+export async function getRecipesUsingIngredient(ingredientId: string): Promise<BlockingRecipe[]> {
+  const { data, error } = await supabase
     .from('recipe_ingredients')
     .select('recipe:recipes(id, name)')
-    .eq('ingredient_id', id);
-  if (recipeError) throw recipeError;
+    .eq('ingredient_id', ingredientId);
+  if (error) throw error;
+  return dedupeRecipes((data ?? []).map((row: any) => row.recipe).filter(Boolean));
+}
 
-  const blockingRecipes = dedupeRecipes(
-    (recipeRows ?? []).map((row: any) => row.recipe).filter(Boolean)
-  );
+export async function removeIngredient(id: string): Promise<RemoveIngredientResult> {
+  const blockingRecipes = await getRecipesUsingIngredient(id);
   if (blockingRecipes.length > 0) {
     return { action: 'blocked', recipes: blockingRecipes };
   }

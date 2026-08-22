@@ -9,6 +9,7 @@ import { StockGauge } from './StockGauge';
 import { restockFormSchema, type RestockFormInput } from '../utils/validation/ingredientSchemas';
 import { calculateRestockCostPerUnit } from '../services/ingredients';
 import { useBakerProfile } from '../hooks/useBakerProfile';
+import { formatCurrency } from '../utils/currency';
 import { usePressScale } from '../hooks/usePressScale';
 import { useThemeColors } from '../theme/ThemeContext';
 import {
@@ -136,7 +137,7 @@ export function RestockSheet({
       <Text style={styles.title}>Restock {ingredient.name}</Text>
       <Text style={styles.subtitle}>
         Currently {ingredient.current_stock} {ingredient.unit} at{' '}
-        {ingredient.cost_per_unit.toFixed(2)}/{ingredient.unit}
+        {formatCurrency(ingredient.cost_per_unit, baker?.currency)}/{ingredient.unit}
       </Text>
 
       {errorMessage ? <ErrorBanner message={errorMessage} /> : null}
@@ -209,7 +210,7 @@ export function RestockSheet({
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>New cost per unit</Text>
               <Text style={[styles.summaryValue, { color: colors.success }]}>
-                {newCostPerUnit.toFixed(2)} (weighted avg)
+                {formatCurrency(newCostPerUnit, baker?.currency)} (weighted avg)
               </Text>
             </View>
           ) : null}
