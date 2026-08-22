@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated from 'react-native-reanimated';
 import { BottomSheet } from './BottomSheet';
 import { FormField } from './FormField';
 import { PrimaryButton } from './PrimaryButton';
@@ -12,9 +13,12 @@ import {
 } from '../utils/validation/ingredientSchemas';
 import { INGREDIENT_CATEGORIES, INGREDIENT_UNITS, type Ingredient } from '../types/ingredient';
 import { useBakerProfile } from '../hooks/useBakerProfile';
+import { usePressScale } from '../hooks/usePressScale';
+import { useThemeColors } from '../theme/ThemeContext';
 import { getStockGaugePercent, getStockGaugeStatus } from '../services/stockGauge';
 import { getCategoryIcon } from '../utils/ingredientCategoryIcon';
-import { colors, radii, spacing, typography } from '../theme';
+import { radii, spacing, typography } from '../theme';
+import type { ColorToken } from '../theme/colors';
 
 type IngredientFormSheetProps = {
   visible: boolean;
@@ -48,6 +52,13 @@ type IngredientFormSheetProps = {
  * about than two. Also added a live preview at the bottom showing how
  * the entry will look on the Ingredients list, using the same
  * StockGauge component and gauge math as that screen.
+ *
+ * UPDATED 2026-08-21: switched from the static `colors` import to
+ * useThemeColors() + a per-render makeStyles(colors) (see BottomSheet.tsx
+ * and FormField.tsx, both already on this pattern) so the sheet reacts
+ * to the baker's accent color / light-dark preference. Category and unit
+ * chips now use usePressScale() for the same tactile press feedback the
+ * Ingredients list's category chips and PrimaryButton already have.
  */
 export function IngredientFormSheet({
   visible,
@@ -60,6 +71,8 @@ export function IngredientFormSheet({
   const isEdit = !!initialValue;
   const { data: baker } = useBakerProfile();
   const sensitivity = baker?.gauge_sensitivity ?? 'balanced';
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const [name, setName] = useState(initialValue?.name ?? '');
   const [category, setCategory] = useState<string | null>(initialValue?.category ?? null);
@@ -168,19 +181,15 @@ export function IngredientFormSheet({
         contentContainerStyle={styles.chipScrollContent}
       >
         {INGREDIENT_CATEGORIES.map((c) => (
-          <Pressable
+          <FormChip
             key={c}
+            label={c}
+            icon={getCategoryIcon(c)}
+            isSelected={category === c}
+            styles={styles}
+            colors={colors}
             onPress={() => setCategory(category === c ? null : c)}
-            style={[styles.chip, category === c && styles.chipSelected]}
-          >
-            <Ionicons
-              name={getCategoryIcon(c)}
-              size={14}
-              color={category === c ? colors.textInverse : colors.textPrimary}
-              style={styles.chipIcon}
-            />
-            <Text style={[styles.chipText, category === c && styles.chipTextSelected]}>{c}</Text>
-          </Pressable>
+          />
         ))}
       </ScrollView>
 
@@ -205,13 +214,14 @@ export function IngredientFormSheet({
             contentContainerStyle={styles.chipScrollContent}
           >
             {INGREDIENT_UNITS.map((u) => (
-              <Pressable
+              <FormChip
                 key={u}
+                label={u}
+                isSelected={unit === u}
+                styles={styles}
+                colors={colors}
                 onPress={() => setUnit(u)}
-                style={[styles.chip, unit === u && styles.chipSelected]}
-              >
-                <Text style={[styles.chipText, unit === u && styles.chipTextSelected]}>{u}</Text>
-              </Pressable>
+              />
             ))}
           </ScrollView>
           {fieldErrors.unit ? <Text style={styles.fieldError}>{fieldErrors.unit}</Text> : null}
@@ -236,59 +246,108 @@ export function IngredientFormSheet({
   );
 }
 
-const styles = StyleSheet.create({
-  title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.lg },
-  label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
-  quantityUnitRow: { flexDirection: 'row', gap: spacing.md },
-  quantityCol: { width: 96 },
-  quantityInput: { textAlign: 'left' },
-  unitCol: { flex: 1 },
-  chipScroll: { height: 40, maxHeight: 40, flexGrow: 0, flexShrink: 0, marginBottom: spacing.lg },
-  chipScrollContent: { flexGrow: 0, alignItems: 'flex-start', paddingRight: spacing.xl },
-  chip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    minHeight: 36,
-    justifyContent: 'center',
-    marginRight: spacing.sm,
-  },
-  chipIcon: { marginRight: spacing.xxs },
-  chipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-  chipText: { ...typography.bodySm, color: colors.textPrimary },
-  chipTextSelected: { color: colors.textInverse },
-  fieldError: { ...typography.bodySm, color: colors.danger, marginTop: -spacing.sm, marginBottom: spacing.md },
-  previewSectionLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: spacing.sm,
-  },
-  previewCard: {
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  previewTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  previewIconTile: {
-    width: 32,
-    height: 32,
-    borderRadius: radii.sm,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewName: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
-  previewCategory: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
-  previewStock: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
-});
+// Shared by both the category row and the unit row — icon is optional
+// since unit chips (g, kg, ml, pcs...) don't have one, only category
+// chips do (via getCategoryIcon).
+function FormChip({
+  label,
+  icon,
+  isSelected,
+  styles,
+  colors,
+  onPress,
+}: {
+  label: string;
+  icon?: keyof typeof Ionicons.glyphMap;
+  isSelected: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Record<ColorToken, string>;
+  onPress: () => void;
+}) {
+  const press = usePressScale();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      accessibilityRole="button"
+      accessibilityState={{ selected: isSelected }}
+    >
+      <Animated.View style={[styles.chip, isSelected && styles.chipSelected, press.style]}>
+        {icon ? (
+          <Ionicons
+            name={icon}
+            size={14}
+            color={isSelected ? colors.textInverse : colors.textPrimary}
+            style={styles.chipIcon}
+          />
+        ) : null}
+        <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{label}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// Styles are built per-render from the live theme palette (rather than a
+// static module-level StyleSheet.create()) so the sheet reacts to the
+// baker's accent color / light-dark preference. See BottomSheet.tsx and
+// FormField.tsx for the same pattern.
+function makeStyles(colors: Record<ColorToken, string>) {
+  return StyleSheet.create({
+    title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.lg },
+    label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
+    quantityUnitRow: { flexDirection: 'row', gap: spacing.md },
+    quantityCol: { width: 96 },
+    quantityInput: { textAlign: 'left' },
+    unitCol: { flex: 1 },
+    chipScroll: { height: 40, maxHeight: 40, flexGrow: 0, flexShrink: 0, marginBottom: spacing.lg },
+    chipScrollContent: { flexGrow: 0, alignItems: 'flex-start', paddingRight: spacing.xl },
+    chip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      minHeight: 36,
+      justifyContent: 'center',
+      marginRight: spacing.sm,
+    },
+    chipIcon: { marginRight: spacing.xxs },
+    chipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+    chipText: { ...typography.bodySm, color: colors.textPrimary },
+    chipTextSelected: { color: colors.textInverse },
+    fieldError: { ...typography.bodySm, color: colors.danger, marginTop: -spacing.sm, marginBottom: spacing.md },
+    previewSectionLabel: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginBottom: spacing.sm,
+    },
+    previewCard: {
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radii.lg,
+      padding: spacing.md,
+      marginBottom: spacing.lg,
+    },
+    previewTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    previewIconTile: {
+      width: 32,
+      height: 32,
+      borderRadius: radii.sm,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    previewName: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
+    previewCategory: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
+    previewStock: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
+  });
+}

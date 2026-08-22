@@ -1,12 +1,16 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { BottomSheet } from './BottomSheet';
 import { FormField } from './FormField';
 import { PrimaryButton } from './PrimaryButton';
 import { ErrorBanner } from './ErrorBanner';
 import { USE_WASTE_REASONS, useWasteFormSchema, type UseWasteReason } from '../utils/validation/ingredientSchemas';
-import { colors, radii, spacing, typography } from '../theme';
+import { usePressScale } from '../hooks/usePressScale';
+import { useThemeColors } from '../theme/ThemeContext';
+import { radii, spacing, typography, motionDuration, motionEasing } from '../theme';
+import type { ColorToken } from '../theme/colors';
 
 // Icon per reason, matching the original mockup — dropped when this
 // component was first built, re-added 2026-08-16. Keyed against
@@ -41,6 +45,12 @@ type UseWasteSheetProps = {
  * (border/opacity, not just non-interactive) instead of only being
  * inert — makes the invalid state visible before tapping, not just
  * after.
+ *
+ * UPDATED 2026-08-22: switched from the static `colors` import to
+ * useThemeColors() + a per-render makeStyles(colors) (see RestockSheet.tsx,
+ * IngredientFormSheet.tsx for the same pattern). Reason rows now use
+ * usePressScale() for the same tactile feedback used elsewhere in the
+ * Ingredients flow.
  */
 export function UseWasteSheet({
   visible,
@@ -51,6 +61,8 @@ export function UseWasteSheet({
   isSaving,
   errorMessage,
 }: UseWasteSheetProps) {
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const [quantity, setQuantity] = useState('');
   const [reason, setReason] = useState<UseWasteReason | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -77,6 +89,13 @@ export function UseWasteSheet({
   const isPositive = quantity !== '' && qtyNumber > 0;
   const newStock = Math.max(0, currentStock - qtyNumber);
   const canSave = isPositive && !exceedsStock && !!reason;
+  // Shown as soon as the baker types a quantity over what's available —
+  // not just after they press Save. Same wording useWasteFormSchema()
+  // uses on submit, so the message is identical whether it appears
+  // live or from the post-Save validation error.
+  const liveStockError = exceedsStock
+    ? `Not enough stock — you have ${currentStock} ${unit} left`
+    : null;
 
   return (
     <BottomSheet visible={visible} onDismiss={onDismiss} dismissDisabled={isSaving}>
@@ -93,39 +112,34 @@ export function UseWasteSheet({
         keyboardType="decimal-pad"
         value={quantity}
         onChangeText={setQuantity}
-        error={fieldErrors.quantity}
+        error={fieldErrors.quantity ?? liveStockError}
       />
 
       <Text style={styles.label}>Reason</Text>
       <View style={styles.reasonList}>
-        {USE_WASTE_REASONS.map((r) => {
-          const isSelected = reason === r;
-          return (
-            <Pressable
-              key={r}
-              onPress={() => setReason(r)}
-              style={[styles.reasonRow, isSelected && styles.reasonRowSelected]}
-            >
-              <Ionicons
-                name={REASON_ICONS[r]}
-                size={16}
-                color={isSelected ? colors.primary : colors.textSecondary}
-                style={styles.reasonIcon}
-              />
-              <Text style={[styles.reasonText, isSelected && styles.reasonTextSelected]}>{r}</Text>
-            </Pressable>
-          );
-        })}
+        {USE_WASTE_REASONS.map((r) => (
+          <ReasonRow
+            key={r}
+            reason={r}
+            isSelected={reason === r}
+            styles={styles}
+            colors={colors}
+            onPress={() => setReason(r)}
+          />
+        ))}
       </View>
       {fieldErrors.reason ? <Text style={styles.fieldError}>{fieldErrors.reason}</Text> : null}
 
       {isPositive && (
-        <View style={styles.summaryCard}>
+        <Animated.View
+          entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
+          style={styles.summaryCard}
+        >
           <Text style={styles.summaryLabel}>New stock</Text>
           <Text style={[styles.summaryValue, exceedsStock && { color: colors.danger }]}>
             {currentStock} − {qtyNumber} = {exceedsStock ? '—' : `${newStock} ${unit}`}
           </Text>
-        </View>
+        </Animated.View>
       )}
 
       <PrimaryButton
@@ -138,36 +152,76 @@ export function UseWasteSheet({
   );
 }
 
-const styles = StyleSheet.create({
-  title: { ...typography.titleLg, color: colors.textPrimary },
-  subtitle: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
-  label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
-  reasonList: { marginBottom: spacing.md },
-  reasonRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    minHeight: 44,
-  },
-  reasonIcon: { marginRight: spacing.sm },
-  reasonRowSelected: { borderColor: colors.primary, backgroundColor: colors.surfaceMuted },
-  reasonText: { ...typography.body, color: colors.textPrimary },
-  reasonTextSelected: { color: colors.primary, fontWeight: '600' },
-  fieldError: { ...typography.bodySm, color: colors.danger, marginTop: -spacing.sm, marginBottom: spacing.md },
-  summaryCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radii.lg,
-    padding: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  summaryLabel: { ...typography.caption, color: colors.textSecondary },
-  summaryValue: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
-});
+function ReasonRow({
+  reason,
+  isSelected,
+  styles,
+  colors,
+  onPress,
+}: {
+  reason: UseWasteReason;
+  isSelected: boolean;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Record<ColorToken, string>;
+  onPress: () => void;
+}) {
+  const press = usePressScale();
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onPressIn={press.onPressIn}
+      onPressOut={press.onPressOut}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: isSelected }}
+    >
+      <Animated.View
+        style={[styles.reasonRow, isSelected && styles.reasonRowSelected, press.style]}
+      >
+        <Ionicons
+          name={REASON_ICONS[reason]}
+          size={16}
+          color={isSelected ? colors.primary : colors.textSecondary}
+          style={styles.reasonIcon}
+        />
+        <Text style={[styles.reasonText, isSelected && styles.reasonTextSelected]}>{reason}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+function makeStyles(colors: Record<ColorToken, string>) {
+  return StyleSheet.create({
+    title: { ...typography.titleLg, color: colors.textPrimary },
+    subtitle: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
+    label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
+    reasonList: { marginBottom: spacing.md },
+    reasonRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.lg,
+      marginBottom: spacing.sm,
+      minHeight: 44,
+    },
+    reasonIcon: { marginRight: spacing.sm },
+    reasonRowSelected: { borderColor: colors.primary, backgroundColor: colors.surfaceMuted },
+    reasonText: { ...typography.body, color: colors.textPrimary },
+    reasonTextSelected: { color: colors.primary, fontWeight: '600' },
+    fieldError: { ...typography.bodySm, color: colors.danger, marginTop: -spacing.sm, marginBottom: spacing.md },
+    summaryCard: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radii.lg,
+      padding: spacing.md,
+      marginBottom: spacing.lg,
+    },
+    summaryLabel: { ...typography.caption, color: colors.textSecondary },
+    summaryValue: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
+  });
+}
