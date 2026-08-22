@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import { FloatingTabBar } from '../../src/components/FloatingTabBar';
 import { ScrollNavProvider } from '../../src/contexts/ScrollNavContext';
+import { useThemeColors } from '../../src/theme/ThemeContext';
 
 /**
  * 4-tab layout (Home · Orders · Production · More) with a custom floating
@@ -13,10 +14,19 @@ import { ScrollNavProvider } from '../../src/contexts/ScrollNavContext';
  * useHideNavOnScroll) and to FloatingTabBar itself.
  */
 export default function TabsLayout() {
+  const { colors } = useThemeColors();
+
   return (
     <ScrollNavProvider>
       <Tabs
-        screenOptions={{ headerShown: false }}
+        screenOptions={{
+          headerShown: false,
+          // Same white-flash cause as Stack's contentStyle, one layer up:
+          // Tabs' own scene container defaults to white, and every tab's
+          // content (including More's whole nested Ingredients stack)
+          // sits on top of it during any transition.
+          sceneStyle: { backgroundColor: colors.background },
+        }}
         tabBar={(props) => <FloatingTabBar {...props} />}
       >
         <Tabs.Screen name="index" options={{ title: 'Home' }} />
