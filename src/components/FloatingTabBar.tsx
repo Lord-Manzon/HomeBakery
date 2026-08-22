@@ -1,18 +1,17 @@
-import { useMemo, useState, type ComponentProps } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
+import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, useRouter, usePathname } from 'expo-router';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useAnimatedStyle,
+  useSharedValue,
   withTiming,
+  withSpring,
   runOnJS,
-  FadeIn,
-  FadeOut,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../theme/ThemeContext';
-import { radii, spacing, typography, motionDuration, motionEasing } from '../theme';
+import { radii, spacing, typography, motionDuration, motionEasing, motionSpring } from '../theme';
 import { useScrollNav } from '../contexts/ScrollNavContext';
 import type { ColorToken } from '../theme/colors';
 
@@ -26,6 +25,12 @@ type TabBarRenderer = ComponentProps<typeof Tabs>['tabBar'];
 type FloatingTabBarProps = NonNullable<TabBarRenderer> extends (props: infer P) => unknown
   ? P
   : never;
+
+// Height of the pill+FAB row (the FAB is the tallest element in it) —
+// used to position the Quick Add card correctly now that it renders
+// inside its own Modal (for a real full-screen tap-outside-to-close
+// backdrop) instead of inline next to the row.
+const NAV_ROW_HEIGHT = 48;
 
 const TAB_META: Record<string, { label: string; icon: IconName }> = {
   index: { label: 'Home', icon: 'home-outline' },
@@ -45,19 +50,50 @@ type QuickAddItem = {
   params?: Record<string, string>;
 };
 
-type MoreSection = { label: string; pathname: string };
+type MoreMenuItem = {
+  label: string;
+  icon: IconName;
+  /** Omit for destinations not built yet — renders disabled with a
+   * "Soon" badge, same convention as QuickAddItem above. Only
+   * Ingredients, Products, and Recipes exist as real routes today
+   * (confirmed against app/(tabs)/more/*); Expenses, Reports,
+   * Storefront, Subscription, and Account don't have screens yet. */
+  pathname?: string;
+};
 
-// Sub-destinations shown in the expanded "More" nav strip. Order matters —
-// this is also the swipe/tap-cycle order. Recipes lives under More too but
-// is reached from the More index screen for now, not this strip — keeps the
-// dot count matched to the 3 sections the person is actively iterating on
-// (Ingredients, Products, Appearance). Add it here later if it should join
-// the cycle.
-const MORE_SECTIONS: MoreSection[] = [
-  { label: 'Ingredients', pathname: '/more/ingredients' },
-  { label: 'Products', pathname: '/more/products' },
-  { label: 'Appearance', pathname: '/more/appearance' },
-  { label: 'Recipes', pathname: '/more/recipes' },
+// Grouped by what these actually are to a bakery owner, not just the
+// order they were listed in — see the conversation in
+// docs/DECISIONS.md's More-menu entry for the reasoning:
+//   1. What you make  — inventory/menu side
+//   2. The numbers     — money in/out
+//   3. Outward-facing  — customer/plan-facing
+//   4. You              — account & settings
+// Each inner array renders as one visual group with a divider between
+// groups (see the `more`-menu rendering below) — mirrors the grouped
+// popover pattern in the Brave browser screenshot that motivated this.
+const MORE_MENU_GROUPS: MoreMenuItem[][] = [
+  [
+    { label: 'Ingredients', icon: 'nutrition-outline', pathname: '/more/ingredients' },
+    { label: 'Products', icon: 'cube-outline', pathname: '/more/products' },
+    { label: 'Recipes', icon: 'book-outline', pathname: '/more/recipes' },
+  ],
+  [
+    { label: 'Expenses', icon: 'wallet-outline' }, // not built yet
+    { label: 'Reports', icon: 'bar-chart-outline' }, // not built yet
+  ],
+  [
+    { label: 'Storefront', icon: 'storefront-outline' }, // not built yet
+    { label: 'Subscription', icon: 'card-outline' }, // not built yet
+  ],
+  [
+    { label: 'Account', icon: 'person-outline' }, // not built yet
+    // Interim: only Appearance exists so far under what will become a
+    // proper Settings hub (currency, etc. come later per the person's
+    // plan). Point Settings straight at it for now rather than leaving
+    // it disabled — swap this one pathname once a real settings/index
+    // hub screen exists.
+    { label: 'Settings', icon: 'settings-outline', pathname: '/more/appearance' },
+  ],
 ];
 
 // Per-tab Quick Add contents — see docs/UI_UX_1.md section G and
@@ -106,80 +142,107 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const router = useRouter();
   const pathname = usePathname();
   const { navHidden, forceHiddenCount } = useScrollNav();
   const [isCardOpen, setIsCardOpen] = useState(false);
 
-  // Expanded state = the sub-nav strip (icon + swipeable section label)
-  // replacing the 4 tabs. Starts collapsed; opens only when More is tapped,
-  // and re-collapses on tapping the icon or navigating to a non-More tab.
-  const [isMoreExpanded, setIsMoreExpanded] = useState(false);
+  // The Quick Add card renders inside its own <Modal> (for a real
+  // full-screen tap-outside-to-close backdrop), which is a separate
+  // native overlay from the nav row's own container — the two don't
+  // reliably share the same "distance from screen bottom" coordinate
+  // space (confirmed on-device: a hardcoded height guess put the card
+  // flush against the pill instead of floating above it with a gap).
+  // Measuring the row's real on-screen position with measureInWindow
+  // avoids guessing at that offset entirely.
+  const rowRef = useRef<View>(null);
+  const [cardBottomOffset, setCardBottomOffset] = useState(insets.bottom + spacing.xs + NAV_ROW_HEIGHT + spacing.sm);
 
-  // Which of MORE_SECTIONS is current, derived from the actual route so the
-  // strip shows the right label even if the person deep-links or comes back
-  // via Android back rather than the strip itself.
-  const activeSectionIndex = useMemo(() => {
-    const found = MORE_SECTIONS.findIndex((s) => pathname.startsWith(s.pathname));
-    return found === -1 ? 0 : found;
-  }, [pathname]);
-  const [sectionIndex, setSectionIndex] = useState(activeSectionIndex);
+  function measureRowPosition() {
+    rowRef.current?.measureInWindow((_x, y) => {
+      if (y > 0) {
+        setCardBottomOffset(windowHeight - y + spacing.sm);
+      }
+    });
+  }
 
-  // Real width of the 4-tab row, captured via onLayout below. Used to size
-  // the expanded strip so it's the exact same width as the collapsed
-  // state — not a guessed constant, since label width (e.g. "Production")
-  // varies with the device's font rendering and isn't safe to hardcode.
-  const [tabRowWidth, setTabRowWidth] = useState<number | null>(null);
+  // Quick Add "pop" animation — scales/rises up from the FAB's corner
+  // instead of a plain fade, with a light spring on the way in. Driven
+  // manually (rather than Modal's own animationType, or entering/exiting
+  // props) so the closing half gets to actually play: `cardMounted` keeps
+  // the Modal alive through the close animation, only flipping off once
+  // the animation's finished callback fires — otherwise Modal's own
+  // `visible` toggling off would cut the animation short.
+  const [cardMounted, setCardMounted] = useState(false);
+  const cardProgress = useSharedValue(0);
+
+  useEffect(() => {
+  if (isCardOpen) {
+    cardProgress.value = 0;
+    setCardMounted(true);
+
+    requestAnimationFrame(() => {
+      cardProgress.value = withTiming(1, {
+        duration: 100,
+      });
+    });
+  } else {
+    cardProgress.value = withTiming(0, {
+      duration: motionDuration.instant,
+    }, (finished) => {
+      if (finished) runOnJS(setCardMounted)(false);
+    });
+  }
+}, [isCardOpen]);
+
+const cardAnimatedStyle = useAnimatedStyle(() => ({
+  opacity: cardProgress.value,
+  transform: [
+    { scale: 0.88 + cardProgress.value * 0.12 },
+    { translateY: (1 - cardProgress.value) * 6 },
+  ],
+}));
+
+  // --- More menu (Modal-based popover, same mechanism as Quick Add) ---
+  // A grouped list, not an inline-expanding strip — see the conversation
+  // that led here: with 9 destinations (and growing), a flat/expanding
+  // strip either hides most of them behind swipes or gets cramped. This
+  // reuses the exact Quick Add popover pattern (Modal, backdrop, mounted
+  // state kept alive through the close animation) rather than inventing a
+  // second overlay mechanism.
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
+  const [moreMenuMounted, setMoreMenuMounted] = useState(false);
+  const moreMenuProgress = useSharedValue(0);
+
+  useEffect(() => {
+    if (isMoreMenuOpen) {
+      moreMenuProgress.value = 0;
+      setMoreMenuMounted(true);
+      moreMenuProgress.value = withSpring(1, motionSpring.gentle);
+    } else {
+      moreMenuProgress.value = withTiming(0, { duration: motionDuration.instant }, (finished) => {
+        if (finished) runOnJS(setMoreMenuMounted)(false);
+      });
+    }
+  }, [isMoreMenuOpen]);
+
+  const moreMenuAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: moreMenuProgress.value,
+    transform: [
+      { scale: 0.9 + moreMenuProgress.value * 0.1 },
+      { translateY: (1 - moreMenuProgress.value) * 8 },
+    ],
+  }));
+
+  function handleMoreMenuPress(item: MoreMenuItem) {
+    setIsMoreMenuOpen(false);
+    if (!item.pathname) return; // no built destination yet — same no-op as Quick Add
+    router.push(item.pathname as never);
+  }
 
   const activeRouteName = state.routes[state.index]?.name ?? 'index';
   const items = QUICK_ADD[activeRouteName] ?? [];
-
-  function goToSection(nextIndex: number) {
-    const clamped = (nextIndex + MORE_SECTIONS.length) % MORE_SECTIONS.length;
-    setSectionIndex(clamped);
-    // replace, not push: swiping/tapping between sections is a lateral swap
-    // (like switching tabs), not drilling deeper. push() here was the bug —
-    // every swipe added a new stack entry instead of swapping the current
-    // one, so the back button replayed the whole swipe history and the
-    // screens piled up in memory instead of being released.
-    router.replace(MORE_SECTIONS[clamped].pathname as never);
-  }
-
-  function handleMorePress() {
-    setIsCardOpen(false);
-    if (!isMoreExpanded) {
-      setSectionIndex(activeSectionIndex);
-      setIsMoreExpanded(true);
-      // push only here: this is the one legitimate "enter a new stack"
-      // moment — coming from Home/Orders/Production into More for the
-      // first time. Every subsequent section change goes through
-      // goToSection's replace() above instead.
-      if (activeRouteName !== 'more') {
-        router.push(MORE_SECTIONS[activeSectionIndex].pathname as never);
-      }
-    } else {
-      setIsMoreExpanded(false);
-    }
-  }
-
-  // Tap right half of the strip = forward, left half = back. A real drag
-  // (beyond a small threshold) is treated as a swipe instead — see the
-  // gesture below — so the two never both fire for the same touch.
-  function handleZoneTap(direction: 1 | -1) {
-    goToSection(sectionIndex + direction);
-  }
-
-  const swipeGesture = Gesture.Pan()
-    .activeOffsetX([-12, 12])
-    .failOffsetY([-10, 10])
-    .onEnd((e) => {
-      'worklet';
-      if (e.translationX < -40) {
-        runOnJS(goToSection)(sectionIndex + 1);
-      } else if (e.translationX > 40) {
-        runOnJS(goToSection)(sectionIndex - 1);
-      }
-    });
 
   const navAnimatedStyle = useAnimatedStyle(() => {
     const hidden = navHidden.value > 0 || forceHiddenCount.value > 0 ? 1 : 0;
@@ -192,6 +255,20 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   function handleQuickAddPress(item: QuickAddItem) {
     setIsCardOpen(false);
     if (!item.pathname) return; // no-op for actions with no built destination yet
+    if (pathname === item.pathname) {
+      // Already on the target screen — pushing here was the bug: tapping
+      // "Add ingredient" while already in Ingredients pushed a SECOND
+      // copy of the same screen onto the stack, so Android back just
+      // popped to another identical Ingredients screen instead of
+      // actually leaving. Update params in place instead, so the
+      // screen's own effect (e.g. ingredients/index.tsx's openAdd
+      // handling) reacts without navigating anywhere. Same class of fix
+      // as the earlier ingredients/index.tsx openAdd fix.
+      if (item.params) {
+        router.setParams(item.params as never);
+      }
+      return;
+    }
     // `as never`: QUICK_ADD's pathnames are assembled dynamically per tab
     // (not string literals Expo Router's typed-routes codegen can see at
     // this call site), so the cast is a deliberate, narrow escape hatch —
@@ -200,12 +277,16 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   }
 
   return (
-    <View style={[styles.wrap, { paddingBottom: insets.bottom + spacing.md }]} pointerEvents="box-none">
-      {isCardOpen ? (
+    <>
+      <Modal transparent visible={cardMounted} animationType="none" onRequestClose={() => setIsCardOpen(false)}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsCardOpen(false)} accessibilityLabel="Close quick add" />
         <Animated.View
-          entering={FadeIn.duration(motionDuration.fast)}
-          exiting={FadeOut.duration(motionDuration.fast)}
-          style={styles.card}
+          style={[
+            styles.card,
+            styles.cardModalPosition,
+            { right: spacing.lg, bottom: cardBottomOffset, transformOrigin: 'bottom right' },
+            cardAnimatedStyle,
+          ]}
         >
           <Text style={styles.cardLabel}>Quick add</Text>
           {items.map((item, i) => (
@@ -232,107 +313,128 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
             </Pressable>
           ))}
         </Animated.View>
-      ) : null}
+      </Modal>
 
-      <Animated.View style={[styles.row, navAnimatedStyle]}>
-        <View style={styles.pill}>
-          {isMoreExpanded ? (
-            // Expanded state: the More icon (now acting as collapse/back),
-            // a tap-zone + swipe strip showing the current section label,
-            // and dots marking position — replaces the 4 tabs entirely
-            // rather than sitting alongside them, so the pill's width stays
-            // the same as the mockup agreed on.
-            <Animated.View
-              entering={FadeIn.duration(motionDuration.fast)}
-              style={[styles.subnavRow, tabRowWidth ? { width: tabRowWidth } : null]}
-            >
-              <Pressable
-                onPress={handleMorePress}
-                style={styles.subnavIconButton}
-                accessibilityRole="button"
-                accessibilityLabel="Collapse More"
-              >
-                <Ionicons name="menu-outline" size={22} color={colors.primary} />
-              </Pressable>
-
-              <GestureDetector gesture={swipeGesture}>
-                <View style={styles.subnavTapArea}>
-                  <Pressable
-                    onPress={() => handleZoneTap(-1)}
-                    style={styles.subnavZoneLeft}
-                    accessibilityRole="button"
-                    accessibilityLabel="Previous section"
-                  />
-                  <Pressable
-                    onPress={() => handleZoneTap(1)}
-                    style={styles.subnavZoneRight}
-                    accessibilityRole="button"
-                    accessibilityLabel="Next section"
-                  />
-                  <View style={styles.subnavLabelWrap} pointerEvents="none">
-                    <Text style={styles.subnavLabel}>{MORE_SECTIONS[sectionIndex].label}</Text>
-                  </View>
-                </View>
-              </GestureDetector>
-
-              <View style={styles.dots}>
-                {MORE_SECTIONS.map((s, i) => (
-                  <View key={s.label} style={[styles.dot, i === sectionIndex && styles.dotActive]} />
-                ))}
-              </View>
-            </Animated.View>
-          ) : (
-            <View
-              style={styles.tabsRow}
-              onLayout={(e) => setTabRowWidth(e.nativeEvent.layout.width)}
-            >
-              {state.routes
-                .filter((route) => TAB_META[route.name])
-                .map((route) => {
-                  const routeIndex = state.routes.findIndex((r) => r.key === route.key);
-                  const isFocused = state.index === routeIndex;
-                  const meta = TAB_META[route.name];
-                  const isMoreTab = route.name === 'more';
+      <Modal transparent visible={moreMenuMounted} animationType="none" onRequestClose={() => setIsMoreMenuOpen(false)}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsMoreMenuOpen(false)} accessibilityLabel="Close more menu" />
+        {/* Centered above the whole row (not right-anchored to the FAB like
+            Quick Add) — More sits mid-pill, not attached to the FAB, and a
+            centered anchor is safer for a wider menu with longer labels
+            like "Subscription" than a fixed left/right edge would be. */}
+        <View
+          style={[styles.moreMenuPositioner, { bottom: cardBottomOffset }]}
+          pointerEvents="box-none"
+        >
+          <Animated.View style={[styles.moreMenuCard, moreMenuAnimatedStyle]}>
+            {MORE_MENU_GROUPS.map((group, groupIndex) => (
+              <View key={groupIndex}>
+                {groupIndex > 0 ? <View style={styles.moreMenuDivider} /> : null}
+                {group.map((item) => {
+                  const isActive = !!item.pathname && pathname.startsWith(item.pathname);
                   return (
                     <Pressable
-                      key={route.key}
-                      onPress={() => {
-                        setIsCardOpen(false);
-                        if (isMoreTab) {
-                          handleMorePress();
-                          return;
-                        }
-                        setIsMoreExpanded(false);
-                        const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-                        if (!isFocused && !event.defaultPrevented) {
-                          navigation.navigate(route.name);
-                        }
-                      }}
-                      style={styles.tabButton}
-                      accessibilityRole="tab"
-                      accessibilityState={{ selected: isFocused }}
-                      accessibilityLabel={meta.label}
+                      key={item.label}
+                      onPress={() => handleMoreMenuPress(item)}
+                      style={({ pressed }) => [styles.cardRow, pressed && item.pathname && styles.cardRowPressed]}
+                      disabled={!item.pathname}
+                      accessibilityLabel={item.pathname ? item.label : `${item.label}, coming soon`}
                     >
-                      <Ionicons name={meta.icon} size={22} color={isFocused ? colors.primary : colors.textSecondary} />
-                      <Text style={[styles.tabLabel, { color: isFocused ? colors.primary : colors.textSecondary }]}>
-                        {meta.label}
+                      <View style={[styles.cardIcon, !item.pathname && styles.cardIconDisabled]}>
+                        <Ionicons
+                          name={item.icon}
+                          size={15}
+                          color={item.pathname ? (isActive ? colors.primary : colors.textPrimary) : colors.textSecondary}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.cardRowLabel,
+                          isActive && styles.cardRowLabelPrimary,
+                          !item.pathname && styles.cardRowLabelDisabled,
+                        ]}
+                      >
+                        {item.label}
                       </Text>
+                      {!item.pathname ? <Text style={styles.cardRowSoon}>Soon</Text> : null}
                     </Pressable>
                   );
                 })}
-            </View>
-          )}
+              </View>
+            ))}
+          </Animated.View>
+        </View>
+      </Modal>
+
+      <View style={[styles.wrap, { paddingBottom: insets.bottom + spacing.xs }]} pointerEvents="box-none">
+      <View ref={rowRef} onLayout={measureRowPosition} collapsable={false}>
+      <Animated.View style={[styles.row, navAnimatedStyle]}>
+        <View style={styles.pill}>
+          {/* Flat 4-tab row — no inline expansion. More opens the grouped
+              popover menu above (Modal, same mechanism as Quick Add)
+              instead of morphing the bar itself, since a flat/expanding
+              strip doesn't scale to 9 destinations without hiding most of
+              them behind swipes. */}
+          <View style={styles.tabsRow}>
+            {state.routes
+              .filter((route) => TAB_META[route.name])
+              .map((route) => {
+                const routeIndex = state.routes.findIndex((r) => r.key === route.key);
+                const isFocused = state.index === routeIndex;
+                const meta = TAB_META[route.name];
+                const isMoreTab = route.name === 'more';
+                return (
+                  <Pressable
+                    key={route.key}
+                    onPress={() => {
+                      setIsCardOpen(false);
+                      if (isMoreTab) {
+                        setIsMoreMenuOpen((open) => !open);
+                        return;
+                      }
+                      setIsMoreMenuOpen(false);
+                      const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+                      if (!isFocused && !event.defaultPrevented) {
+                        navigation.navigate(route.name);
+                      }
+                    }}
+                    style={styles.tabButton}
+                    accessibilityRole="tab"
+                    accessibilityState={{ selected: isFocused || (isMoreTab && isMoreMenuOpen) }}
+                    accessibilityLabel={meta.label}
+                  >
+                    <Ionicons
+                      name={meta.icon}
+                      size={22}
+                      color={isFocused || (isMoreTab && isMoreMenuOpen) ? colors.primary : colors.textSecondary}
+                    />
+                    <Text
+                      style={[
+                        styles.tabLabel,
+                        { color: isFocused || (isMoreTab && isMoreMenuOpen) ? colors.primary : colors.textSecondary },
+                      ]}
+                    >
+                      {meta.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+          </View>
         </View>
 
         <Pressable
-          onPress={() => setIsCardOpen((open) => !open)}
+          onPress={() => {
+            setIsMoreMenuOpen(false);
+            setIsCardOpen((open) => !open);
+          }}
           style={styles.fab}
           accessibilityLabel={isCardOpen ? 'Close quick add' : 'Quick add'}
         >
           <Ionicons name={isCardOpen ? 'close' : 'add'} size={28} color={colors.textInverse} />
         </Pressable>
       </Animated.View>
-    </View>
+      </View>
+      </View>
+    </>
   );
 }
 
@@ -352,21 +454,24 @@ function makeStyles(colors: Record<ColorToken, string>) {
       gap: spacing.sm,
     },
     pill: {
-      flexDirection: 'row',
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.full,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.sm,
-      elevation: 4,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.12,
-      shadowRadius: 8,
-    },
+  flexDirection: 'row',
+  alignItems: 'center',
+  backgroundColor: colors.surface,
+  borderWidth: 1,
+  borderColor: colors.border,
+  borderRadius: radii.full,
+  height: 68,
+  position: 'relative',
+  overflow: 'hidden',
+  elevation: 4,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.12,
+  shadowRadius: 8,
+},
     tabsRow: {
       flexDirection: 'row',
+      paddingHorizontal: spacing.sm,
     },
     tabButton: {
       alignItems: 'center',
@@ -381,65 +486,36 @@ function makeStyles(colors: Record<ColorToken, string>) {
       ...typography.caption,
       fontSize: 11,
     },
-    // --- Expanded "More" sub-nav strip ---
-    // Same overall height/shape as the 4-tab row (52 min-height buttons)
-    // so the pill doesn't resize when it expands — matches the agreed
-    // mockup sizing.
-    subnavRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      width: 250, // fallback only — real width comes from tabRowWidth
-                  // (measured via onLayout) once available, first render only
-    },
-    subnavIconButton: {
-      width: 52,
-      height: 52,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    subnavTapArea: {
-      flex: 1,
-      height: 52,
-      flexDirection: 'row',
-      position: 'relative',
-    },
-    subnavZoneLeft: {
-      flex: 1,
-      height: '100%',
-    },
-    subnavZoneRight: {
-      flex: 1,
-      height: '100%',
-    },
-    subnavLabelWrap: {
+    // --- More menu (grouped popover) ---
+    // Centered above the row rather than right-anchored like Quick Add's
+    // card — More sits mid-pill, not attached to the FAB, and centering
+    // is safer than a fixed edge for a menu whose widest label
+    // ("Subscription") isn't known in advance.
+    moreMenuPositioner: {
       position: 'absolute',
       left: 0,
       right: 0,
-      top: 0,
-      bottom: 0,
       alignItems: 'center',
-      justifyContent: 'center',
+      paddingHorizontal: spacing.lg,
     },
-    subnavLabel: {
-      ...typography.bodySm,
-      fontSize: 15,
-      fontWeight: '600',
-      color: colors.textPrimary,
+    moreMenuCard: {
+      width: 220,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.lg,
+      padding: spacing.xs,
+      elevation: 6,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.16,
+      shadowRadius: 12,
     },
-    dots: {
-      flexDirection: 'row',
-      gap: 4,
-      paddingRight: spacing.sm,
-    },
-    dot: {
-      width: 5,
-      height: 5,
-      borderRadius: radii.full,
+    moreMenuDivider: {
+      height: StyleSheet.hairlineWidth,
       backgroundColor: colors.border,
-    },
-    dotActive: {
-      width: 12,
-      backgroundColor: colors.primary,
+      marginVertical: spacing.xs,
+      marginHorizontal: spacing.sm,
     },
     fab: {
       width: 64,
@@ -448,32 +524,29 @@ function makeStyles(colors: Record<ColorToken, string>) {
       backgroundColor: colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
-      elevation: 8,
-      // Soft colored glow to match the reference screenshot. Fully
-      // reliable on iOS (shadowColor tints the blur). Android's elevation
-      // shadow is grey-only regardless of shadowColor — if the glow needs
-      // to show on Android too, that requires a separate blurred View
-      // behind the FAB (e.g. a slightly larger, blurred/opacity'd circle
-      // in colors.primary) rather than the shadow props alone.
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.5,
-      shadowRadius: 16,
+      elevation: 4,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 6,
     },
     card: {
       width: 200,
-      alignSelf: 'flex-end', // right-anchored above the FAB regardless of the nav row's centering
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radii.lg,
       padding: spacing.xs,
-      marginBottom: spacing.sm,
       elevation: 6,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.16,
       shadowRadius: 12,
+    },
+    cardModalPosition: {
+      position: 'absolute',
+      // `right`/`bottom` set inline at the call site since they depend on
+      // insets.bottom, which isn't available in makeStyles.
     },
     cardLabel: {
       ...typography.caption,
