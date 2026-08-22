@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   createIngredient,
-  deleteIngredient,
   getIngredient,
   getIngredients,
   getMovementHistory,
   recordUseOrWaste,
+  removeIngredient,
   restockIngredient,
   updateIngredient,
 } from '../services/ingredients';
@@ -49,12 +49,18 @@ export function useUpdateIngredient(id: string) {
   });
 }
 
-export function useDeleteIngredient() {
+export function useRemoveIngredient() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => deleteIngredient(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ingredientsKey });
+    mutationFn: (id: string) => removeIngredient(id),
+    onSuccess: (result) => {
+      // Both a real delete AND an archive remove the ingredient from the
+      // active list — invalidating ingredientsKey covers either outcome.
+      // A 'blocked' result changes nothing server-side, so there's
+      // nothing to invalidate for that case.
+      if (result.action !== 'blocked') {
+        queryClient.invalidateQueries({ queryKey: ingredientsKey });
+      }
     },
   });
 }

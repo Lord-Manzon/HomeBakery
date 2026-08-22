@@ -6,6 +6,7 @@ export async function getIngredients(): Promise<Ingredient[]> {
   const { data, error } = await supabase
     .from('ingredients')
     .select('*')
+    .eq('is_active', true)
     .order('name', { ascending: true });
   if (error) throw error;
   return data as Ingredient[];
@@ -104,16 +105,70 @@ export async function updateIngredient(
   return data as Ingredient;
 }
 
+export type BlockingRecipe = { id: string; name: string };
+
+export type RemoveIngredientResult =
+  | { action: 'deleted' }
+  | { action: 'archived' }
+  | { action: 'blocked'; recipes: BlockingRecipe[] };
+
 /**
- * Deletes an ingredient. Will throw if the ingredient is referenced by
- * any recipe_ingredients row — the DB enforces this via `on delete
- * restrict` (see supabase/migrations/0002_phase3_core_tables.sql).
- * Callers should catch this and show the plain-language message from the
- * Phase 5 spec rather than a raw Postgres error.
+ * Replaces the old hard-delete-only deleteIngredient(). Ingredients are
+ * now only ever hard-deleted if they're completely untouched (no recipe
+ * references, no stock history) — otherwise they're archived
+ * (is_active = false), matching the existing Products pattern (see
+ * supabase/migrations/0009_ingredient_soft_delete.sql for why).
+ *
+ * Decision order:
+ *  1. Still used in a recipe right now -> BLOCKED. This is the one case
+ *     that stays a hard stop rather than silently archiving — an active
+ *     recipe still depends on this ingredient for its cost math, so the
+ *     baker needs to know and decide, not have it vanish out from under
+ *     a recipe that's still using it.
+ *  2. No recipe use, but has stock history (any restock/use/waste ever
+ *     logged) -> ARCHIVED. Preserves the audit trail, just hides it from
+ *     the active list.
+ *  3. No recipe use, no history at all -> DELETED for real. Nothing to
+ *     preserve.
  */
-export async function deleteIngredient(id: string): Promise<void> {
-  const { error } = await supabase.from('ingredients').delete().eq('id', id);
-  if (error) throw error;
+export async function removeIngredient(id: string): Promise<RemoveIngredientResult> {
+  const { data: recipeRows, error: recipeError } = await supabase
+    .from('recipe_ingredients')
+    .select('recipe:recipes(id, name)')
+    .eq('ingredient_id', id);
+  if (recipeError) throw recipeError;
+
+  const blockingRecipes = dedupeRecipes(
+    (recipeRows ?? []).map((row: any) => row.recipe).filter(Boolean)
+  );
+  if (blockingRecipes.length > 0) {
+    return { action: 'blocked', recipes: blockingRecipes };
+  }
+
+  const { count, error: movementError } = await supabase
+    .from('inventory_movements')
+    .select('id', { count: 'exact', head: true })
+    .eq('ingredient_id', id);
+  if (movementError) throw movementError;
+
+  if ((count ?? 0) > 0) {
+    const { error: archiveError } = await supabase
+      .from('ingredients')
+      .update({ is_active: false })
+      .eq('id', id);
+    if (archiveError) throw archiveError;
+    return { action: 'archived' };
+  }
+
+  const { error: deleteError } = await supabase.from('ingredients').delete().eq('id', id);
+  if (deleteError) throw deleteError;
+  return { action: 'deleted' };
+}
+
+function dedupeRecipes(recipes: BlockingRecipe[]): BlockingRecipe[] {
+  const seen = new Map<string, BlockingRecipe>();
+  for (const r of recipes) seen.set(r.id, r);
+  return Array.from(seen.values());
 }
 
 /**

@@ -26,6 +26,7 @@ export type Ingredient = {
   current_stock: number;
   cost_per_unit: number;
   low_stock_threshold: number | null;
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 };
