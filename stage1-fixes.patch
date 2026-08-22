@@ -1,0 +1,162 @@
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index c22069e..731855f 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -743,4 +743,47 @@ by id. That's fine today — Production/inventory deduction (Phase 8)
+ doesn't exist yet, so no `order_items.id` is referenced anywhere else yet —
+ but it would orphan any future `inventory_movements.reference_id` once
+ Phase 8 lands. Worth a proper diff-based update before or during Phase 8,
+-flagged here so it isn't forgotten.
+\ No newline at end of file
++flagged here so it isn't forgotten.
++
++### 2026-08-22 — Jest actually installed; extracted `calculateRestockCostPerUnit` out of `ingredients.ts`
++
++**Decision:** Installed `jest`, `jest-expo`, `@types/jest`, and
++`@react-native/jest-preset` (all pinned to versions matching this
++project's Expo SDK 57 / React Native 0.86.2), added a `test` script and a
++`"jest": { "preset": "jest-expo" }` block to `package.json`, and added
++`"types": ["jest"]` to `tsconfig.json`'s `compilerOptions` (needed because
++the installed TypeScript, 6.0.3, doesn't auto-detect `@types/jest` the way
++older TypeScript versions did). This finally lets `costing.test.ts`,
++`stockGauge.test.ts`, and the new `orderLogic.test.ts` actually run,
++closing a gap flagged as open in the 2026-08-16 "stock gauge" entry.
++
++Running the suite for the first time surfaced a real, separate issue:
++`ingredients.test.ts` failed with `[@RNC/AsyncStorage]: NativeModule:
++AsyncStorage is null`. Its only import was
++`calculateRestockCostPerUnit` — a pure function — but that function lived
++inside `ingredients.ts`, which also imports `./supabase` at the top of the
++file. Importing anything from `ingredients.ts` therefore pulls in the real
++Supabase client and, through it, AsyncStorage, which needs a native-module
++mock to run under Jest at all.
++
++Moved `calculateRestockCostPerUnit` into a new file, `ingredientLogic.ts`
++— zero Supabase import, same pattern already used by `costing.ts`,
++`stockGauge.ts`, and the new `orderLogic.ts` (see this same date's earlier
++entry). `ingredients.ts` now imports the function from there instead of
++defining it. `RestockSheet.tsx`'s import updated to match.
++`ingredients.test.ts` renamed to `ingredientLogic.test.ts` (content
++unchanged) to match its subject file, same convention as
++`orderLogic.test.ts`/`stockGauge.test.ts`.
++
++**Why:** `CODING_STANDARDS.md` requires a Jest test for every function
++that computes a number a baker will trust — that's meaningless if the
++test can't run. The AsyncStorage failure wasn't a flaw in the function
++being tested; it was a structural cost of testing pure logic that happened
++to share a file with an unrelated Supabase import. Splitting pure logic
++into its own file — a pattern this codebase already uses three other
++times — fixes it directly rather than working around it with a global
++Jest mock, which would hide the same problem the next time a pure
++function gets added inside a Supabase-importing service file.
++
++**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest` —
++4 suites, 50 tests, all passing.
+\ No newline at end of file
+diff --git a/src/components/RestockSheet.tsx b/src/components/RestockSheet.tsx
+index 926cce0..bbee5a6 100644
+--- a/src/components/RestockSheet.tsx
++++ b/src/components/RestockSheet.tsx
+@@ -7,7 +7,7 @@ import { PrimaryButton } from './PrimaryButton';
+ import { ErrorBanner } from './ErrorBanner';
+ import { StockGauge } from './StockGauge';
+ import { restockFormSchema, type RestockFormInput } from '../utils/validation/ingredientSchemas';
+-import { calculateRestockCostPerUnit } from '../services/ingredients';
++import { calculateRestockCostPerUnit } from '../services/ingredientLogic';
+ import { useBakerProfile } from '../hooks/useBakerProfile';
+ import { usePressScale } from '../hooks/usePressScale';
+ import { useThemeColors } from '../theme/ThemeContext';
+diff --git a/src/services/ingredients.test.ts b/src/services/ingredientLogic.test.ts
+similarity index 95%
+rename from src/services/ingredients.test.ts
+rename to src/services/ingredientLogic.test.ts
+index 73af93f..f2fcf9e 100644
+--- a/src/services/ingredients.test.ts
++++ b/src/services/ingredientLogic.test.ts
+@@ -1,4 +1,4 @@
+-import { calculateRestockCostPerUnit } from './ingredients';
++import { calculateRestockCostPerUnit } from './ingredientLogic';
+ 
+ describe('calculateRestockCostPerUnit', () => {
+   it('blends existing stock value with the new purchase (weighted average)', () => {
+diff --git a/src/services/ingredientLogic.ts b/src/services/ingredientLogic.ts
+new file mode 100644
+index 0000000..dd77db3
+--- /dev/null
++++ b/src/services/ingredientLogic.ts
+@@ -0,0 +1,31 @@
++/**
++ * Weighted-average cost-per-unit after a restock. Pure function, unit
++ * tested separately (see ingredientLogic.test.ts) per
++ * docs/CODING_STANDARDS.md -- this is exactly the kind of number a baker
++ * will trust for their costing math.
++ *
++ * Blends the value of stock already on hand with the new purchase, rather
++ * than discarding what was already there. If currentStock is 0 (first
++ * ever restock, or ingredient was fully depleted), the result is simply
++ * this purchase's price per unit.
++ *
++ * Moved out of ingredients.ts on 2026-08-22 (see docs/DECISIONS.md) --
++ * this file deliberately has NO Supabase import, matching the same
++ * pure-logic-file pattern already used by costing.ts, stockGauge.ts, and
++ * orderLogic.ts. ingredients.ts imports `supabase` at its top, so any
++ * test importing so much as one function from it drags in the real
++ * Supabase client (and, through it, AsyncStorage), which then needs a
++ * native-module mock to run under Jest at all. Living in its own
++ * import-free file means this function's test can run with zero mocking.
++ */
++export function calculateRestockCostPerUnit(
++  currentStock: number,
++  currentCostPerUnit: number,
++  quantityAdded: number,
++  totalCostPaid: number
++): number {
++  const totalStockAfter = currentStock + quantityAdded;
++  if (totalStockAfter <= 0) return currentCostPerUnit; // guard: avoid divide-by-zero
++  const existingValue = currentStock * currentCostPerUnit;
++  return (existingValue + totalCostPaid) / totalStockAfter;
++}
+diff --git a/src/services/ingredients.ts b/src/services/ingredients.ts
+index 00ca446..22439f7 100644
+--- a/src/services/ingredients.ts
++++ b/src/services/ingredients.ts
+@@ -1,4 +1,5 @@
+ import { supabase } from './supabase';
++import { calculateRestockCostPerUnit } from './ingredientLogic';
+ import type { Ingredient, InventoryMovement, MovementType } from '../types/ingredient';
+ import type { IngredientFormInput, RestockFormInput, UseWasteReason } from '../utils/validation/ingredientSchemas';
+ 
+@@ -116,29 +117,6 @@ export async function deleteIngredient(id: string): Promise<void> {
+   if (error) throw error;
+ }
+ 
+-/**
+- * Weighted-average cost-per-unit after a restock. Pure function, unit
+- * tested separately (see ingredients.test.ts) per
+- * docs/CODING_STANDARDS.md — this is exactly the kind of number a baker
+- * will trust for their costing math.
+- *
+- * Blends the value of stock already on hand with the new purchase, rather
+- * than discarding what was already there. If currentStock is 0 (first
+- * ever restock, or ingredient was fully depleted), the result is simply
+- * this purchase's price per unit.
+- */
+-export function calculateRestockCostPerUnit(
+-  currentStock: number,
+-  currentCostPerUnit: number,
+-  quantityAdded: number,
+-  totalCostPaid: number
+-): number {
+-  const totalStockAfter = currentStock + quantityAdded;
+-  if (totalStockAfter <= 0) return currentCostPerUnit; // guard: avoid divide-by-zero
+-  const existingValue = currentStock * currentCostPerUnit;
+-  return (existingValue + totalCostPaid) / totalStockAfter;
+-}
+-
+ /**
+  * Records a restock: inserts a `restock` movement, increases
+  * current_stock, and — only if totalCostPaid was provided — recalculates
+diff --git a/supabase/migrations/supabase/migrations/0009_orders_status_payment_method.sql b/supabase/migrations/0009_orders_status_payment_method.sql
+similarity index 100%
+rename from supabase/migrations/supabase/migrations/0009_orders_status_payment_method.sql
+rename to supabase/migrations/0009_orders_status_payment_method.sql

@@ -744,3 +744,46 @@ doesn't exist yet, so no `order_items.id` is referenced anywhere else yet —
 but it would orphan any future `inventory_movements.reference_id` once
 Phase 8 lands. Worth a proper diff-based update before or during Phase 8,
 flagged here so it isn't forgotten.
+
+### 2026-08-22 — Jest actually installed; extracted `calculateRestockCostPerUnit` out of `ingredients.ts`
+
+**Decision:** Installed `jest`, `jest-expo`, `@types/jest`, and
+`@react-native/jest-preset` (all pinned to versions matching this
+project's Expo SDK 57 / React Native 0.86.2), added a `test` script and a
+`"jest": { "preset": "jest-expo" }` block to `package.json`, and added
+`"types": ["jest"]` to `tsconfig.json`'s `compilerOptions` (needed because
+the installed TypeScript, 6.0.3, doesn't auto-detect `@types/jest` the way
+older TypeScript versions did). This finally lets `costing.test.ts`,
+`stockGauge.test.ts`, and the new `orderLogic.test.ts` actually run,
+closing a gap flagged as open in the 2026-08-16 "stock gauge" entry.
+
+Running the suite for the first time surfaced a real, separate issue:
+`ingredients.test.ts` failed with `[@RNC/AsyncStorage]: NativeModule:
+AsyncStorage is null`. Its only import was
+`calculateRestockCostPerUnit` — a pure function — but that function lived
+inside `ingredients.ts`, which also imports `./supabase` at the top of the
+file. Importing anything from `ingredients.ts` therefore pulls in the real
+Supabase client and, through it, AsyncStorage, which needs a native-module
+mock to run under Jest at all.
+
+Moved `calculateRestockCostPerUnit` into a new file, `ingredientLogic.ts`
+— zero Supabase import, same pattern already used by `costing.ts`,
+`stockGauge.ts`, and the new `orderLogic.ts` (see this same date's earlier
+entry). `ingredients.ts` now imports the function from there instead of
+defining it. `RestockSheet.tsx`'s import updated to match.
+`ingredients.test.ts` renamed to `ingredientLogic.test.ts` (content
+unchanged) to match its subject file, same convention as
+`orderLogic.test.ts`/`stockGauge.test.ts`.
+
+**Why:** `CODING_STANDARDS.md` requires a Jest test for every function
+that computes a number a baker will trust — that's meaningless if the
+test can't run. The AsyncStorage failure wasn't a flaw in the function
+being tested; it was a structural cost of testing pure logic that happened
+to share a file with an unrelated Supabase import. Splitting pure logic
+into its own file — a pattern this codebase already uses three other
+times — fixes it directly rather than working around it with a global
+Jest mock, which would hide the same problem the next time a pure
+function gets added inside a Supabase-importing service file.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest` —
+4 suites, 50 tests, all passing.

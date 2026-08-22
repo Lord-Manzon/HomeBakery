@@ -1,4 +1,4 @@
-import { calculateRestockCostPerUnit } from './ingredients';
+import { calculateRestockCostPerUnit } from './ingredientLogic';
 
 describe('calculateRestockCostPerUnit', () => {
   it('blends existing stock value with the new purchase (weighted average)', () => {

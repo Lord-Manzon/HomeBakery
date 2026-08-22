@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { calculateRestockCostPerUnit } from './ingredientLogic';
 import type { Ingredient, InventoryMovement, MovementType } from '../types/ingredient';
 import type { IngredientFormInput, RestockFormInput, UseWasteReason } from '../utils/validation/ingredientSchemas';
 
@@ -114,29 +115,6 @@ export async function updateIngredient(
 export async function deleteIngredient(id: string): Promise<void> {
   const { error } = await supabase.from('ingredients').delete().eq('id', id);
   if (error) throw error;
-}
-
-/**
- * Weighted-average cost-per-unit after a restock. Pure function, unit
- * tested separately (see ingredients.test.ts) per
- * docs/CODING_STANDARDS.md — this is exactly the kind of number a baker
- * will trust for their costing math.
- *
- * Blends the value of stock already on hand with the new purchase, rather
- * than discarding what was already there. If currentStock is 0 (first
- * ever restock, or ingredient was fully depleted), the result is simply
- * this purchase's price per unit.
- */
-export function calculateRestockCostPerUnit(
-  currentStock: number,
-  currentCostPerUnit: number,
-  quantityAdded: number,
-  totalCostPaid: number
-): number {
-  const totalStockAfter = currentStock + quantityAdded;
-  if (totalStockAfter <= 0) return currentCostPerUnit; // guard: avoid divide-by-zero
-  const existingValue = currentStock * currentCostPerUnit;
-  return (existingValue + totalCostPaid) / totalStockAfter;
 }
 
 /**
