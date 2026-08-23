@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { BackHandler, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs, useRouter, usePathname } from 'expo-router';
 import Animated, {
@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../theme/ThemeContext';
 import { radii, spacing, typography, motionDuration, motionEasing, motionSpring } from '../theme';
 import { useScrollNav } from '../contexts/ScrollNavContext';
+import { MORE_MENU_ITEMS, type MoreMenuItem } from '../constants/moreMenu';
 import type { ColorToken } from '../theme/colors';
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -50,52 +51,6 @@ type QuickAddItem = {
   params?: Record<string, string>;
 };
 
-type MoreMenuItem = {
-  label: string;
-  icon: IconName;
-  /** Omit for destinations not built yet — renders disabled with a
-   * "Soon" badge, same convention as QuickAddItem above. Only
-   * Ingredients, Products, and Recipes exist as real routes today
-   * (confirmed against app/(tabs)/more/*); Expenses, Reports,
-   * Storefront, Subscription, and Account don't have screens yet. */
-  pathname?: string;
-};
-
-// Grouped by what these actually are to a bakery owner, not just the
-// order they were listed in — see the conversation in
-// docs/DECISIONS.md's More-menu entry for the reasoning:
-//   1. What you make  — inventory/menu side
-//   2. The numbers     — money in/out
-//   3. Outward-facing  — customer/plan-facing
-//   4. You              — account & settings
-// Each inner array renders as one visual group with a divider between
-// groups (see the `more`-menu rendering below) — mirrors the grouped
-// popover pattern in the Brave browser screenshot that motivated this.
-const MORE_MENU_GROUPS: MoreMenuItem[][] = [
-  [
-    { label: 'Ingredients', icon: 'nutrition-outline', pathname: '/more/ingredients' },
-    { label: 'Products', icon: 'cube-outline', pathname: '/more/products' },
-    { label: 'Recipes', icon: 'book-outline', pathname: '/more/recipes' },
-  ],
-  [
-    { label: 'Expenses', icon: 'wallet-outline' }, // not built yet
-    { label: 'Reports', icon: 'bar-chart-outline' }, // not built yet
-  ],
-  [
-    { label: 'Storefront', icon: 'storefront-outline' }, // not built yet
-    { label: 'Subscription', icon: 'card-outline' }, // not built yet
-  ],
-  [
-    { label: 'Account', icon: 'person-outline' }, // not built yet
-    // Interim: only Appearance exists so far under what will become a
-    // proper Settings hub (currency, etc. come later per the person's
-    // plan). Point Settings straight at it for now rather than leaving
-    // it disabled — swap this one pathname once a real settings/index
-    // hub screen exists.
-    { label: 'Settings', icon: 'settings-outline', pathname: '/more/appearance' },
-  ],
-];
-
 // Per-tab Quick Add contents — see docs/UI_UX_1.md section G and
 // docs/DECISIONS.md's 2026-08-19 entry for the reasoning behind each
 // tab's specific list and ordering (top item = most likely action).
@@ -117,18 +72,64 @@ const QUICK_ADD: Record<string, QuickAddItem[]> = {
     { label: 'Restock ingredient', icon: 'refresh-outline', pathname: '/more/ingredients' },
     { label: 'Add expense', icon: 'wallet-outline' }, // Phase 9, not built yet
   ],
-  more: [
-    { label: 'Add product', icon: 'cube-outline', pathname: '/more/products/new' },
-    {
-      label: 'Add ingredient',
-      icon: 'nutrition-outline',
-      pathname: '/more/ingredients',
-      params: { openAdd: '1' },
-    },
-    { label: 'Add recipe', icon: 'book-outline', pathname: '/more/recipes/new' },
-    { label: 'Add expense', icon: 'wallet-outline' }, // Phase 9, not built yet
-  ],
+  // Note: there's no 'more' entry anymore — Ingredients/Products/Recipes
+  // each get their own single direct action via getFabConfig below
+  // instead of sharing one multi-item menu.
 };
+
+/**
+ * What the + button does on the current screen. Determined from the
+ * actual `pathname`, not just the tab name — Ingredients/Products/
+ * Recipes/Settings all live under the same "more" tab, so the tab name
+ * alone can't tell them apart.
+ *   - 'menu'   → Home, Production: opens the existing Quick Add popup
+ *                (multiple contextual actions).
+ *   - 'direct' → Ingredients/Products/Recipes/Orders: + performs that
+ *                one obvious action directly, no popup needed.
+ *   - 'hidden' → Reports, Settings, Account, the /more hub itself, and
+ *                anything unrecognized: no + shown at all. The pill
+ *                then centers alone (see `row`'s alignSelf: 'center' —
+ *                that's automatic once the FAB isn't rendered, no
+ *                extra centering logic needed).
+ */
+type FabConfig =
+  | { mode: 'hidden' }
+  | { mode: 'menu'; items: QuickAddItem[] }
+  | { mode: 'direct'; icon: IconName; pathname?: string; params?: Record<string, string> };
+
+function getFabConfig(activeRouteName: string, pathname: string): FabConfig {
+  if (activeRouteName === 'more') {
+    if (pathname.startsWith('/more/ingredients')) {
+      return { mode: 'direct', icon: 'nutrition-outline', pathname: '/more/ingredients', params: { openAdd: '1' } };
+    }
+    if (pathname.startsWith('/more/products')) {
+      return { mode: 'direct', icon: 'cube-outline', pathname: '/more/products/new' };
+    }
+    if (pathname.startsWith('/more/recipes')) {
+      return { mode: 'direct', icon: 'book-outline', pathname: '/more/recipes/new' };
+    }
+    // TODO: add an Expenses branch here once /more/expenses exists —
+    // { mode: 'direct', icon: 'wallet-outline', pathname: '/more/expenses/new' }
+    //
+    // Everything else under More — Settings (appearance), the /more hub
+    // screen itself, and any future Account/Reports/etc. screens — has
+    // no obvious "add" action, so no +.
+    return { mode: 'hidden' };
+  }
+  if (activeRouteName === 'orders') {
+    // Add Order isn't built yet (Phase 7) — still shows a + per spec,
+    // it just no-ops until the route exists (same convention as the
+    // disabled "Soon" rows elsewhere).
+    return { mode: 'direct', icon: 'receipt-outline' };
+  }
+  if (activeRouteName === 'index') {
+    return { mode: 'menu', items: QUICK_ADD.index };
+  }
+  if (activeRouteName === 'production') {
+    return { mode: 'menu', items: QUICK_ADD.production };
+  }
+  return { mode: 'hidden' };
+}
 
 /**
  * Replaces Expo Router <Tabs>'s default fixed bar (via the `tabBar` prop)
@@ -148,16 +149,30 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   const { navHidden, forceHiddenCount } = useScrollNav();
   const [isCardOpen, setIsCardOpen] = useState(false);
 
-  // The Quick Add card renders inside its own <Modal> (for a real
-  // full-screen tap-outside-to-close backdrop), which is a separate
-  // native overlay from the nav row's own container — the two don't
-  // reliably share the same "distance from screen bottom" coordinate
-  // space (confirmed on-device: a hardcoded height guess put the card
-  // flush against the pill instead of floating above it with a gap).
+  // The Quick Add card renders as a plain full-screen overlay View (not
+  // <Modal> — see the render below for why), which is a separate
+  // sibling from the nav row's own container — the two don't reliably
+  // share the same "distance from screen bottom" coordinate space
+  // (confirmed on-device: a hardcoded height guess put the card flush
+  // against the pill instead of floating above it with a gap).
   // Measuring the row's real on-screen position with measureInWindow
   // avoids guessing at that offset entirely.
   const rowRef = useRef<View>(null);
   const [cardBottomOffset, setCardBottomOffset] = useState(insets.bottom + spacing.xs + NAV_ROW_HEIGHT + spacing.sm);
+
+  // Guards every navigation triggered from this bar against rapid
+  // double-taps. Without this, tapping fast enough fires a second press
+  // before `pathname` has updated from the first one, so the "am I
+  // already on this screen?" checks below don't catch it — both taps
+  // push, and you get the same screen duplicated on the stack. A short
+  // cooldown after any nav call blocks the immediate repeat tap.
+  const lastNavAtRef = useRef(0);
+  function navigateOnce(action: () => void) {
+    const now = Date.now();
+    if (now - lastNavAtRef.current < 500) return;
+    lastNavAtRef.current = now;
+    action();
+  }
 
   function measureRowPosition() {
     rowRef.current?.measureInWindow((_x, y) => {
@@ -238,11 +253,34 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
   function handleMoreMenuPress(item: MoreMenuItem) {
     setIsMoreMenuOpen(false);
     if (!item.pathname) return; // no built destination yet — same no-op as Quick Add
-    router.push(item.pathname as never);
+    navigateOnce(() => router.push(item.pathname as never));
   }
 
   const activeRouteName = state.routes[state.index]?.name ?? 'index';
-  const items = QUICK_ADD[activeRouteName] ?? [];
+  const fabConfig = getFabConfig(activeRouteName, pathname);
+  const items = fabConfig.mode === 'menu' ? fabConfig.items : [];
+
+  // Android hardware back button: Modal used to intercept this for free
+  // via onRequestClose. Now that both popovers are plain overlay Views
+  // (see the render below — removed Modal because its native Android
+  // Dialog dims the background by default regardless of our own styles,
+  // which is what was still showing up as a dark backdrop), back-button
+  // handling has to be wired up explicitly instead.
+  useEffect(() => {
+    if (!isCardOpen && !isMoreMenuOpen) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (isCardOpen) {
+        setIsCardOpen(false);
+        return true;
+      }
+      if (isMoreMenuOpen) {
+        setIsMoreMenuOpen(false);
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [isCardOpen, isMoreMenuOpen]);
 
   const navAnimatedStyle = useAnimatedStyle(() => {
     const hidden = navHidden.value > 0 || forceHiddenCount.value > 0 ? 1 : 0;
@@ -265,7 +303,7 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
       // handling) reacts without navigating anywhere. Same class of fix
       // as the earlier ingredients/index.tsx openAdd fix.
       if (item.params) {
-        router.setParams(item.params as never);
+        navigateOnce(() => router.setParams(item.params as never));
       }
       return;
     }
@@ -273,107 +311,33 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
     // (not string literals Expo Router's typed-routes codegen can see at
     // this call site), so the cast is a deliberate, narrow escape hatch —
     // not a general `any`. Every pathname above is a real, existing route.
-    router.push({ pathname: item.pathname, params: item.params } as never);
+    navigateOnce(() => router.push({ pathname: item.pathname, params: item.params } as never));
+  }
+
+  // Same push-vs-update-in-place logic as handleQuickAddPress, just for
+  // the single direct action a 'direct'-mode screen's + performs — no
+  // popup to close first since there isn't one.
+  function handleDirectFabPress(config: Extract<FabConfig, { mode: 'direct' }>) {
+    if (!config.pathname) return; // not built yet — no-op, e.g. Add Order today
+    if (pathname === config.pathname) {
+      if (config.params) {
+        navigateOnce(() => router.setParams(config.params as never));
+      }
+      return;
+    }
+    navigateOnce(() => router.push({ pathname: config.pathname, params: config.params } as never));
   }
 
   return (
-    <>
-      <Modal transparent visible={cardMounted} animationType="none" onRequestClose={() => setIsCardOpen(false)}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsCardOpen(false)} accessibilityLabel="Close quick add" />
-        <Animated.View
-          style={[
-            styles.card,
-            styles.cardModalPosition,
-            { right: spacing.lg, bottom: cardBottomOffset, transformOrigin: 'bottom right' },
-            cardAnimatedStyle,
-          ]}
-        >
-          <Text style={styles.cardLabel}>Quick add</Text>
-          {items.map((item, i) => (
-            <Pressable
-              key={item.label}
-              onPress={() => handleQuickAddPress(item)}
-              style={({ pressed }) => [styles.cardRow, pressed && item.pathname && styles.cardRowPressed]}
-              disabled={!item.pathname}
-              accessibilityLabel={item.pathname ? item.label : `${item.label}, coming soon`}
-            >
-              <View style={[styles.cardIcon, !item.pathname && styles.cardIconDisabled]}>
-                <Ionicons name={item.icon} size={15} color={item.pathname ? colors.primary : colors.textSecondary} />
-              </View>
-              <Text
-                style={[
-                  styles.cardRowLabel,
-                  i === 0 && item.pathname && styles.cardRowLabelPrimary,
-                  !item.pathname && styles.cardRowLabelDisabled,
-                ]}
-              >
-                {item.label}
-              </Text>
-              {!item.pathname ? <Text style={styles.cardRowSoon}>Soon</Text> : null}
-            </Pressable>
-          ))}
-        </Animated.View>
-      </Modal>
-
-      <Modal transparent visible={moreMenuMounted} animationType="none" onRequestClose={() => setIsMoreMenuOpen(false)}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsMoreMenuOpen(false)} accessibilityLabel="Close more menu" />
-        {/* Centered above the whole row (not right-anchored to the FAB like
-            Quick Add) — More sits mid-pill, not attached to the FAB, and a
-            centered anchor is safer for a wider menu with longer labels
-            like "Subscription" than a fixed left/right edge would be. */}
-        <View
-          style={[styles.moreMenuPositioner, { bottom: cardBottomOffset }]}
-          pointerEvents="box-none"
-        >
-          <Animated.View style={[styles.moreMenuCard, moreMenuAnimatedStyle]}>
-            {MORE_MENU_GROUPS.map((group, groupIndex) => (
-              <View key={groupIndex}>
-                {groupIndex > 0 ? <View style={styles.moreMenuDivider} /> : null}
-                {group.map((item) => {
-                  const isActive = !!item.pathname && pathname.startsWith(item.pathname);
-                  return (
-                    <Pressable
-                      key={item.label}
-                      onPress={() => handleMoreMenuPress(item)}
-                      style={({ pressed }) => [styles.cardRow, pressed && item.pathname && styles.cardRowPressed]}
-                      disabled={!item.pathname}
-                      accessibilityLabel={item.pathname ? item.label : `${item.label}, coming soon`}
-                    >
-                      <View style={[styles.cardIcon, !item.pathname && styles.cardIconDisabled]}>
-                        <Ionicons
-                          name={item.icon}
-                          size={15}
-                          color={item.pathname ? (isActive ? colors.primary : colors.textPrimary) : colors.textSecondary}
-                        />
-                      </View>
-                      <Text
-                        style={[
-                          styles.cardRowLabel,
-                          isActive && styles.cardRowLabelPrimary,
-                          !item.pathname && styles.cardRowLabelDisabled,
-                        ]}
-                      >
-                        {item.label}
-                      </Text>
-                      {!item.pathname ? <Text style={styles.cardRowSoon}>Soon</Text> : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ))}
-          </Animated.View>
-        </View>
-      </Modal>
-
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       <View style={[styles.wrap, { paddingBottom: insets.bottom + spacing.xs }]} pointerEvents="box-none">
       <View ref={rowRef} onLayout={measureRowPosition} collapsable={false}>
       <Animated.View style={[styles.row, navAnimatedStyle]}>
         <View style={styles.pill}>
           {/* Flat 4-tab row — no inline expansion. More opens the grouped
-              popover menu above (Modal, same mechanism as Quick Add)
-              instead of morphing the bar itself, since a flat/expanding
-              strip doesn't scale to 9 destinations without hiding most of
-              them behind swipes. */}
+              popover menu above instead of morphing the bar itself, since
+              a flat/expanding strip doesn't scale to 9 destinations
+              without hiding most of them behind swipes. */}
           <View style={styles.tabsRow}>
             {state.routes
               .filter((route) => TAB_META[route.name])
@@ -397,20 +361,20 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
                         navigation.navigate(route.name);
                       }
                     }}
-                    style={styles.tabButton}
+                    style={[styles.tabButton, isFocused && styles.tabButtonActive]}
                     accessibilityRole="tab"
-                    accessibilityState={{ selected: isFocused || (isMoreTab && isMoreMenuOpen) }}
+                    accessibilityState={{ selected: isFocused }}
                     accessibilityLabel={meta.label}
                   >
                     <Ionicons
                       name={meta.icon}
                       size={22}
-                      color={isFocused || (isMoreTab && isMoreMenuOpen) ? colors.primary : colors.textSecondary}
+                      color={isFocused ? colors.primary : colors.textSecondary}
                     />
                     <Text
                       style={[
                         styles.tabLabel,
-                        { color: isFocused || (isMoreTab && isMoreMenuOpen) ? colors.primary : colors.textSecondary },
+                        { color: isFocused ? colors.primary : colors.textSecondary },
                       ]}
                     >
                       {meta.label}
@@ -421,20 +385,127 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
           </View>
         </View>
 
-        <Pressable
-          onPress={() => {
-            setIsMoreMenuOpen(false);
-            setIsCardOpen((open) => !open);
-          }}
-          style={styles.fab}
-          accessibilityLabel={isCardOpen ? 'Close quick add' : 'Quick add'}
-        >
-          <Ionicons name={isCardOpen ? 'close' : 'add'} size={28} color={colors.textInverse} />
-        </Pressable>
+        {/* No + at all on 'hidden' screens (Reports, Settings, Account,
+            the /more hub, etc.) — the pill then centers alone for free
+            via `row`'s existing alignSelf: 'center', no extra layout
+            logic needed once this simply isn't rendered. */}
+        {fabConfig.mode !== 'hidden' ? (
+          <Pressable
+            onPress={() => {
+              setIsMoreMenuOpen(false);
+              if (fabConfig.mode === 'menu') {
+                setIsCardOpen((open) => !open);
+              } else {
+                handleDirectFabPress(fabConfig);
+              }
+            }}
+            style={styles.fab}
+            accessibilityLabel={
+              fabConfig.mode === 'menu' ? (isCardOpen ? 'Close quick add' : 'Quick add') : 'Add'
+            }
+          >
+            <Ionicons
+              name={fabConfig.mode === 'menu' && isCardOpen ? 'close' : 'add'}
+              size={28}
+              color={colors.textInverse}
+            />
+          </Pressable>
+        ) : null}
       </Animated.View>
       </View>
       </View>
-    </>
+
+      {/* Quick Add popup — plain overlay View, not <Modal>. Modal's native
+          Android Dialog dims the background by default regardless of our
+          own transparent/backdrop styling; a plain sibling View here
+          gives full control with zero platform-imposed dimming. Rendered
+          after the nav row above (same parent), so it stacks on top
+          without needing Modal or manual zIndex. */}
+      {cardMounted ? (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsCardOpen(false)} accessibilityLabel="Close quick add" />
+          <Animated.View
+            style={[
+              styles.card,
+              styles.cardModalPosition,
+              { right: spacing.lg, bottom: cardBottomOffset, transformOrigin: 'bottom right' },
+              cardAnimatedStyle,
+            ]}
+          >
+            <Text style={styles.cardLabel}>Quick add</Text>
+            {items.map((item, i) => (
+              <Pressable
+                key={item.label}
+                onPress={() => handleQuickAddPress(item)}
+                style={({ pressed }) => [styles.cardRow, pressed && item.pathname && styles.cardRowPressed]}
+                disabled={!item.pathname}
+                accessibilityLabel={item.pathname ? item.label : `${item.label}, coming soon`}
+              >
+                <View style={[styles.cardIcon, !item.pathname && styles.cardIconDisabled]}>
+                  <Ionicons name={item.icon} size={15} color={item.pathname ? colors.primary : colors.textSecondary} />
+                </View>
+                <Text
+                  style={[
+                    styles.cardRowLabel,
+                    i === 0 && item.pathname && styles.cardRowLabelPrimary,
+                    !item.pathname && styles.cardRowLabelDisabled,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+                {!item.pathname ? <Text style={styles.cardRowSoon}>Soon</Text> : null}
+              </Pressable>
+            ))}
+          </Animated.View>
+        </View>
+      ) : null}
+
+      {/* More menu popup — same reasoning as Quick Add above: plain
+          overlay View instead of <Modal>, so the scrim below is the
+          *only* dimming that happens, fully under our control. */}
+      {moreMenuMounted ? (
+        <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsMoreMenuOpen(false)} accessibilityLabel="Close more menu" />
+          <View
+            style={[styles.moreMenuPositioner, { bottom: cardBottomOffset + spacing.sm }]}
+            pointerEvents="box-none"
+          >
+            <Animated.View style={[styles.moreMenuCard, moreMenuAnimatedStyle]}>
+              {MORE_MENU_ITEMS.filter((item) => item.pathname).map((item) => {
+                const isActive = !!item.pathname && pathname.startsWith(item.pathname);
+                return (
+                  <Pressable
+                    key={item.label}
+                    onPress={() => handleMoreMenuPress(item)}
+                    style={({ pressed }) => [styles.cardRow, pressed && styles.cardRowPressed]}
+                    accessibilityLabel={item.label}
+                  >
+                    <View style={styles.cardIcon}>
+                      <Ionicons name={item.icon} size={15} color={isActive ? colors.primary : colors.textPrimary} />
+                    </View>
+                    <Text style={[styles.cardRowLabel, isActive && styles.cardRowLabelPrimary]}>{item.label}</Text>
+                  </Pressable>
+                );
+              })}
+
+              <View style={styles.moreMenuDivider} />
+
+              <Pressable
+                onPress={() => {
+                  setIsMoreMenuOpen(false);
+                  navigateOnce(() => router.push('/more' as never));
+                }}
+                style={({ pressed }) => [styles.cardRow, pressed && styles.cardRowPressed]}
+                accessibilityLabel="More options"
+              >
+                <Text style={styles.moreOptionsLabel}>More options</Text>
+                <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+              </Pressable>
+            </Animated.View>
+          </View>
+        </View>
+      ) : null}
+    </View>
   );
 }
 
@@ -460,7 +531,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
   borderWidth: 1,
   borderColor: colors.border,
   borderRadius: radii.full,
-  height: 68,
+  height: 60,
   position: 'relative',
   overflow: 'hidden',
   elevation: 4,
@@ -482,15 +553,26 @@ function makeStyles(colors: Record<ColorToken, string>) {
       minWidth: 52,
       minHeight: 52,
     },
+    // Highlight pill behind the active tab — Netflix and Google Photos
+    // both do this (rounded neutral fill behind icon+label, not just a
+    // color change) and it reads as a clearer "you are here" than color
+    // alone. Uses the theme's neutral surfaceMuted rather than a
+    // translucent tint of primary, since primary is user-customizable
+    // per Appearance settings and computing a safe translucent version
+    // of an arbitrary chosen color isn't something the current color
+    // tokens support — surfaceMuted stays correct across any theme.
+    tabButtonActive: {
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radii.full,
+    },
     tabLabel: {
       ...typography.caption,
       fontSize: 11,
     },
-    // --- More menu (grouped popover) ---
+    // --- More menu (trimmed popover) ---
     // Centered above the row rather than right-anchored like Quick Add's
     // card — More sits mid-pill, not attached to the FAB, and centering
-    // is safer than a fixed edge for a menu whose widest label
-    // ("Subscription") isn't known in advance.
+    // keeps it visually attached to where it opened from.
     moreMenuPositioner: {
       position: 'absolute',
       left: 0,
@@ -517,9 +599,17 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginVertical: spacing.xs,
       marginHorizontal: spacing.sm,
     },
+    // Deliberately quieter than a normal row — no icon chip, muted
+    // color, right-aligned chevron — so "More options" reads as an
+    // escape hatch, not a 5th action competing with the real ones above.
+    moreOptionsLabel: {
+      ...typography.bodySm,
+      color: colors.textSecondary,
+      flex: 1,
+    },
     fab: {
       width: 64,
-      height: 64,
+      height: 60,
       borderRadius: radii.full,
       backgroundColor: colors.primary,
       alignItems: 'center',

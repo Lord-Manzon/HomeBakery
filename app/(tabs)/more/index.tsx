@@ -1,21 +1,25 @@
 import { StyleSheet, Text, View, Pressable } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, usePathname } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { PrimaryButton } from '../../../src/components/PrimaryButton';
 import { useBakerProfile } from '../../../src/hooks/useBakerProfile';
 import { signOut } from '../../../src/services/auth';
-import { colors, spacing, typography } from '../../../src/theme';
+import { useThemeColors } from '../../../src/theme/ThemeContext';
+import { spacing, typography } from '../../../src/theme';
+import { MORE_MENU_ITEMS } from '../../../src/constants/moreMenu';
+import { Screen } from '../../../src/components/Screen';
+import { useMemo } from 'react';
 
 export default function MoreScreen() {
   const { data: baker } = useBakerProfile();
   const router = useRouter();
+  const pathname = usePathname();
+  const { colors } = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   return (
-    <View style={styles.container}>
+    <Screen style={styles.container}>
       <Text style={styles.title}>More</Text>
-      <Text style={styles.note}>
-        Products, Reports, Expenses, Storefront Settings, Account. Added across their respective
-        phases.
-      </Text>
 
       {baker ? (
         <View style={styles.profileCard}>
@@ -27,58 +31,60 @@ export default function MoreScreen() {
         </View>
       ) : null}
 
-      <Pressable
-        style={styles.menuRow}
-        onPress={() => router.push('/more/ingredients')}
-      >
-        <Text style={styles.menuRowLabel}>Ingredients</Text>
-        <Text style={styles.menuRowChevron}>›</Text>
-      </Pressable>
-
-      <Pressable
-        style={styles.menuRow}
-        onPress={() => router.push('/more/products')}
-      >
-        <Text style={styles.menuRowLabel}>Products</Text>
-        <Text style={styles.menuRowChevron}>›</Text>
-      </Pressable>
-
-      <Pressable
-        style={styles.menuRow}
-        onPress={() => router.push('/more/recipes')}
-      >
-        <Text style={styles.menuRowLabel}>Recipes</Text>
-        <Text style={styles.menuRowChevron}>›</Text>
-      </Pressable>
-
-      <Pressable
-        style={styles.menuRow}
-        onPress={() => router.push('/more/appearance')}
-      >
-        <Text style={styles.menuRowLabel}>Appearance</Text>
-        <Text style={styles.menuRowChevron}>›</Text>
-      </Pressable>
+      {/* Same shared list the trimmed nav popup pulls its 4 built items
+          from (see src/constants/moreMenu.ts) — every destination lives
+          here, built or not, so this screen can keep growing without
+          ever needing to touch the popup again. */}
+      <View style={styles.menuList}>
+        {MORE_MENU_ITEMS.map((item, i) => {
+          const isActive = !!item.pathname && pathname.startsWith(item.pathname);
+          return (
+            <Pressable
+              key={item.label}
+              style={[styles.menuRow, i > 0 && styles.menuRowDivider]}
+              onPress={() => item.pathname && router.push(item.pathname as never)}
+              disabled={!item.pathname}
+              accessibilityLabel={item.pathname ? item.label : `${item.label}, coming soon`}
+            >
+              <Ionicons
+                name={item.icon}
+                size={18}
+                color={item.pathname ? (isActive ? colors.primary : colors.textPrimary) : colors.textSecondary}
+              />
+              <Text
+                style={[
+                  styles.menuRowLabel,
+                  isActive && styles.menuRowLabelActive,
+                  !item.pathname && styles.menuRowLabelDisabled,
+                ]}
+              >
+                {item.label}
+              </Text>
+              {item.pathname ? (
+                <Text style={styles.menuRowChevron}>›</Text>
+              ) : (
+                <Text style={styles.menuRowSoon}>Soon</Text>
+              )}
+            </Pressable>
+          );
+        })}
+      </View>
 
       <View style={styles.signOutButton}>
         <PrimaryButton title="Sign out" onPress={() => signOut()} />
       </View>
-    </View>
+    </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-    padding: spacing.xl,
-  },
-  title: { ...typography.titleLg, color: colors.textPrimary },
-  note: {
-    ...typography.bodySm,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-    marginBottom: spacing.xl,
-  },
+function makeStyles(colors: Record<string, string>) {
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      paddingHorizontal: spacing.xl,
+      paddingBottom: spacing.xl,
+    },
+  title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.lg },
   profileCard: {
     backgroundColor: colors.surfaceMuted,
     borderRadius: 12,
@@ -96,20 +102,29 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xxs,
   },
-  menuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  menuList: {
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
+  },
+  menuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
-    minHeight: 44,
-    marginBottom: spacing.sm,
+    minHeight: 48,
   },
-  menuRowLabel: { ...typography.body, color: colors.textPrimary },
+  menuRowDivider: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  menuRowLabel: { ...typography.body, color: colors.textPrimary, flex: 1 },
+  menuRowLabelActive: { color: colors.primary, fontWeight: '600' },
+  menuRowLabelDisabled: { color: colors.textSecondary },
   menuRowChevron: { ...typography.body, color: colors.textSecondary },
+  menuRowSoon: { ...typography.caption, color: colors.textSecondary },
   signOutButton: { marginTop: 'auto' },
 });
+}
