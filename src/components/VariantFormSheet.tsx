@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { BottomSheet } from './BottomSheet';
 import { FormField } from './FormField';
@@ -47,6 +47,23 @@ export function VariantFormSheet({
     initialValue?.packaging_cost != null ? String(initialValue.packaging_cost) : ''
   );
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // This sheet stays mounted for the whole product detail screen's
+  // lifetime (BottomSheet only toggles a Modal's `visible`, it doesn't
+  // unmount children) — so the useState() initializers above only run
+  // ONCE, the very first time the screen renders. Without this effect,
+  // editing variant A then variant B would show variant A's leftover
+  // values (or blank) instead of variant B's actual ones. Re-syncing
+  // every time the sheet opens fixes that — each open re-reads whatever
+  // initialValue was passed at that moment.
+  useEffect(() => {
+    if (visible) {
+      setName(initialValue?.name ?? '');
+      setSellingPrice(initialValue ? String(initialValue.selling_price) : '');
+      setPackagingCost(initialValue?.packaging_cost != null ? String(initialValue.packaging_cost) : '');
+      setFieldErrors({});
+    }
+  }, [visible, initialValue]);
 
   const handleSubmit = () => {
     const parsed = variantFormSchema.safeParse({
