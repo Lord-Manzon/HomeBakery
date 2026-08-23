@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View, Pressable, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated from 'react-native-reanimated';
@@ -92,6 +92,26 @@ export function IngredientFormSheet({
     initialValue?.low_stock_threshold != null ? String(initialValue.low_stock_threshold) : ''
   );
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  // Same reasoning as VariantFormSheet.tsx's identical fix: this sheet
+  // stays mounted for the whole ingredient detail (or list) screen's
+  // lifetime — BottomSheet only toggles a Modal's `visible`, it doesn't
+  // unmount children — so the useState() initializers above only run
+  // ONCE. Without this, typing something in Edit, canceling without
+  // saving, then reopening Edit would show your abandoned typed value
+  // instead of the ingredient's actual current value.
+  useEffect(() => {
+    if (visible) {
+      setName(initialValue?.name ?? '');
+      setCategory(initialValue?.category ?? null);
+      setQuantity(initialValue ? String(initialValue.current_stock) : '');
+      setUnit(initialValue?.unit ?? '');
+      setLowStockThreshold(
+        initialValue?.low_stock_threshold != null ? String(initialValue.low_stock_threshold) : ''
+      );
+      setFieldErrors({});
+    }
+  }, [visible, initialValue]);
 
   const handleSave = () => {
     const parsed = ingredientFormSchema(existingNames).safeParse({
