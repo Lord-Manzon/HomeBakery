@@ -110,12 +110,8 @@ export default function NewOrderScreen() {
     setErrors({});
 
     createOrder.mutate(parsed.data, {
-      // Order Detail doesn't exist until Stage 4 -- this goes back to the
-      // list for now. Once Detail ships, this should become
-      // router.replace(`/orders/${order.id}`) to match
-      // docs/UI_UX_1.md's "New order form ... saves -> Order detail" flow.
-      onSuccess: () => {
-        router.replace('/orders');
+      onSuccess: (order) => {
+        router.replace(`/orders/${order.id}`);
       },
     });
   };

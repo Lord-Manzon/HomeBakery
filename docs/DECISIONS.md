@@ -894,3 +894,52 @@ own test — the form's running subtotal/total display uses the same
 arithmetic as `calculateOrderTotals`, but isn't itself a separate
 function to test; the authoritative totals calculation still only lives
 in `orderLogic.ts`).
+
+### 2026-08-22 — Built the Order Detail screen (quick actions, cancel, delete)
+
+**Decision:** `app/(tabs)/orders/[id]/index.tsx` — customer, items,
+fulfillment (with delivery address if applicable), schedule, notes,
+payment breakdown, and the status badge (Overdue takes visual priority
+over the order's real status, same rule as the list card). Two quick
+actions per `docs/DECISIONS.md`'s 2026-08-22 status-model entry: "Mark
+Delivered"/"Mark Picked Up" (label depends on `fulfillment_type`) and
+"Mark Paid" — both fire immediately on tap, no confirmation step, per
+`docs/UI_UX_1.md`'s interaction-weight table ("Inline toggle/action" —
+binary changes on a screen already open, same category as the existing
+Payment status / Mark delivered row in that table). "Mark Paid" always
+defaults to Cash on that first tap; the resulting "Paid · Cash" badge is
+itself tappable afterward to correct the method via the new
+`src/components/PaymentMethodSheet.tsx`, matching the "one-tap by
+default, correctable after" design this was originally scoped with.
+
+Delete uses the inline-confirm pattern (button swaps in place), matching
+Recipe Detail's exact implementation — real hard delete, reserved for
+genuine mistakes, per `docs/UI_UX_1.md` section E.2. Cancel is a separate,
+less prominent inline-confirm (a text link, not a button) since it's a
+softer, more-common action that keeps the order in history rather than
+removing it, and is only offered while `canCancelOrder()` allows it
+(Pending or Delivered, never Completed or Cancelled itself).
+
+**Bug caught during review, fixed before shipping:** the initial pass
+computed `showMarkPaid` from `payment_status === 'unpaid'` alone, with no
+check on `status`. That meant a Cancelled-but-still-Unpaid order (a real,
+reachable state — cancelling never touches `payment_status`) would have
+shown a live "Mark Paid" button on an order that's already over. Fixed by
+also requiring `isOrderActive(order.status)`, mirroring the same guard
+`orderLogic.ts`'s `canCancelOrder` already applies to the Cancel action.
+
+**Closed the Stage 3 loose end:** `orders/new.tsx`'s post-save navigation
+now goes to `router.replace(\`/orders/${'{order.id}'}\`)` instead of back to
+the list, matching `docs/UI_UX_1.md`'s "New order form ... saves → Order
+detail" flow now that Detail actually exists.
+
+**Not built in this stage, by design:** the header's pencil icon links to
+`/orders/${'{id}'}/edit`, which doesn't exist yet — Edit Order is scoped as
+its own follow-up stage (reusing the New Order form in edit mode), not
+squeezed into this one.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest`
+— 4 suites, 50 tests, all passing (same reasoning as the previous two
+entries: this screen's own numbers are formatting, not new business
+math — the underlying status/total logic it calls into is already
+covered by `orderLogic.test.ts`).

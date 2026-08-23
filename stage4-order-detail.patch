@@ -1,0 +1,615 @@
+diff --git a/app/(tabs)/orders/[id]/index.tsx b/app/(tabs)/orders/[id]/index.tsx
+new file mode 100644
+index 0000000..b60ceb7
+--- /dev/null
++++ b/app/(tabs)/orders/[id]/index.tsx
+@@ -0,0 +1,404 @@
++import { useMemo, useState } from 'react';
++import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
++import { Ionicons } from '@expo/vector-icons';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import { useThemeColors } from '../../../../src/theme/ThemeContext';
++import {
++  useOrder,
++  useMarkOrderDelivered,
++  useMarkOrderPaid,
++  useCancelOrder,
++  useDeleteOrder,
++} from '../../../../src/hooks/useOrders';
++import { useBakerProfile } from '../../../../src/hooks/useBakerProfile';
++import { isOrderActive, canCancelOrder } from '../../../../src/services/orderLogic';
++import { formatOrderDate, formatOrderTime, todayDateString } from '../../../../src/utils/dateFormat';
++import { formatCurrency } from '../../../../src/utils/currency';
++import { Screen } from '../../../../src/components/Screen';
++import { ErrorBanner } from '../../../../src/components/ErrorBanner';
++import { PrimaryButton } from '../../../../src/components/PrimaryButton';
++import { PaymentMethodSheet } from '../../../../src/components/PaymentMethodSheet';
++import { spacing, radii, typography } from '../../../../src/theme';
++import type { ColorToken } from '../../../../src/theme/colors';
++import type { OrderStatus } from '../../../../src/types/order';
++
++const STATUS_LABEL: Record<OrderStatus, string> = {
++  pending: 'Pending',
++  delivered: 'Delivered',
++  completed: 'Completed',
++  cancelled: 'Cancelled',
++};
++
++function statusColor(status: OrderStatus, colors: Record<ColorToken, string>): string {
++  switch (status) {
++    case 'pending':
++      return colors.statusPending;
++    case 'delivered':
++      return colors.statusDelivered;
++    case 'completed':
++      return colors.statusCompleted;
++    case 'cancelled':
++      return colors.statusCancelled;
++  }
++}
++
++export default function OrderDetailScreen() {
++  const { id } = useLocalSearchParams<{ id: string }>();
++  const router = useRouter();
++  const { colors } = useThemeColors();
++  const styles = useMemo(() => makeStyles(colors), [colors]);
++
++  const { data: order, isLoading, isError, refetch } = useOrder(id);
++  const { data: baker } = useBakerProfile();
++  const markDelivered = useMarkOrderDelivered();
++  const markPaid = useMarkOrderPaid();
++  const cancelOrder = useCancelOrder();
++  const deleteOrder = useDeleteOrder();
++
++  const [pendingAction, setPendingAction] = useState<'cancel' | 'delete' | null>(null);
++  const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
++
++  if (isError) {
++    return (
++      <Screen style={styles.container}>
++        <ErrorBanner message="Couldn't load this order." />
++        <PrimaryButton title="Try again" onPress={() => refetch()} />
++      </Screen>
++    );
++  }
++
++  if (isLoading || !order) {
++    return (
++      <Screen style={styles.container}>
++        <View style={[styles.card, styles.skeleton]} />
++        <View style={[styles.card, styles.skeleton]} />
++      </Screen>
++    );
++  }
++
++  const isOverdue = isOrderActive(order.status) && order.scheduled_date < todayDateString();
++  const badgeLabel = isOverdue ? 'Overdue' : STATUS_LABEL[order.status];
++  const badgeColor = isOverdue ? colors.danger : statusColor(order.status, colors);
++
++  const time = formatOrderTime(order.scheduled_time);
++  const dateLabel = formatOrderDate(order.scheduled_date);
++  const whenLabel = time ? `${dateLabel} · ${time}` : dateLabel;
++
++  // Per docs/DECISIONS.md's 2026-08-22 entry: the only active status
++  // that hasn't been delivered yet is 'pending' -- once delivered, status
++  // moves past this and the button has nothing left to do.
++  const showMarkDelivered = order.status === 'pending';
++  const showMarkPaid = order.payment_status === 'unpaid' && isOrderActive(order.status);
++  const canCancel = canCancelOrder(order.status);
++
++  return (
++    <Screen style={styles.container}>
++      <View style={styles.headerRow}>
++        <Pressable onPress={() => router.back()} style={styles.iconButton}>
++          <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
++        </Pressable>
++        <Text style={styles.title} numberOfLines={1}>
++          {order.customer_name}
++        </Text>
++        <View style={styles.headerIcons}>
++          <Pressable
++            onPress={() => router.push(`/orders/${id}/edit`)}
++            style={styles.iconButton}
++            accessibilityLabel="Edit order"
++          >
++            <Ionicons name="pencil-outline" size={20} color={colors.textSecondary} />
++          </Pressable>
++          <Pressable
++            onPress={() => setPendingAction(pendingAction === 'delete' ? null : 'delete')}
++            style={styles.iconButton}
++            accessibilityLabel="Delete order"
++          >
++            <Ionicons name="trash-outline" size={20} color={colors.danger} />
++          </Pressable>
++        </View>
++      </View>
++
++      <View style={[styles.badge, { backgroundColor: `${badgeColor}1F` }]}>
++        <Text style={[styles.badgeText, { color: badgeColor }]}>{badgeLabel}</Text>
++      </View>
++
++      {pendingAction === 'delete' ? (
++        <View style={styles.inlineConfirmRow}>
++          <Text style={styles.inlineConfirmText}>
++            Delete this order? This can't be undone. If it just needs to not go ahead, Cancel
++            keeps it in your history instead.
++          </Text>
++          <View style={styles.inlineConfirmActions}>
++            <Pressable onPress={() => setPendingAction(null)} style={styles.inlineConfirmCancel}>
++              <Text style={styles.inlineConfirmCancelText}>Keep it</Text>
++            </Pressable>
++            <Pressable
++              onPress={() => deleteOrder.mutate(id, { onSuccess: () => router.back() })}
++              style={styles.inlineConfirmDelete}
++              disabled={deleteOrder.isPending}
++            >
++              <Text style={styles.inlineConfirmDeleteText}>
++                {deleteOrder.isPending ? 'Deleting…' : 'Confirm delete'}
++              </Text>
++            </Pressable>
++          </View>
++        </View>
++      ) : null}
++
++      {pendingAction === 'cancel' ? (
++        <View style={styles.inlineConfirmRow}>
++          <Text style={styles.inlineConfirmText}>
++            Cancel this order? It stays in your order history as Cancelled.
++          </Text>
++          <View style={styles.inlineConfirmActions}>
++            <Pressable onPress={() => setPendingAction(null)} style={styles.inlineConfirmCancel}>
++              <Text style={styles.inlineConfirmCancelText}>Never mind</Text>
++            </Pressable>
++            <Pressable
++              onPress={() =>
++                cancelOrder.mutate(
++                  { id: order.id, status: order.status },
++                  { onSuccess: () => setPendingAction(null) }
++                )
++              }
++              style={styles.inlineConfirmDelete}
++              disabled={cancelOrder.isPending}
++            >
++              <Text style={styles.inlineConfirmDeleteText}>
++                {cancelOrder.isPending ? 'Cancelling…' : 'Confirm cancel'}
++              </Text>
++            </Pressable>
++          </View>
++        </View>
++      ) : null}
++
++      <ScrollView
++        showsVerticalScrollIndicator={false}
++        contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
++      >
++        {order.customer_contact ? <Text style={styles.contactText}>{order.customer_contact}</Text> : null}
++
++        <Text style={styles.sectionHeader}>Items</Text>
++        <View style={styles.card}>
++          {order.items.map((item) => (
++            <View key={item.id} style={styles.itemRow}>
++              <Text style={styles.itemText}>
++                {item.quantity}× {item.product_name} ({item.variant_name})
++              </Text>
++              <Text style={styles.itemPrice}>{formatCurrency(item.line_total, baker?.currency)}</Text>
++            </View>
++          ))}
++        </View>
++
++        <Text style={styles.sectionHeader}>Fulfillment</Text>
++        <View style={styles.card}>
++          <View style={styles.metaRow}>
++            <Ionicons
++              name={order.fulfillment_type === 'delivery' ? 'bicycle-outline' : 'bag-handle-outline'}
++              size={16}
++              color={colors.textSecondary}
++            />
++            <Text style={styles.metaText}>
++              {order.fulfillment_type === 'delivery' ? 'Delivery' : 'Pickup'}
++            </Text>
++          </View>
++          {order.fulfillment_type === 'delivery' && order.delivery_address ? (
++            <Text style={styles.metaSubtext}>{order.delivery_address}</Text>
++          ) : null}
++          <View style={styles.metaRow}>
++            <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
++            <Text style={styles.metaText}>{whenLabel}</Text>
++          </View>
++        </View>
++
++        {order.notes ? (
++          <>
++            <Text style={styles.sectionHeader}>Notes</Text>
++            <View style={styles.card}>
++              <Text style={styles.notesText}>{order.notes}</Text>
++            </View>
++          </>
++        ) : null}
++
++        <Text style={styles.sectionHeader}>Payment</Text>
++        <View style={styles.card}>
++          <View style={styles.totalsRow}>
++            <Text style={styles.totalsLabel}>Subtotal</Text>
++            <Text style={styles.totalsValue}>{formatCurrency(order.subtotal, baker?.currency)}</Text>
++          </View>
++          {order.delivery_fee > 0 ? (
++            <View style={styles.totalsRow}>
++              <Text style={styles.totalsLabel}>Delivery fee</Text>
++              <Text style={styles.totalsValue}>{formatCurrency(order.delivery_fee, baker?.currency)}</Text>
++            </View>
++          ) : null}
++          <View style={styles.totalsRow}>
++            <Text style={styles.totalsLabelBold}>Total</Text>
++            <Text style={styles.totalsValueBold}>{formatCurrency(order.total, baker?.currency)}</Text>
++          </View>
++
++          <Pressable
++            onPress={() => {
++              if (order.payment_status === 'paid') setPaymentSheetOpen(true);
++            }}
++            style={[
++              styles.paymentBadge,
++              { backgroundColor: order.payment_status === 'paid' ? colors.successMuted : colors.warningMuted },
++            ]}
++          >
++            <Text
++              style={[
++                styles.paymentBadgeText,
++                { color: order.payment_status === 'paid' ? colors.success : colors.warning },
++              ]}
++            >
++              {order.payment_status === 'paid' ? `Paid · ${order.payment_method ?? 'Cash'}` : 'Unpaid'}
++            </Text>
++            {order.payment_status === 'paid' ? (
++              <Ionicons name="pencil-outline" size={12} color={colors.success} />
++            ) : null}
++          </Pressable>
++        </View>
++
++        {showMarkDelivered || showMarkPaid ? (
++          <View style={styles.actionsBlock}>
++            {showMarkDelivered ? (
++              <PrimaryButton
++                title={order.fulfillment_type === 'delivery' ? 'Mark Delivered' : 'Mark Picked Up'}
++                onPress={() =>
++                  markDelivered.mutate({
++                    id: order.id,
++                    status: order.status,
++                    payment_status: order.payment_status,
++                  })
++                }
++                isLoading={markDelivered.isPending}
++              />
++            ) : null}
++            {showMarkPaid ? (
++              <View style={showMarkDelivered ? styles.actionSpacing : undefined}>
++                <PrimaryButton
++                  title="Mark Paid"
++                  variant={showMarkDelivered ? 'secondary' : 'primary'}
++                  onPress={() =>
++                    markPaid.mutate({
++                      order: { id: order.id, status: order.status },
++                      paymentMethod: 'Cash',
++                    })
++                  }
++                  isLoading={markPaid.isPending}
++                />
++              </View>
++            ) : null}
++          </View>
++        ) : null}
++
++        {canCancel ? (
++          <Pressable onPress={() => setPendingAction('cancel')} style={styles.cancelLink}>
++            <Text style={styles.cancelLinkText}>Cancel order</Text>
++          </Pressable>
++        ) : null}
++      </ScrollView>
++
++      <PaymentMethodSheet
++        visible={paymentSheetOpen}
++        onDismiss={() => setPaymentSheetOpen(false)}
++        currentMethod={order.payment_method}
++        isSaving={markPaid.isPending}
++        onSubmit={(method) => {
++          markPaid.mutate(
++            { order: { id: order.id, status: order.status }, paymentMethod: method },
++            { onSuccess: () => setPaymentSheetOpen(false) }
++          );
++        }}
++      />
++    </Screen>
++  );
++}
++
++function makeStyles(colors: Record<ColorToken, string>) {
++  return StyleSheet.create({
++    container: { flex: 1, paddingHorizontal: spacing.xl },
++    headerRow: {
++      flexDirection: 'row',
++      alignItems: 'center',
++      justifyContent: 'space-between',
++      marginBottom: spacing.sm,
++    },
++    iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
++    headerIcons: { flexDirection: 'row' },
++    title: { ...typography.titleLg, color: colors.textPrimary, flex: 1, textAlign: 'center' },
++    badge: {
++      alignSelf: 'flex-start',
++      borderRadius: radii.full,
++      paddingHorizontal: spacing.md,
++      paddingVertical: spacing.xxs,
++      marginBottom: spacing.md,
++    },
++    badgeText: { ...typography.bodySm, fontWeight: '600' },
++    contactText: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
++    sectionHeader: { ...typography.titleSm, color: colors.textPrimary, marginTop: spacing.lg, marginBottom: spacing.sm },
++    card: {
++      backgroundColor: colors.surface,
++      borderWidth: 1,
++      borderColor: colors.border,
++      borderRadius: radii.lg,
++      padding: spacing.md,
++    },
++    skeleton: { height: 90, backgroundColor: colors.surfaceMuted, borderWidth: 0, marginBottom: spacing.md },
++    itemRow: {
++      flexDirection: 'row',
++      justifyContent: 'space-between',
++      alignItems: 'center',
++      paddingVertical: spacing.xs,
++    },
++    itemText: { ...typography.bodySm, color: colors.textPrimary, flex: 1, marginRight: spacing.sm },
++    itemPrice: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
++    metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.xs },
++    metaText: { ...typography.bodySm, color: colors.textPrimary },
++    metaSubtext: {
++      ...typography.bodySm,
++      color: colors.textSecondary,
++      marginLeft: 24,
++      marginBottom: spacing.xs,
++    },
++    notesText: { ...typography.bodySm, color: colors.textPrimary },
++    totalsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xxs },
++    totalsLabel: { ...typography.bodySm, color: colors.textSecondary },
++    totalsValue: { ...typography.bodySm, color: colors.textPrimary },
++    totalsLabelBold: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
++    totalsValueBold: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
++    paymentBadge: {
++      flexDirection: 'row',
++      alignItems: 'center',
++      gap: spacing.xxs,
++      alignSelf: 'flex-start',
++      borderRadius: radii.full,
++      paddingHorizontal: spacing.md,
++      paddingVertical: spacing.xs,
++      marginTop: spacing.sm,
++    },
++    paymentBadgeText: { ...typography.bodySm, fontWeight: '600' },
++    actionsBlock: { marginTop: spacing.lg },
++    actionSpacing: { marginTop: spacing.sm },
++    cancelLink: { alignItems: 'center', paddingVertical: spacing.md },
++    cancelLinkText: { ...typography.bodySm, color: colors.textSecondary, textDecorationLine: 'underline' },
++    inlineConfirmRow: {
++      backgroundColor: colors.dangerMuted,
++      borderRadius: radii.md,
++      padding: spacing.md,
++      marginBottom: spacing.lg,
++    },
++    inlineConfirmText: { ...typography.bodySm, color: colors.danger, marginBottom: spacing.sm },
++    inlineConfirmActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: spacing.sm },
++    inlineConfirmCancel: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
++    inlineConfirmCancelText: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
++    inlineConfirmDelete: {
++      backgroundColor: colors.danger,
++      borderRadius: radii.sm,
++      paddingVertical: spacing.sm,
++      paddingHorizontal: spacing.md,
++    },
++    inlineConfirmDeleteText: { ...typography.bodySm, color: colors.textInverse, fontWeight: '600' },
++  });
++}
+diff --git a/app/(tabs)/orders/_layout.tsx b/app/(tabs)/orders/_layout.tsx
+index 56a0828..7576a88 100644
+--- a/app/(tabs)/orders/_layout.tsx
++++ b/app/(tabs)/orders/_layout.tsx
+@@ -5,6 +5,7 @@ export default function OrdersLayout() {
+     <Stack screenOptions={{ headerShown: false }}>
+       <Stack.Screen name="index" />
+       <Stack.Screen name="new" />
++      <Stack.Screen name="[id]/index" />
+     </Stack>
+   );
+ }
+diff --git a/app/(tabs)/orders/new.tsx b/app/(tabs)/orders/new.tsx
+index 1c0f22f..f7654f5 100644
+--- a/app/(tabs)/orders/new.tsx
++++ b/app/(tabs)/orders/new.tsx
+@@ -110,12 +110,8 @@ export default function NewOrderScreen() {
+     setErrors({});
+ 
+     createOrder.mutate(parsed.data, {
+-      // Order Detail doesn't exist until Stage 4 -- this goes back to the
+-      // list for now. Once Detail ships, this should become
+-      // router.replace(`/orders/${order.id}`) to match
+-      // docs/UI_UX_1.md's "New order form ... saves -> Order detail" flow.
+-      onSuccess: () => {
+-        router.replace('/orders');
++      onSuccess: (order) => {
++        router.replace(`/orders/${order.id}`);
+       },
+     });
+   };
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index 6e440c5..4883b86 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -893,4 +893,53 @@ previous entry, converting a native picker's `Date` back to the
+ own test — the form's running subtotal/total display uses the same
+ arithmetic as `calculateOrderTotals`, but isn't itself a separate
+ function to test; the authoritative totals calculation still only lives
+-in `orderLogic.ts`).
+\ No newline at end of file
++in `orderLogic.ts`).
++
++### 2026-08-22 — Built the Order Detail screen (quick actions, cancel, delete)
++
++**Decision:** `app/(tabs)/orders/[id]/index.tsx` — customer, items,
++fulfillment (with delivery address if applicable), schedule, notes,
++payment breakdown, and the status badge (Overdue takes visual priority
++over the order's real status, same rule as the list card). Two quick
++actions per `docs/DECISIONS.md`'s 2026-08-22 status-model entry: "Mark
++Delivered"/"Mark Picked Up" (label depends on `fulfillment_type`) and
++"Mark Paid" — both fire immediately on tap, no confirmation step, per
++`docs/UI_UX_1.md`'s interaction-weight table ("Inline toggle/action" —
++binary changes on a screen already open, same category as the existing
++Payment status / Mark delivered row in that table). "Mark Paid" always
++defaults to Cash on that first tap; the resulting "Paid · Cash" badge is
++itself tappable afterward to correct the method via the new
++`src/components/PaymentMethodSheet.tsx`, matching the "one-tap by
++default, correctable after" design this was originally scoped with.
++
++Delete uses the inline-confirm pattern (button swaps in place), matching
++Recipe Detail's exact implementation — real hard delete, reserved for
++genuine mistakes, per `docs/UI_UX_1.md` section E.2. Cancel is a separate,
++less prominent inline-confirm (a text link, not a button) since it's a
++softer, more-common action that keeps the order in history rather than
++removing it, and is only offered while `canCancelOrder()` allows it
++(Pending or Delivered, never Completed or Cancelled itself).
++
++**Bug caught during review, fixed before shipping:** the initial pass
++computed `showMarkPaid` from `payment_status === 'unpaid'` alone, with no
++check on `status`. That meant a Cancelled-but-still-Unpaid order (a real,
++reachable state — cancelling never touches `payment_status`) would have
++shown a live "Mark Paid" button on an order that's already over. Fixed by
++also requiring `isOrderActive(order.status)`, mirroring the same guard
++`orderLogic.ts`'s `canCancelOrder` already applies to the Cancel action.
++
++**Closed the Stage 3 loose end:** `orders/new.tsx`'s post-save navigation
++now goes to `router.replace(\`/orders/${'{order.id}'}\`)` instead of back to
++the list, matching `docs/UI_UX_1.md`'s "New order form ... saves → Order
++detail" flow now that Detail actually exists.
++
++**Not built in this stage, by design:** the header's pencil icon links to
++`/orders/${'{id}'}/edit`, which doesn't exist yet — Edit Order is scoped as
++its own follow-up stage (reusing the New Order form in edit mode), not
++squeezed into this one.
++
++**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest`
++— 4 suites, 50 tests, all passing (same reasoning as the previous two
++entries: this screen's own numbers are formatting, not new business
++math — the underlying status/total logic it calls into is already
++covered by `orderLogic.test.ts`).
+\ No newline at end of file
+diff --git a/src/components/PaymentMethodSheet.tsx b/src/components/PaymentMethodSheet.tsx
+new file mode 100644
+index 0000000..e20f3cc
+--- /dev/null
++++ b/src/components/PaymentMethodSheet.tsx
+@@ -0,0 +1,107 @@
++import { useEffect, useMemo, useState } from 'react';
++import { Pressable, StyleSheet, Text, View } from 'react-native';
++import { useThemeColors } from '../theme/ThemeContext';
++import { radii, spacing, typography } from '../theme';
++import type { ColorToken } from '../theme/colors';
++import { BottomSheet } from './BottomSheet';
++import { FormField } from './FormField';
++import { PrimaryButton } from './PrimaryButton';
++import { PAYMENT_METHOD_OPTIONS } from '../utils/validation/orderSchemas';
++
++type PaymentMethodSheetProps = {
++  visible: boolean;
++  onDismiss: () => void;
++  currentMethod: string | null;
++  onSubmit: (method: string) => void;
++  isSaving: boolean;
++};
++
++/**
++ * Lets the baker correct an order's payment method after the fact --
++ * reached by tapping the "Paid · Cash" badge on Order Detail, per
++ * docs/DECISIONS.md's 2026-08-22 entry. The initial "Mark Paid" tap
++ * itself never opens this -- it's a single immediate action that defaults
++ * to Cash, precisely so this sheet is optional correction, not a
++ * mandatory extra step on the common path.
++ */
++export function PaymentMethodSheet({
++  visible,
++  onDismiss,
++  currentMethod,
++  onSubmit,
++  isSaving,
++}: PaymentMethodSheetProps) {
++  const { colors } = useThemeColors();
++  const styles = useMemo(() => makeStyles(colors), [colors]);
++
++  const [selected, setSelected] = useState(currentMethod ?? PAYMENT_METHOD_OPTIONS[0]);
++  const [customValue, setCustomValue] = useState('');
++  const isCustom = !PAYMENT_METHOD_OPTIONS.includes(selected as (typeof PAYMENT_METHOD_OPTIONS)[number]);
++
++  useEffect(() => {
++    if (!visible) return;
++    const initial = currentMethod ?? PAYMENT_METHOD_OPTIONS[0];
++    const initialIsKnown = PAYMENT_METHOD_OPTIONS.includes(
++      initial as (typeof PAYMENT_METHOD_OPTIONS)[number]
++    );
++    setSelected(initialIsKnown ? initial : 'Other');
++    setCustomValue(initialIsKnown ? '' : initial);
++  }, [visible, currentMethod]);
++
++  const handleSave = () => {
++    const value = selected === 'Other' ? customValue.trim() : selected;
++    if (!value) return;
++    onSubmit(value);
++  };
++
++  return (
++    <BottomSheet visible={visible} onDismiss={onDismiss} dismissDisabled={isSaving}>
++      <Text style={styles.title}>Payment method</Text>
++      <View style={styles.chipRow}>
++        {[...PAYMENT_METHOD_OPTIONS, 'Other'].map((option) => (
++          <Pressable
++            key={option}
++            onPress={() => setSelected(option)}
++            style={[styles.chip, selected === option && styles.chipSelected]}
++          >
++            <Text style={[styles.chipText, selected === option && styles.chipTextSelected]}>
++              {option}
++            </Text>
++          </Pressable>
++        ))}
++      </View>
++      {selected === 'Other' ? (
++        <FormField
++          label="Payment method"
++          placeholder="e.g. Venmo"
++          value={customValue}
++          onChangeText={setCustomValue}
++        />
++      ) : null}
++      <PrimaryButton
++        title={isSaving ? 'Saving…' : 'Save'}
++        onPress={handleSave}
++        isLoading={isSaving}
++        disabled={selected === 'Other' && customValue.trim().length === 0}
++      />
++    </BottomSheet>
++  );
++}
++
++function makeStyles(colors: Record<ColorToken, string>) {
++  return StyleSheet.create({
++    title: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.lg },
++    chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
++    chip: {
++      borderWidth: 1,
++      borderColor: colors.border,
++      backgroundColor: colors.surface,
++      borderRadius: radii.full,
++      paddingHorizontal: spacing.md,
++      paddingVertical: spacing.sm,
++    },
++    chipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
++    chipText: { ...typography.bodySm, color: colors.textPrimary },
++    chipTextSelected: { color: colors.textInverse },
++  });
++}
