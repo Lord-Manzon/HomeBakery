@@ -562,8 +562,13 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     noRecipeTitle: { ...typography.titleSm, color: colors.textPrimary, marginTop: spacing.md, marginBottom: spacing.xs, textAlign: 'center' },
     noRecipeBody: { ...typography.bodySm, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.lg },
-    noRecipeActions: { width: '100%', alignItems: 'center', gap: spacing.md },
-    newRecipeLink: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
+    noRecipeActions: { width: '100%', gap: spacing.md },
+    newRecipeLink: {
+      ...typography.bodySm,
+      color: colors.primary,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
     recipeLinkRow: {
       flexDirection: 'row',
       alignItems: 'center',
