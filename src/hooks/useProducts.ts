@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
- createProduct,
+  createProduct,
   createProductCategory,
   createVariant,
   deactivateProduct,
   deactivateVariant,
   deleteProductCategory,
+  duplicateProduct,
   getProduct,
   getProductCategories,
   getProducts,
@@ -15,8 +16,10 @@ import {
   updateVariant,
   updateVariantRecipeLink,
   updateVariantSuggestedPrice,
+  type DuplicateProductOptions,
 } from '../services/products';
 import type { ProductFormInput, VariantFormInput } from '../utils/validation/productSchemas';
+import type { Product, ProductVariant } from '../types/product';
 
 const productsKey = ['products'] as const;
 const productKey = (id: string) => ['products', id] as const;
@@ -64,6 +67,24 @@ export function useDeactivateProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deactivateProduct(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: productsKey });
+    },
+  });
+}
+
+export function useDuplicateProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      source,
+      sourceVariants,
+      options,
+    }: {
+      source: Product;
+      sourceVariants: ProductVariant[];
+      options: DuplicateProductOptions;
+    }) => duplicateProduct(source, sourceVariants, options),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: productsKey });
     },

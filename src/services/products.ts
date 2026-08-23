@@ -254,6 +254,69 @@ export async function setDefaultVariant(productId: string, variantId: string): P
   if (setError) throw setError;
 }
 
+export type DuplicateProductOptions = {
+  name: string;
+  includePhoto: boolean;
+  includeVariants: boolean;
+  includeRecipeLinks: boolean;
+};
+
+/**
+ * Clones a product and, per the baker's checklist choices, its variants
+ * and their recipe links. Nothing about the source product or its
+ * variants is touched — every row created here is brand new.
+ *
+ * The clone's variants get fresh is_default/display_order (first
+ * variant = default, in order) rather than copying is_default verbatim
+ * from the source — copying it as-is could leave the clone with zero or
+ * multiple defaults if the source's actual default variant wasn't one
+ * of the ones included.
+ *
+ * suggested_price is deliberately never copied, even with every option
+ * checked — see updateVariantSuggestedPrice()'s own comment: it's only
+ * ever the output of a fresh calculateSuggestedPrice() run, never a
+ * carried-over value. A duplicate starts with suggested_price = null,
+ * same as any newly created variant.
+ */
+export async function duplicateProduct(
+  source: Product,
+  sourceVariants: ProductVariant[],
+  options: DuplicateProductOptions
+): Promise<Product> {
+  const bakerId = await getCurrentBakerId();
+
+  const { data: newProductRow, error: productError } = await supabase
+    .from('products')
+    .insert({
+      baker_id: bakerId,
+      name: options.name,
+      category: source.category,
+      image_url: options.includePhoto ? source.image_url : null,
+    })
+    .select()
+    .single();
+  if (productError) throw productError;
+  const newProduct = newProductRow as Product;
+
+  if (options.includeVariants && sourceVariants.length > 0) {
+    const rows = sourceVariants.map((v, index) => ({
+      product_id: newProduct.id,
+      name: v.name,
+      selling_price: v.selling_price,
+      packaging_cost: v.packaging_cost,
+      is_default: index === 0,
+      display_order: index,
+      recipe_id: options.includeRecipeLinks ? v.recipe_id : null,
+      recipe_portion: options.includeRecipeLinks ? v.recipe_portion : null,
+      margin_percent: options.includeRecipeLinks ? v.margin_percent : null,
+    }));
+    const { error: variantsError } = await supabase.from('product_variants').insert(rows);
+    if (variantsError) throw variantsError;
+  }
+
+  return newProduct;
+}
+
 /** Soft-deletes a variant (is_active = false) — same inline-confirm
  * pattern as products, per docs/UI_UX_1.md section E.5c. */
 export async function deactivateVariant(id: string): Promise<void> {

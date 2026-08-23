@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useState,useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeactivateProduct } from '../../../../src/hooks/useProducts';
+import { usePressScale } from '../../../../src/hooks/usePressScale';
+import { ProductActionSheet } from '../../../../src/components/ProductActionSheet';
+import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -21,7 +25,6 @@ import { useHideNavOnScroll } from '../../../../src/hooks/useHideNavOnScroll';
 import { useThemeColors } from '../../../../src/theme/ThemeContext';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
 import { Screen } from '../../../../src/components/Screen';
-import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
 import { formatCurrency } from '../../../../src/utils/currency';
 import { getCategoryVisual } from '../../../../src/utils/productCategoryIcon';
 import {
@@ -66,6 +69,13 @@ export default function ProductsListScreen() {
       isNavigatingRef.current = false;
     }, 600);
   };
+
+  const [actionSheetProduct, setActionSheetProduct] = useState<ProductWithVariants | null>(null);
+  const [isConfirmingDeactivate, setIsConfirmingDeactivate] = useState(false);
+  const deactivateProduct = useDeactivateProduct();
+  // Step 3 wires the actual checklist sheet — for now, opening it just
+  // stores which product is being duplicated.
+  const [duplicatingProduct, setDuplicatingProduct] = useState<ProductWithVariants | null>(null);
   const onScroll = useHideNavOnScroll();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -350,6 +360,7 @@ export default function ProductsListScreen() {
                 colors={colors}
                 currency={baker?.currency}
                 onPress={() => navigateToProduct(item.id)}
+                onLongPress={() => setActionSheetProduct(item)}
               />
             ) : (
               // 'grid' and 'large' both render ProductCard — same photo
@@ -365,11 +376,41 @@ export default function ProductsListScreen() {
                 currency={baker?.currency}
                 wrapStyle={viewMode === 'large' ? styles.largeCardWrap : styles.gridCardWrap}
                 onPress={() => navigateToProduct(item.id)}
+                onLongPress={() => setActionSheetProduct(item)}
               />
             )
           }
         />
       )}
+
+      <ProductActionSheet
+        visible={!!actionSheetProduct}
+        productName={actionSheetProduct?.name ?? ''}
+        productImageUrl={actionSheetProduct?.image_url}
+        onDismiss={() => setActionSheetProduct(null)}
+        onDuplicate={() => {
+          setDuplicatingProduct(actionSheetProduct);
+          setActionSheetProduct(null);
+        }}
+        onDeactivate={() => {
+          setIsConfirmingDeactivate(true);
+        }}
+      />
+
+      <ConfirmDialog
+        visible={isConfirmingDeactivate}
+        title="Deactivate this product?"
+        message={`"${actionSheetProduct?.name}" will drop off your storefront, but existing order history stays intact. You can't undo this from here.`}
+        confirmLabel="Deactivate"
+        onConfirm={() => {
+          if (actionSheetProduct) {
+            deactivateProduct.mutate(actionSheetProduct.id);
+          }
+          setIsConfirmingDeactivate(false);
+          setActionSheetProduct(null);
+        }}
+        onCancel={() => setIsConfirmingDeactivate(false)}
+      />
 
       <ConfirmDialog
         visible={!!pendingDeleteCategory}
@@ -410,6 +451,7 @@ function ProductCard({
   currency,
   wrapStyle,
   onPress,
+  onLongPress,
 }: {
   product: ProductWithVariants;
   index: number;
@@ -421,19 +463,27 @@ function ProductCard({
    * either way, so the width is the only thing the caller decides. */
   wrapStyle: ViewStyle;
   onPress: () => void;
+  onLongPress: () => void;
 }) {
   const visibleVariants = product.variants.slice(0, MAX_VISIBLE_VARIANT_CHIPS);
   const hiddenCount = product.variants.length - visibleVariants.length;
   // Staggered entrance per motion.ts's motionStagger — capped so a long
   // catalog doesn't make the last cards look sluggishly late.
   const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
+  const press = usePressScale();
 
   return (
     <Animated.View
       entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
       style={wrapStyle}
     >
-      <Pressable style={styles.card} onPress={onPress}>
+      <Pressable
+        onPress={onPress}
+        onLongPress={onLongPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+      >
+      <Animated.View style={[styles.card, press.style]}>
         {product.image_url ? (
           <Image source={{ uri: product.image_url }} style={styles.cardImage} />
         ) : (
@@ -467,6 +517,7 @@ function ProductCard({
             <Text style={styles.cardNoVariants}>Tap to add a price</Text>
           )}
         </View>
+      </Animated.View>
       </Pressable>
     </Animated.View>
   );
@@ -483,6 +534,7 @@ function ProductListCard({
   colors,
   currency,
   onPress,
+  onLongPress,
 }: {
   product: ProductWithVariants;
   index: number;
@@ -490,16 +542,24 @@ function ProductListCard({
   colors: Record<ColorToken, string>;
   currency: string | null | undefined;
   onPress: () => void;
+  onLongPress: () => void;
 }) {
   const visibleVariants = product.variants.slice(0, MAX_VISIBLE_VARIANT_CHIPS + 1);
   const hiddenCount = product.variants.length - visibleVariants.length;
   const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
+  const press = usePressScale();
 
   return (
     <Animated.View
       entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
     >
-      <Pressable style={styles.listCard} onPress={onPress}>
+      <Pressable
+        onPress={onPress}
+        onLongPress={onLongPress}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+      >
+      <Animated.View style={[styles.listCard, press.style]}>
         {product.image_url ? (
           <Image source={{ uri: product.image_url }} style={styles.listCardImage} />
         ) : (
@@ -533,6 +593,7 @@ function ProductListCard({
             <Text style={styles.cardNoVariants}>Tap to add a price</Text>
           )}
         </View>
+      </Animated.View>
       </Pressable>
     </Animated.View>
   );
