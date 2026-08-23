@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Animated, {
@@ -36,7 +36,7 @@ import type { ColorToken } from '../../../../src/theme/colors';
 import type { ProductCategory, ProductWithVariants } from '../../../../src/types/product';
 
 type SortOption = 'name-asc' | 'name-desc' | 'newest';
-type ViewMode = 'grid' | 'list';
+type ViewMode = 'grid' | 'list' | 'large';
 
 const SORT_OPTIONS: { label: string; value: SortOption }[] = [
   { label: 'Name (A–Z)', value: 'name-asc' },
@@ -47,6 +47,7 @@ const SORT_OPTIONS: { label: string; value: SortOption }[] = [
 const DISPLAY_OPTIONS: { label: string; value: ViewMode; icon: keyof typeof Ionicons.glyphMap }[] = [
   { label: 'Grid', value: 'grid', icon: 'grid-outline' },
   { label: 'List', value: 'list', icon: 'list-outline' },
+  { label: 'Large', value: 'large', icon: 'square-outline' },
 ];
 
 export default function ProductsListScreen() {
@@ -327,8 +328,8 @@ export default function ProductsListScreen() {
           columnWrapperStyle={viewMode === 'grid' ? styles.gridRow : undefined}
           contentContainerStyle={styles.listContent}
           renderItem={({ item, index }) =>
-            viewMode === 'grid' ? (
-              <ProductCard
+            viewMode === 'list' ? (
+              <ProductListCard
                 product={item}
                 index={index}
                 styles={styles}
@@ -337,12 +338,18 @@ export default function ProductsListScreen() {
                 onPress={() => router.push(`/more/products/${item.id}`)}
               />
             ) : (
-              <ProductListCard
+              // 'grid' and 'large' both render ProductCard — same photo
+              // + name + variant-chip layout, just at a different width.
+              // Widening the wrapper to 100% (instead of grid's 47%) and
+              // going to 1 column is the entire difference; nothing about
+              // the card itself needs a separate implementation.
+              <ProductCard
                 product={item}
                 index={index}
                 styles={styles}
                 colors={colors}
                 currency={baker?.currency}
+                wrapStyle={viewMode === 'large' ? styles.largeCardWrap : styles.gridCardWrap}
                 onPress={() => router.push(`/more/products/${item.id}`)}
               />
             )
@@ -387,6 +394,7 @@ function ProductCard({
   styles,
   colors,
   currency,
+  wrapStyle,
   onPress,
 }: {
   product: ProductWithVariants;
@@ -394,6 +402,10 @@ function ProductCard({
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
   currency: string | null | undefined;
+  /** styles.gridCardWrap (47% width, 2-up) or styles.largeCardWrap
+   * (100% width, 1-up) — everything else about the card is identical
+   * either way, so the width is the only thing the caller decides. */
+  wrapStyle: ViewStyle;
   onPress: () => void;
 }) {
   const visibleVariants = product.variants.slice(0, MAX_VISIBLE_VARIANT_CHIPS);
@@ -405,7 +417,7 @@ function ProductCard({
   return (
     <Animated.View
       entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
-      style={styles.gridCardWrap}
+      style={wrapStyle}
     >
       <Pressable style={styles.card} onPress={onPress}>
         {product.image_url ? (
@@ -741,6 +753,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     skeletonGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
     gridRow: { gap: spacing.md },
     gridCardWrap: { width: '47%' },
+    largeCardWrap: { width: '100%' },
     card: {
       width: '100%',
       backgroundColor: colors.surface,
