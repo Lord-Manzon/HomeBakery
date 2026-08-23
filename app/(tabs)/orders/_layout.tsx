@@ -6,6 +6,7 @@ export default function OrdersLayout() {
       <Stack.Screen name="index" />
       <Stack.Screen name="new" />
       <Stack.Screen name="[id]/index" />
+      <Stack.Screen name="[id]/edit" />
     </Stack>
   );
 }

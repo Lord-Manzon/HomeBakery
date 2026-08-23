@@ -101,13 +101,15 @@ export default function OrderDetailScreen() {
           {order.customer_name}
         </Text>
         <View style={styles.headerIcons}>
-          <Pressable
-            onPress={() => router.push(`/orders/${id}/edit`)}
-            style={styles.iconButton}
-            accessibilityLabel="Edit order"
-          >
-            <Ionicons name="pencil-outline" size={20} color={colors.textSecondary} />
-          </Pressable>
+          {isOrderActive(order.status) ? (
+            <Pressable
+              onPress={() => router.push(`/orders/${id}/edit`)}
+              style={styles.iconButton}
+              accessibilityLabel="Edit order"
+            >
+              <Ionicons name="pencil-outline" size={20} color={colors.textSecondary} />
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={() => setPendingAction(pendingAction === 'delete' ? null : 'delete')}
             style={styles.iconButton}

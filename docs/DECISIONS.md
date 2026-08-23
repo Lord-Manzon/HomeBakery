@@ -943,3 +943,51 @@ squeezed into this one.
 entries: this screen's own numbers are formatting, not new business
 math — the underlying status/total logic it calls into is already
 covered by `orderLogic.test.ts`).
+
+### 2026-08-22 — Built Edit Order by extracting a shared OrderForm component
+
+**Decision:** Rather than duplicating New Order's ~300-line form into a
+second, separate implementation for editing, extracted
+`src/components/OrderForm.tsx` — customer info, fulfillment toggle,
+date/time pickers, item cart, notes, validation, all of it — as a shared
+component. `orders/new.tsx` and the new `orders/[id]/edit.tsx` are now
+both thin wrappers: each owns only its header, its data source
+(`defaultOrderFormValues()` vs. an existing order hydrated via a new
+`orderToFormValues()` helper), and its mutation (`useCreateOrder` vs.
+`useUpdateOrder(id)`).
+
+**Why extraction over duplication:** this is the same reasoning
+`docs/CODING_STANDARDS.md` already applies to business logic (small,
+named, testable functions over copy-pasted inline logic) — a form this
+size, hand-duplicated, would drift the moment either screen got a fix or
+a new field, since nothing would force the two copies to stay in sync.
+There's no exact precedent for this in the codebase yet (Product editing
+is inline-on-detail, not a second full-screen form), so this is a new
+pattern, not a repeat of an existing one — worth knowing if a similar
+create/edit pair comes up again later (e.g. Recipes).
+
+**New reverse date/time helpers:** `src/utils/dateFormat.ts` gained
+`fromISODateString`/`fromTimeString` — the inverse of the existing
+`toISODateString`/`toTimeString`, needed to turn an existing order's
+stored `"YYYY-MM-DD"`/`"HH:MM:SS"` strings back into `Date` objects the
+native pickers can display.
+
+**Cart item hydration uses each item's frozen `unit_price`**, not the
+variant's current price, as the form's *display-only* reference while
+editing — the actual save still re-fetches each variant's current price
+regardless (existing, already-documented behavior in
+`src/services/orders.ts`), so if a price drifted since the order was
+placed, saving any edit — even an unrelated field — picks up the new
+price. Not new behavior, just now also reachable from the edit path.
+
+**Two guards added during review, not silently skipped:** Order Detail's
+Edit pencil now only renders while `isOrderActive(order.status)` — editing
+a Completed order (already reconciled) or a Cancelled one doesn't fit the
+workflow. `orders/[id]/edit.tsx` also re-checks this itself and redirects
+back with a message if reached anyway (a stale link, browser back, etc.)
+— defense in depth, the same reasoning `cancelOrder`'s service-layer
+`canCancelOrder` check already applies rather than trusting the UI alone
+to have gated it.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest`
+— 4 suites, 50 tests, all passing.

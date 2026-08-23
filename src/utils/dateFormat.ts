@@ -80,3 +80,26 @@ export function toTimeString(date: Date): string {
   const m = String(date.getMinutes()).padStart(2, '0');
   return `${h}:${m}:00`;
 }
+
+/**
+ * Inverse of toISODateString -- parses "YYYY-MM-DD" into a local Date
+ * (midnight local time), for pre-filling the native date picker when
+ * editing an existing order. Manual parsing for the same timezone-safety
+ * reason as formatOrderDate above.
+ */
+export function fromISODateString(dateStr: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/**
+ * Inverse of toTimeString -- parses "HH:MM:SS" into a Date (using today's
+ * date; only the time-of-day is meaningful) for pre-filling the native
+ * time picker.
+ */
+export function fromTimeString(timeStr: string): Date {
+  const [h, m] = timeStr.split(':').map(Number);
+  const date = new Date();
+  date.setHours(h, m, 0, 0);
+  return date;
+}
