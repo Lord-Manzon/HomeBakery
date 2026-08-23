@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from '../theme/ThemeContext';
 import { radii, spacing, typography } from '../theme';
 import type { ColorToken } from '../theme/colors';
@@ -8,6 +9,7 @@ import { ErrorBanner } from './ErrorBanner';
 import { FormField } from './FormField';
 import { PrimaryButton } from './PrimaryButton';
 import type { Ingredient } from '../types/ingredient';
+import { getCategoryIcon } from '../utils/ingredientCategoryIcon';
 import {
   recipeIngredientFormSchema,
   type RecipeIngredientFormInput,
@@ -16,6 +18,15 @@ import {
 type RecipeIngredientSheetProps = {
   visible: boolean;
   onDismiss: () => void;
+  /**
+   * Ingredients pickable for a NEW line. The caller (Recipe detail
+   * screen) is expected to have already filtered out any ingredient
+   * already used on this recipe — a duplicate ingredient line on the
+   * same recipe isn't a real use case, it just fragments one
+   * ingredient's quantity across two confusing rows. To change a
+   * quantity on an ingredient already in the recipe, tap that row to
+   * edit it instead of adding it again.
+   */
   ingredients: Ingredient[];
   initialValue?: { ingredient_id: string; quantity: number; unit: string } | null;
   onSubmit: (input: RecipeIngredientFormInput) => void;
@@ -111,19 +122,30 @@ export function RecipeIngredientSheet({
               ScrollView of the same orientation is a hard RN error, not
               just a warning. */}
           <View style={styles.pickerList}>
-            {filteredIngredients.length === 0 ? (
-              <Text style={styles.pickerEmpty}>No ingredients match.</Text>
+            {ingredients.length === 0 ? (
+              <Text style={styles.pickerEmpty}>
+                All your ingredients are already in this recipe. Add a new ingredient from the
+                Ingredients tab first, or tap an existing row to change its quantity.
+              </Text>
+            ) : filteredIngredients.length === 0 ? (
+              <Text style={styles.pickerEmpty}>No ingredients match "{search}".</Text>
             ) : (
-              filteredIngredients.map((item) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => handleSelectIngredient(item)}
-                  style={[styles.pickerRow, selectedId === item.id && styles.pickerRowSelected]}
-                >
-                  <Text style={styles.pickerRowText}>{item.name}</Text>
-                  <Text style={styles.pickerRowUnit}>{item.unit}</Text>
-                </Pressable>
-              ))
+              filteredIngredients.map((item) => {
+                const icon = getCategoryIcon(item.category);
+                return (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => handleSelectIngredient(item)}
+                    style={[styles.pickerRow, selectedId === item.id && styles.pickerRowSelected]}
+                  >
+                    <View style={styles.pickerIconTile}>
+                      <Ionicons name={icon} size={14} color={colors.textSecondary} />
+                    </View>
+                    <Text style={styles.pickerRowText}>{item.name}</Text>
+                    <Text style={styles.pickerRowUnit}>{item.unit}</Text>
+                  </Pressable>
+                );
+              })
             )}
           </View>
         </View>
@@ -158,14 +180,22 @@ function makeStyles(colors: Record<ColorToken, string>) {
     pickerList: { marginTop: spacing.xs },
     pickerRow: {
       flexDirection: 'row',
-      justifyContent: 'space-between',
       alignItems: 'center',
+      gap: spacing.sm,
       paddingVertical: spacing.sm + 2,
       paddingHorizontal: spacing.md,
       borderRadius: radii.md,
     },
     pickerRowSelected: { backgroundColor: colors.surfaceMuted },
-    pickerRowText: { ...typography.body, color: colors.textPrimary },
+    pickerIconTile: {
+      width: 26,
+      height: 26,
+      borderRadius: radii.sm,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    pickerRowText: { ...typography.body, color: colors.textPrimary, flex: 1 },
     pickerRowUnit: { ...typography.bodySm, color: colors.textSecondary },
     pickerEmpty: { ...typography.bodySm, color: colors.textSecondary, padding: spacing.md },
     pickerError: { ...typography.bodySm, color: colors.danger, marginTop: -spacing.sm, marginBottom: spacing.sm },

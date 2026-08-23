@@ -99,12 +99,6 @@ export default function RecipesListScreen() {
           renderItem={({ item }) => <RecipeCard recipe={item} styles={styles} colors={colors} />}
         />
       )}
-
-      {!isEmptyCatalog ? (
-        <Pressable onPress={() => router.push('/more/recipes/new')} style={styles.fab}>
-          <Ionicons name="add" size={28} color={colors.textInverse} />
-        </Pressable>
-      ) : null}
     </Screen>
   );
 }
@@ -191,17 +185,5 @@ function makeStyles(colors: Record<ColorToken, string>) {
     emptyTitle: { ...typography.titleLg, color: colors.textPrimary },
     emptyBody: { ...typography.bodySm, color: colors.textSecondary, textAlign: 'center', maxWidth: 280 },
     clearSearch: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
-    fab: {
-      position: 'absolute',
-      right: spacing.xl,
-      bottom: spacing.xl,
-      width: 56,
-      height: 56,
-      borderRadius: radii.full,
-      backgroundColor: colors.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      elevation: 3,
-    },
   });
 }

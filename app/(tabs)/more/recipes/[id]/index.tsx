@@ -19,6 +19,7 @@ import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
 import { RecipeIngredientSheet } from '../../../../../src/components/RecipeIngredientSheet';
 import { Screen } from '../../../../../src/components/Screen';
 import { formatCurrency } from '../../../../../src/utils/currency';
+import { getCategoryIcon } from '../../../../../src/utils/ingredientCategoryIcon';
 import { recipeFormSchema } from '../../../../../src/utils/validation/recipeSchemas';
 import { spacing, radii, typography } from '../../../../../src/theme';
 import type { ColorToken } from '../../../../../src/theme/colors';
@@ -60,6 +61,14 @@ export default function RecipeDetailScreen() {
   const [ingredientSheet, setIngredientSheet] = useState<
     { mode: 'add' } | { mode: 'edit'; ingredient: RecipeIngredientWithDetails } | null
   >(null);
+  // Hold-to-select removal, same idea as New Product's long-press-to-wiggle
+  // category chips (docs/DECISIONS.md, 2026-08-18) but for multiple rows at
+  // once: long-press an ingredient row to enter selection mode (protects
+  // against an accidental single mis-tap opening the wrong thing), then tap
+  // more rows to build up a batch, then remove them together.
+  const [selectedIngredientIds, setSelectedIngredientIds] = useState<Set<string>>(new Set());
+  const [isRemoveConfirming, setIsRemoveConfirming] = useState(false);
+  const isSelectingIngredients = selectedIngredientIds.size > 0;
 
   if (isError) {
     return (
@@ -83,6 +92,11 @@ export default function RecipeDetailScreen() {
   const resolvedMargin = recipe.margin_percent ?? baker?.default_margin_percent ?? null;
   const suggestedPricePerUnit =
     resolvedMargin != null ? calculateSuggestedPrice(costPerUnit, resolvedMargin) : null;
+  // Ingredients already on this recipe are excluded from the "add" picker
+  // so a baker can't accidentally create two lines for the same
+  // ingredient — see docs/DECISIONS.md.
+  const usedIngredientIds = new Set(recipe.ingredients.map((ri) => ri.ingredient_id));
+  const pickableIngredients = (ingredients ?? []).filter((i) => !usedIngredientIds.has(i.id));
 
   const startEditingName = () => {
     setNameDraft(recipe.name);
@@ -170,6 +184,34 @@ export default function RecipeDetailScreen() {
       },
       { onError: () => setYieldError("Couldn't save. Try again.") }
     );
+  };
+
+  const toggleIngredientSelection = (id: string) => {
+    setSelectedIngredientIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const clearIngredientSelection = () => {
+    setSelectedIngredientIds(new Set());
+    setIsRemoveConfirming(false);
+  };
+
+  const handleIngredientRowPress = (ri: RecipeIngredientWithDetails) => {
+    if (isSelectingIngredients) {
+      toggleIngredientSelection(ri.id);
+    } else {
+      setIngredientSheet({ mode: 'edit', ingredient: ri });
+    }
+  };
+
+  const confirmRemoveSelectedIngredients = async () => {
+    const ids = Array.from(selectedIngredientIds);
+    await Promise.all(ids.map((removeId) => removeIngredient.mutateAsync(removeId)));
+    clearIngredientSelection();
   };
 
   return (
@@ -318,30 +360,84 @@ export default function RecipeDetailScreen() {
         </Pressable>
 
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeader}>Ingredients</Text>
-          <Pressable onPress={() => setIngredientSheet({ mode: 'add' })} style={styles.addLink}>
-            <Ionicons name="add" size={16} color={colors.primary} />
-            <Text style={styles.addLinkText}>Add</Text>
-          </Pressable>
+          {isSelectingIngredients ? (
+            <>
+              <Pressable onPress={clearIngredientSelection} style={styles.addLink}>
+                <Text style={styles.addLinkText}>Cancel</Text>
+              </Pressable>
+              <Text style={styles.sectionHeader}>{selectedIngredientIds.size} selected</Text>
+              <Pressable
+                onPress={() => setIsRemoveConfirming(true)}
+                style={styles.iconButton}
+                accessibilityLabel="Remove selected ingredients"
+              >
+                <Ionicons name="trash-outline" size={18} color={colors.danger} />
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Text style={styles.sectionHeader}>Ingredients</Text>
+              <Pressable onPress={() => setIngredientSheet({ mode: 'add' })} style={styles.addLink}>
+                <Ionicons name="add" size={16} color={colors.primary} />
+                <Text style={styles.addLinkText}>Add</Text>
+              </Pressable>
+            </>
+          )}
         </View>
+
+        {isRemoveConfirming ? (
+          <View style={styles.inlineConfirmRow}>
+            <Text style={styles.inlineConfirmText}>
+              Remove {selectedIngredientIds.size} ingredient
+              {selectedIngredientIds.size === 1 ? '' : 's'} from this recipe?
+            </Text>
+            <View style={styles.inlineConfirmActions}>
+              <Pressable onPress={() => setIsRemoveConfirming(false)} style={styles.inlineConfirmCancel}>
+                <Text style={styles.inlineConfirmCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={confirmRemoveSelectedIngredients}
+                style={styles.inlineConfirmDelete}
+                disabled={removeIngredient.isPending}
+              >
+                <Text style={styles.inlineConfirmDeleteText}>
+                  {removeIngredient.isPending ? 'Removing…' : 'Confirm remove'}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
 
         {recipe.ingredients.length === 0 ? (
           <Text style={styles.emptyIngredients}>
             Add ingredients to see your cost per {recipe.yield_unit}.
           </Text>
         ) : (
-          recipe.ingredients.map((ri) => (
-            <Pressable
-              key={ri.id}
-              style={styles.ingredientRow}
-              onPress={() => setIngredientSheet({ mode: 'edit', ingredient: ri })}
-            >
-              <Text style={styles.ingredientName}>{ri.ingredient.name}</Text>
-              <Text style={styles.ingredientQty}>
-                {ri.quantity} {ri.unit}
-              </Text>
-            </Pressable>
-          ))
+          recipe.ingredients.map((ri) => {
+            const isSelected = selectedIngredientIds.has(ri.id);
+            return (
+              <Pressable
+                key={ri.id}
+                style={[styles.ingredientRow, isSelected && styles.ingredientRowSelected]}
+                onPress={() => handleIngredientRowPress(ri)}
+                onLongPress={() => toggleIngredientSelection(ri.id)}
+              >
+                <View style={styles.ingredientRowLeft}>
+                  <View style={styles.ingredientIconTile}>
+                    <Ionicons
+                      name={isSelected ? 'checkmark-circle' : getCategoryIcon(ri.ingredient.category)}
+                      size={16}
+                      color={isSelected ? colors.primary : colors.textSecondary}
+                    />
+                  </View>
+                  <Text style={styles.ingredientName}>{ri.ingredient.name}</Text>
+                </View>
+                <Text style={styles.ingredientQty}>
+                  {ri.quantity} {ri.unit}
+                </Text>
+              </Pressable>
+            );
+          })
         )}
 
         <View style={styles.sectionHeaderRow}>
@@ -404,7 +500,7 @@ export default function RecipeDetailScreen() {
       <RecipeIngredientSheet
         visible={!!ingredientSheet}
         onDismiss={() => setIngredientSheet(null)}
-        ingredients={ingredients ?? []}
+        ingredients={pickableIngredients}
         initialValue={
           ingredientSheet?.mode === 'edit'
             ? {
@@ -538,6 +634,19 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.sm + 2,
       paddingHorizontal: spacing.md,
       marginBottom: spacing.xs,
+    },
+    ingredientRowSelected: {
+      backgroundColor: colors.surfaceMuted,
+      borderColor: colors.primary,
+    },
+    ingredientRowLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
+    ingredientIconTile: {
+      width: 28,
+      height: 28,
+      borderRadius: radii.sm,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     ingredientName: { ...typography.body, color: colors.textPrimary },
     ingredientQty: { ...typography.bodySm, color: colors.textSecondary },

@@ -35,7 +35,7 @@ export async function getRecipes(): Promise<Recipe[]> {
 export async function getRecipeWithIngredients(id: string): Promise<RecipeWithIngredients> {
   const { data, error } = await supabase
     .from('recipes')
-    .select('*, recipe_ingredients(*, ingredient:ingredients(id, name, unit, cost_per_unit))')
+    .select('*, recipe_ingredients(*, ingredient:ingredients(id, name, unit, cost_per_unit, category))')
     .eq('id', id)
     .single();
   if (error) throw error;

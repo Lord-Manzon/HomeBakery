@@ -26,7 +26,7 @@ export type RecipeIngredient = {
  * the shape costing.ts needs to compute a batch cost without a second
  * round trip per ingredient. */
 export type RecipeIngredientWithDetails = RecipeIngredient & {
-  ingredient: Pick<Ingredient, 'id' | 'name' | 'unit' | 'cost_per_unit'>;
+  ingredient: Pick<Ingredient, 'id' | 'name' | 'unit' | 'cost_per_unit' | 'category'>;
 };
 
 export type RecipeWithIngredients = Recipe & {
