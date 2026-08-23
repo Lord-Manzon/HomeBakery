@@ -21,6 +21,7 @@ import { FormField } from '../../../../../src/components/FormField';
 import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
 import { Screen } from '../../../../../src/components/Screen';
 import { formatCurrency } from '../../../../../src/utils/currency';
+import { getRecipeVisual } from '../../../../../src/utils/recipeVisual';
 import { spacing, radii, typography } from '../../../../../src/theme';
 import type { ColorToken } from '../../../../../src/theme/colors';
 import type { Recipe } from '../../../../../src/types/recipe';
@@ -100,8 +101,9 @@ export default function RecipeAndCostingScreen() {
 
   const parsedPortion = portionDraft ? Number(portionDraft) : null;
   const parsedMargin = marginDraft ? Number(marginDraft) : null;
+  const linkedRecipeVisual = linkedRecipe ? getRecipeVisual(linkedRecipe.name) : null;
 
-  // Compares live drafts against the last-saved values (the same values
+  // Compares live drafts against the last-saved values (the same valuescc
   // the useEffect above seeds the drafts with) to detect unsaved edits.
   const isDirty =
     portionDraft !== (variant.recipe_portion != null ? String(variant.recipe_portion) : '') ||
@@ -254,8 +256,19 @@ export default function RecipeAndCostingScreen() {
               style={styles.recipeLinkRow}
               onPress={() => router.push(`/more/recipes/${variant.recipe_id}`)}
             >
-              <View style={styles.recipeLinkIconTile}>
-                <Ionicons name="restaurant-outline" size={18} color={colors.primary} />
+              <View
+                style={[
+                  styles.recipeLinkIconTile,
+                  linkedRecipeVisual ? { backgroundColor: `${linkedRecipeVisual.color}1F` } : null,
+                ]}
+              >
+                {linkedRecipeVisual ? (
+                  <Text style={[styles.recipeLinkIconTileText, { color: linkedRecipeVisual.color }]}>
+                    {linkedRecipeVisual.initials}
+                  </Text>
+                ) : (
+                  <Ionicons name="restaurant-outline" size={18} color={colors.textSecondary} />
+                )}
               </View>
               <View style={styles.recipeLinkBody}>
                 <Text style={styles.recipeLinkName}>{linkedRecipe?.name ?? 'Loading…'}</Text>
@@ -512,22 +525,44 @@ function RecipePickerSheet({
         // an RN error, not just a warning. A baker's recipe count is
         // small enough that this doesn't need its own virtualization.
         <View>
-          {recipes.map((item) => (
-            <Pressable
-              key={item.id}
-              onPress={() => onSelect(item)}
-              style={{
-                paddingVertical: spacing.sm + 2,
-                paddingHorizontal: spacing.sm,
-                borderRadius: radii.md,
-              }}
-            >
-              <Text style={{ ...typography.body, color: colors.textPrimary }}>{item.name}</Text>
-              <Text style={{ ...typography.caption, color: colors.textSecondary }}>
-                Yields {item.yield_quantity} {item.yield_unit}
-              </Text>
-            </Pressable>
-          ))}
+          {recipes.map((item) => {
+            const visual = getRecipeVisual(item.name);
+            return (
+              <Pressable
+                key={item.id}
+                onPress={() => onSelect(item)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: spacing.sm,
+                  paddingVertical: spacing.sm + 2,
+                  paddingHorizontal: spacing.sm,
+                  borderRadius: radii.md,
+                }}
+              >
+                <View
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: radii.sm,
+                    backgroundColor: `${visual.color}1F`,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  <Text style={{ ...typography.caption, fontWeight: '700', color: visual.color }}>
+                    {visual.initials}
+                  </Text>
+                </View>
+                <View>
+                  <Text style={{ ...typography.body, color: colors.textPrimary }}>{item.name}</Text>
+                  <Text style={{ ...typography.caption, color: colors.textSecondary }}>
+                    Yields {item.yield_quantity} {item.yield_unit}
+                  </Text>
+                </View>
+              </Pressable>
+            );
+          })}
         </View>
       )}
     </BottomSheet>
@@ -581,6 +616,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.xs,
     },
     recipeLinkIconTile: { width: 36, height: 36, borderRadius: radii.sm, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
+    recipeLinkIconTileText: { ...typography.bodySm, fontWeight: '700' },
     recipeLinkBody: { flex: 1 },
     recipeLinkName: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
     recipeLinkMeta: { ...typography.bodySm, color: colors.textSecondary },

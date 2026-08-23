@@ -2,12 +2,23 @@ import { useMemo, useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useRecipes } from '../../../../src/hooks/useRecipes';
+import { useNavigateOnce } from '../../../../src/hooks/useNavigateOnce';
+import { usePressScale } from '../../../../src/hooks/usePressScale';
 import { useThemeColors } from '../../../../src/theme/ThemeContext';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../../src/components/PrimaryButton';
 import { Screen } from '../../../../src/components/Screen';
-import { spacing, radii, typography } from '../../../../src/theme';
+import { getRecipeVisual } from '../../../../src/utils/recipeVisual';
+import {
+  spacing,
+  radii,
+  typography,
+  motionDuration,
+  motionEasing,
+  motionStagger,
+} from '../../../../src/theme';
 import type { ColorToken } from '../../../../src/theme/colors';
 import type { Recipe } from '../../../../src/types/recipe';
 
@@ -40,26 +51,42 @@ export default function RecipesListScreen() {
   return (
     <Screen style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.title}>Recipes</Text>
-        <Pressable
-          onPress={() => setIsSearchOpen((v) => !v)}
-          style={styles.iconButton}
-          accessibilityLabel="Search recipes"
-        >
-          <Ionicons name="search" size={20} color={colors.textPrimary} />
-        </Pressable>
+        {isSearchOpen ? (
+          <>
+            <Pressable
+              onPress={() => {
+                setIsSearchOpen(false);
+                setSearch('');
+              }}
+              style={styles.iconButton}
+              accessibilityLabel="Close search"
+            >
+              <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+            </Pressable>
+            <TextInput
+              style={styles.searchInputInline}
+              placeholder="Search recipes"
+              placeholderTextColor={colors.textSecondary}
+              value={search}
+              onChangeText={setSearch}
+              autoFocus
+            />
+          </>
+        ) : (
+          <>
+            <Text style={styles.title}>Recipes</Text>
+            <Pressable
+              onPress={() => setIsSearchOpen(true)}
+              style={styles.iconButton}
+              accessibilityLabel="Search recipes"
+            >
+              <Ionicons name="search" size={20} color={colors.textPrimary} />
+            </Pressable>
+          </>
+        )}
       </View>
 
-      {isSearchOpen ? (
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search recipes"
-          placeholderTextColor={colors.textSecondary}
-          value={search}
-          onChangeText={setSearch}
-          autoFocus
-        />
-      ) : !isEmptyCatalog ? (
+      {!isSearchOpen && !isEmptyCatalog ? (
         <Text style={styles.helperLine}>Tap a recipe to see its ingredients and cost.</Text>
       ) : null}
 
@@ -96,7 +123,9 @@ export default function RecipesListScreen() {
           data={filtered}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
-          renderItem={({ item }) => <RecipeCard recipe={item} styles={styles} colors={colors} />}
+          renderItem={({ item, index }) => (
+            <RecipeCard recipe={item} index={index} styles={styles} colors={colors} />
+          )}
         />
       )}
     </Screen>
@@ -105,27 +134,46 @@ export default function RecipesListScreen() {
 
 function RecipeCard({
   recipe,
+  index,
   styles,
   colors,
 }: {
   recipe: Recipe;
+  index: number;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
 }) {
-  const router = useRouter();
+  const navigateOnce = useNavigateOnce();
+  const press = usePressScale();
+  const visual = getRecipeVisual(recipe.name);
+  // Staggered entrance per motion.ts's motionStagger — capped so a long
+  // list doesn't make the last rows look sluggishly late (same pattern
+  // as the Ingredients list).
+  const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
+
   return (
-    <Pressable style={styles.card} onPress={() => router.push(`/more/recipes/${recipe.id}`)}>
-      <View style={styles.cardIconTile}>
-        <Ionicons name="restaurant-outline" size={18} color={colors.primary} />
-      </View>
-      <View style={styles.cardBody}>
-        <Text style={styles.cardName}>{recipe.name}</Text>
-        <Text style={styles.cardMeta}>
-          Yields {recipe.yield_quantity} {recipe.yield_unit}
-        </Text>
-      </View>
-      <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
-    </Pressable>
+    <Animated.View
+      entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
+    >
+      <Pressable
+        onPress={() => navigateOnce(`/more/recipes/${recipe.id}`)}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+      >
+        <Animated.View style={[styles.card, press.style]}>
+          <View style={[styles.cardIconTile, { backgroundColor: `${visual.color}1F` }]}>
+            <Text style={[styles.cardIconTileText, { color: visual.color }]}>{visual.initials}</Text>
+          </View>
+          <View style={styles.cardBody}>
+            <Text style={styles.cardName}>{recipe.name}</Text>
+            <Text style={styles.cardMeta}>
+              Yields {recipe.yield_quantity} {recipe.yield_unit}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+        </Animated.View>
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -147,15 +195,11 @@ function makeStyles(colors: Record<ColorToken, string>) {
       justifyContent: 'center',
     },
     helperLine: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
-    searchInput: {
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.md,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm + 2,
+    searchInputInline: {
+      flex: 1,
+      fontSize: typography.body.fontSize,
       color: colors.textPrimary,
-      backgroundColor: colors.surface,
-      marginBottom: spacing.lg,
+      paddingHorizontal: spacing.sm,
     },
     list: { paddingBottom: spacing.xxxl },
     card: {
@@ -174,10 +218,10 @@ function makeStyles(colors: Record<ColorToken, string>) {
       width: 36,
       height: 36,
       borderRadius: radii.sm,
-      backgroundColor: colors.surfaceMuted,
       alignItems: 'center',
       justifyContent: 'center',
     },
+    cardIconTileText: { ...typography.bodySm, fontWeight: '700' },
     cardBody: { flex: 1 },
     cardName: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
     cardMeta: { ...typography.bodySm, color: colors.textSecondary, marginTop: spacing.xxs },

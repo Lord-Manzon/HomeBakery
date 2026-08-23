@@ -13,6 +13,7 @@ import {
 } from '../../../../../src/hooks/useRecipes';
 import { useIngredients } from '../../../../../src/hooks/useIngredients';
 import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
+import { useNavigateOnce } from '../../../../../src/hooks/useNavigateOnce';
 import { useThemeColors } from '../../../../../src/theme/ThemeContext';
 import { calculateRecipeBatchCost, calculateSuggestedPrice } from '../../../../../src/services/costing';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
@@ -28,6 +29,7 @@ import type { RecipeIngredientWithDetails } from '../../../../../src/types/recip
 export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const navigateOnce = useNavigateOnce();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -57,6 +59,7 @@ export default function RecipeDetailScreen() {
   // focus in that window fixes it.
   const yieldBlurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isCostExpanded, setIsCostExpanded] = useState(false);
+  const [isUsageExpanded, setIsUsageExpanded] = useState(false);
   const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
   const [ingredientSheet, setIngredientSheet] = useState<
     { mode: 'add' } | { mode: 'edit'; ingredient: RecipeIngredientWithDetails } | null
@@ -479,19 +482,35 @@ export default function RecipeDetailScreen() {
 
         {usage && usage.length > 0 ? (
           <>
-            <Text style={styles.sectionHeader}>Used in</Text>
-            {usage.map((u) => (
-              <Pressable
-                key={u.variant_id}
-                style={styles.usageRow}
-                onPress={() => router.push(`/more/products/${u.product_id}`)}
-              >
-                <Text style={styles.usageText}>
-                  {u.product_name} — {u.variant_name}
-                </Text>
-                <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
-              </Pressable>
-            ))}
+            <Pressable
+              style={styles.sectionHeaderRow}
+              onPress={() => setIsUsageExpanded((v) => !v)}
+              accessibilityLabel="Toggle used-in list"
+            >
+              <Text style={styles.sectionHeader}>
+                Used in {usage.length} product{usage.length === 1 ? '' : 's'}
+              </Text>
+              <Ionicons
+                name={isUsageExpanded ? 'chevron-up' : 'chevron-down'}
+                size={18}
+                color={colors.textSecondary}
+              />
+            </Pressable>
+
+            {isUsageExpanded
+              ? usage.map((u) => (
+                  <Pressable
+                    key={u.variant_id}
+                    style={styles.usageRow}
+                    onPress={() => navigateOnce(`/more/products/${u.product_id}`)}
+                  >
+                    <Text style={styles.usageText}>
+                      {u.product_name} — {u.variant_name}
+                    </Text>
+                    <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+                  </Pressable>
+                ))
+              : null}
           </>
         ) : null}
 
