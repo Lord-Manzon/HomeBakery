@@ -253,6 +253,7 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
   function handleMoreMenuPress(item: MoreMenuItem) {
     setIsMoreMenuOpen(false);
     if (!item.pathname) return; // no built destination yet — same no-op as Quick Add
+    if (pathname.startsWith(item.pathname)) return; // already here — this was the real duplicate bug, not tap speed
     navigateOnce(() => router.push(item.pathname as never));
   }
 
@@ -368,7 +369,7 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
                   >
                     <Ionicons
                       name={meta.icon}
-                      size={22}
+                      size={20}
                       color={isFocused ? colors.primary : colors.textSecondary}
                     />
                     <Text
@@ -406,7 +407,7 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
           >
             <Ionicons
               name={fabConfig.mode === 'menu' && isCardOpen ? 'close' : 'add'}
-              size={28}
+              size={26}
               color={colors.textInverse}
             />
           </Pressable>
@@ -467,7 +468,7 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsMoreMenuOpen(false)} accessibilityLabel="Close more menu" />
           <View
-            style={[styles.moreMenuPositioner, { bottom: cardBottomOffset + spacing.sm }]}
+            style={[styles.moreMenuPositioner, { bottom: cardBottomOffset }]}
             pointerEvents="box-none"
           >
             <Animated.View style={[styles.moreMenuCard, moreMenuAnimatedStyle]}>
@@ -493,6 +494,7 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
               <Pressable
                 onPress={() => {
                   setIsMoreMenuOpen(false);
+                  if (pathname === '/more') return; // already here
                   navigateOnce(() => router.push('/more' as never));
                 }}
                 style={({ pressed }) => [styles.cardRow, pressed && styles.cardRowPressed]}
@@ -525,21 +527,21 @@ function makeStyles(colors: Record<ColorToken, string>) {
       gap: spacing.sm,
     },
     pill: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  backgroundColor: colors.surface,
-  borderWidth: 1,
-  borderColor: colors.border,
-  borderRadius: radii.full,
-  height: 60,
-  position: 'relative',
-  overflow: 'hidden',
-  elevation: 4,
-  shadowColor: '#000',
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.12,
-  shadowRadius: 8,
-},
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.full,
+      height: 60,
+      position: 'relative',
+      overflow: 'hidden',
+      elevation: 4,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.12,
+      shadowRadius: 8,
+    },
     tabsRow: {
       flexDirection: 'row',
       paddingHorizontal: spacing.sm,
@@ -549,20 +551,27 @@ function makeStyles(colors: Record<ColorToken, string>) {
       justifyContent: 'center',
       gap: 4,
       paddingVertical: spacing.xs,
-      paddingHorizontal: spacing.sm + 4,
-      minWidth: 52,
-      minHeight: 52,
+      paddingHorizontal: spacing.sm + 2,
+      minWidth: 46,
+      minHeight: 46,
     },
     // Highlight pill behind the active tab — Netflix and Google Photos
-    // both do this (rounded neutral fill behind icon+label, not just a
-    // color change) and it reads as a clearer "you are here" than color
-    // alone. Uses the theme's neutral surfaceMuted rather than a
-    // translucent tint of primary, since primary is user-customizable
-    // per Appearance settings and computing a safe translucent version
-    // of an arbitrary chosen color isn't something the current color
-    // tokens support — surfaceMuted stays correct across any theme.
+    // both do this (rounded fill behind icon+label, not just a color
+    // change) and it reads as a clearer "you are here" than color alone.
+    //
+    // Originally used colors.surfaceMuted, on the theory that a
+    // translucent tint of the user-customizable primary wasn't safely
+    // computable from a plain hex token. Wrong in practice: confirmed
+    // against the actual dark palette (src/theme/palettes.ts) that
+    // surface (#26211D) and surfaceMuted (#2F2925) are close enough in
+    // darkness to be visually indistinguishable — the highlight was
+    // rendering, just invisibly. A hex alpha suffix on primary (e.g.
+    // '#C9683F22') is valid in RN styles and works for ANY chosen accent
+    // color without needing a dedicated token, and guarantees contrast
+    // since it's a tint of the accent itself rather than two similarly
+    // dark neutrals.
     tabButtonActive: {
-      backgroundColor: colors.surfaceMuted,
+      backgroundColor: `${colors.primary}22`, // ~13% opacity
       borderRadius: radii.full,
     },
     tabLabel: {
@@ -608,8 +617,8 @@ function makeStyles(colors: Record<ColorToken, string>) {
       flex: 1,
     },
     fab: {
-      width: 64,
-      height: 60,
+      width: 56,
+      height: 56,
       borderRadius: radii.full,
       backgroundColor: colors.primary,
       alignItems: 'center',
