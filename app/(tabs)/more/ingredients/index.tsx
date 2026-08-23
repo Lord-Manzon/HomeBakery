@@ -96,27 +96,6 @@ export default function IngredientsListScreen() {
     );
   };
 
-  if (isLoading) {
-    return (
-      <Screen style={styles.container}>
-        <Text style={styles.title}>Ingredients</Text>
-        {[1, 2, 3, 4].map((n) => (
-          <View key={n} style={styles.skeletonCard} />
-        ))}
-      </Screen>
-    );
-  }
-
-  if (isError) {
-    return (
-      <Screen style={styles.container}>
-        <Text style={styles.title}>Ingredients</Text>
-        <ErrorBanner message="Couldn't load your ingredients." />
-        <PrimaryButton title="Try again" onPress={() => refetch()} />
-      </Screen>
-    );
-  }
-
   const isEmpty = !ingredients || ingredients.length === 0;
 
   return (
@@ -137,7 +116,18 @@ export default function IngredientsListScreen() {
         </Pressable>
       </View>
 
-      {isEmpty ? (
+      {isLoading ? (
+        <>
+          {[1, 2, 3, 4].map((n) => (
+            <View key={n} style={styles.skeletonCard} />
+          ))}
+        </>
+      ) : isError ? (
+        <>
+          <ErrorBanner message="Couldn't load your ingredients." />
+          <PrimaryButton title="Try again" onPress={() => refetch()} />
+        </>
+      ) : isEmpty ? (
         <Animated.View
           entering={FadeIn.duration(motionDuration.medium).easing(motionEasing.decelerate)}
           style={styles.emptyContainer}
