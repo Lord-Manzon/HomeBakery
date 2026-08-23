@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState,useRef } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -52,6 +52,20 @@ const DISPLAY_OPTIONS: { label: string; value: ViewMode; icon: keyof typeof Ioni
 
 export default function ProductsListScreen() {
   const router = useRouter();
+  // Same fix as ingredients/index.tsx's navigateToIngredient — guards
+  // against a double-tap (or a slow re-render registering the same tap
+  // twice) pushing two copies of the same detail screen onto the stack.
+  // Shared across all cards in the list, not per-card, so rapidly
+  // tapping two DIFFERENT products back-to-back is also debounced.
+  const isNavigatingRef = useRef(false);
+  const navigateToProduct = (productId: string) => {
+    if (isNavigatingRef.current) return;
+    isNavigatingRef.current = true;
+    router.push(`/more/products/${productId}`);
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 600);
+  };
   const onScroll = useHideNavOnScroll();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -335,7 +349,7 @@ export default function ProductsListScreen() {
                 styles={styles}
                 colors={colors}
                 currency={baker?.currency}
-                onPress={() => router.push(`/more/products/${item.id}`)}
+                onPress={() => navigateToProduct(item.id)}
               />
             ) : (
               // 'grid' and 'large' both render ProductCard — same photo
@@ -350,7 +364,7 @@ export default function ProductsListScreen() {
                 colors={colors}
                 currency={baker?.currency}
                 wrapStyle={viewMode === 'large' ? styles.largeCardWrap : styles.gridCardWrap}
-                onPress={() => router.push(`/more/products/${item.id}`)}
+                onPress={() => navigateToProduct(item.id)}
               />
             )
           }
