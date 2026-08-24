@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useDeactivateProduct } from '../../../../src/hooks/useProducts';
+import { useDeactivateProduct, useDuplicateProduct } from '../../../../src/hooks/useProducts';
 import { usePressScale } from '../../../../src/hooks/usePressScale';
 import { ProductActionSheet } from '../../../../src/components/ProductActionSheet';
+import { DuplicateProductSheet } from '../../../../src/components/DuplicateProductSheet';
 import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -73,9 +74,8 @@ export default function ProductsListScreen() {
   const [actionSheetProduct, setActionSheetProduct] = useState<ProductWithVariants | null>(null);
   const [isConfirmingDeactivate, setIsConfirmingDeactivate] = useState(false);
   const deactivateProduct = useDeactivateProduct();
-  // Step 3 wires the actual checklist sheet — for now, opening it just
-  // stores which product is being duplicated.
   const [duplicatingProduct, setDuplicatingProduct] = useState<ProductWithVariants | null>(null);
+  const duplicateProduct = useDuplicateProduct();
   const onScroll = useHideNavOnScroll();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -394,6 +394,26 @@ export default function ProductsListScreen() {
         }}
         onDeactivate={() => {
           setIsConfirmingDeactivate(true);
+        }}
+      />
+
+      <DuplicateProductSheet
+        visible={!!duplicatingProduct}
+        product={duplicatingProduct}
+        onDismiss={() => setDuplicatingProduct(null)}
+        isSaving={duplicateProduct.isPending}
+        errorMessage={duplicateProduct.isError ? "Couldn't duplicate this product. Try again." : null}
+        onSubmit={(options) => {
+          if (!duplicatingProduct) return;
+          duplicateProduct.mutate(
+            { source: duplicatingProduct, sourceVariants: duplicatingProduct.variants, options },
+            {
+              onSuccess: (newProduct) => {
+                setDuplicatingProduct(null);
+                router.push(`/more/products/${newProduct.id}`);
+              },
+            }
+          );
         }}
       />
 
