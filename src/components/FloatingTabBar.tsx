@@ -362,16 +362,18 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
                         navigation.navigate(route.name);
                       }
                     }}
-                    style={[styles.tabButton, isFocused && styles.tabButtonActive]}
+                    style={styles.tabButton}
                     accessibilityRole="tab"
                     accessibilityState={{ selected: isFocused }}
                     accessibilityLabel={meta.label}
                   >
-                    <Ionicons
-                      name={meta.icon}
-                      size={20}
-                      color={isFocused ? colors.primary : colors.textSecondary}
-                    />
+                    <View style={[styles.iconChip, isFocused && styles.tabButtonActive]}>
+                      <Ionicons
+                        name={meta.icon}
+                        size={20}
+                        color={isFocused ? colors.primary : colors.textSecondary}
+                      />
+                    </View>
                     <Text
                       style={[
                         styles.tabLabel,
@@ -518,7 +520,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       left: 0,
       right: 0,
       bottom: 0,
-      paddingHorizontal: spacing.lg,
+      paddingHorizontal: spacing.sm,
     },
     row: {
       flexDirection: 'row',
@@ -529,18 +531,18 @@ function makeStyles(colors: Record<ColorToken, string>) {
     pill: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: colors.surface,
+      backgroundColor: colors.background,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radii.full,
       height: 60,
       position: 'relative',
       overflow: 'hidden',
-      elevation: 4,
+      elevation: 6,
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.12,
-      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.15,
+      shadowRadius: 10,
     },
     tabsRow: {
       flexDirection: 'row',
@@ -551,7 +553,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       justifyContent: 'center',
       gap: 4,
       paddingVertical: spacing.xs,
-      paddingHorizontal: spacing.sm + 2,
+      paddingHorizontal: spacing.md + 2,
       minWidth: 46,
       minHeight: 46,
     },
@@ -570,6 +572,13 @@ function makeStyles(colors: Record<ColorToken, string>) {
     // color without needing a dedicated token, and guarantees contrast
     // since it's a tint of the accent itself rather than two similarly
     // dark neutrals.
+    iconChip: {
+      width: 36,
+      height: 28,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radii.full,
+    },
     tabButtonActive: {
       backgroundColor: `${colors.primary}22`, // ~13% opacity
       borderRadius: radii.full,
@@ -668,6 +677,10 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     cardRowPressed: {
       backgroundColor: colors.surfaceMuted,
+    },
+    iconSpacer: {
+      width: 26,
+      height: 26,
     },
     cardIcon: {
       width: 26,
