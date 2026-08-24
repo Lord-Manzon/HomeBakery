@@ -1,5 +1,5 @@
 import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
@@ -379,7 +379,7 @@ function DraggableStepRow({
 }) {
   const translateY = useSharedValue(0);
   const isDragging = useSharedValue(false);
-  const measuredHeight = useRef(64);
+  const measuredHeight = useSharedValue(64);
 
   const pan = Gesture.Pan()
     .activateAfterLongPress(150)
@@ -391,7 +391,7 @@ function DraggableStepRow({
       translateY.value = e.translationY;
     })
     .onEnd((e) => {
-      const rowHeight = measuredHeight.current || 64;
+      const rowHeight = measuredHeight.value || 64;
       const shift = Math.round(e.translationY / rowHeight);
       const clampedShift = Math.min(Math.max(shift, -index), total - 1 - index);
       translateY.value = withSpring(0);
@@ -410,7 +410,7 @@ function DraggableStepRow({
     <Animated.View
       style={[styles.stepRow, animatedStyle]}
       onLayout={(e) => {
-        measuredHeight.current = e.nativeEvent.layout.height;
+        measuredHeight.value = e.nativeEvent.layout.height;
       }}
     >
       <GestureDetector gesture={pan}>
