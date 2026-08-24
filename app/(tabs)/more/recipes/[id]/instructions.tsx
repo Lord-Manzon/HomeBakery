@@ -1,6 +1,8 @@
 import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useRecipe, useUpdateRecipe } from '../../../../../src/hooks/useRecipes';
@@ -19,6 +21,19 @@ type FormatMode = 'steps' | 'block';
 // Edit: the existing steps/block editor, entered via the pencil icon.
 type ScreenMode = 'view' | 'edit';
 
+// Steps carry a stable id separate from their position in the list. A
+// drag gesture needs to keep following the SAME step's text as it moves
+// — keying rows by array index would swap which text a mid-drag gesture
+// is holding onto the instant a reorder happens, since index-as-key
+// makes React reuse the row for whatever now sits in that slot.
+type StepItem = { id: string; text: string };
+
+let stepIdCounter = 0;
+function makeStepId(): string {
+  stepIdCounter += 1;
+  return `step-${Date.now()}-${stepIdCounter}`;
+}
+
 export default function RecipeInstructionsScreen() {
   useHideFloatingNav();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -31,14 +46,17 @@ export default function RecipeInstructionsScreen() {
 
   // Steps and block text are both kept in state at once (not derived from
   // one another on every render) so toggling back and forth doesn't lose
-  // anything the baker typed in the mode they're not currently viewing.
+  // anything the baker typed in the format they're not currently viewing.
   const [formatMode, setFormatMode] = useState<FormatMode>('steps');
   const [screenMode, setScreenMode] = useState<ScreenMode>('view');
-  const [steps, setSteps] = useState<string[]>(['']);
+  const [stepItems, setStepItems] = useState<StepItem[]>([{ id: makeStepId(), text: '' }]);
   const [blockText, setBlockText] = useState('');
   const [initialized, setInitialized] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [pendingNav, setPendingNav] = useState<(() => void) | null>(null);
+  // Disabled while a row is actively being dragged, so a drag near the
+  // top/bottom of the visible list doesn't also try to scroll the page.
+  const [isReordering, setIsReordering] = useState(false);
 
   // Seed local state once the recipe loads. Existing multi-step data
   // opens in Steps format; a single legacy block (or no instructions
@@ -52,12 +70,14 @@ export default function RecipeInstructionsScreen() {
     const hasContent = existing.some((s) => s.trim().length > 0);
     if (existing.length > 1) {
       setFormatMode('steps');
-      setSteps(existing);
+      setStepItems(existing.map((text) => ({ id: makeStepId(), text })));
       setBlockText(existing.join('\n'));
     } else {
       setFormatMode('block');
       setBlockText(existing[0] ?? '');
-      setSteps(existing.length === 1 ? existing : ['']);
+      setStepItems(
+        existing.length === 1 ? [{ id: makeStepId(), text: existing[0] }] : [{ id: makeStepId(), text: '' }]
+      );
     }
     setScreenMode(hasContent ? 'view' : 'edit');
     setInitialized(true);
@@ -87,7 +107,7 @@ export default function RecipeInstructionsScreen() {
   // "what would be saved if I hit Save right now."
   const currentInstructions =
     formatMode === 'steps'
-      ? steps.map((s) => s.trim()).filter(Boolean)
+      ? stepItems.map((s) => s.text.trim()).filter(Boolean)
       : blockText.trim()
         ? [blockText.trim()]
         : [];
@@ -100,41 +120,45 @@ export default function RecipeInstructionsScreen() {
     if (next === 'block') {
       // Steps -> Block: join whatever's been typed so far into one
       // paragraph, one step per line.
-      setBlockText(steps.map((s) => s.trim()).filter(Boolean).join('\n'));
+      setBlockText(stepItems.map((s) => s.text.trim()).filter(Boolean).join('\n'));
     } else {
       // Block -> Steps: split on line breaks, each non-empty line
-      // becomes its own step row.
+      // becomes its own step row with a fresh stable id.
       const split = blockText
         .split('\n')
         .map((s) => s.trim())
         .filter(Boolean);
-      setSteps(split.length > 0 ? split : ['']);
+      setStepItems(
+        split.length > 0 ? split.map((text) => ({ id: makeStepId(), text })) : [{ id: makeStepId(), text: '' }]
+      );
     }
     setFormatMode(next);
   };
 
-  const updateStep = (index: number, value: string) => {
-    setSteps((prev) => prev.map((s, i) => (i === index ? value : s)));
+  const updateStep = (stepId: string, value: string) => {
+    setStepItems((prev) => prev.map((s) => (s.id === stepId ? { ...s, text: value } : s)));
   };
 
-  const removeStep = (index: number) => {
-    setSteps((prev) => (prev.length === 1 ? [''] : prev.filter((_, i) => i !== index)));
+  const removeStep = (stepId: string) => {
+    setStepItems((prev) =>
+      prev.length === 1 ? [{ id: makeStepId(), text: '' }] : prev.filter((s) => s.id !== stepId)
+    );
   };
 
   const addStep = () => {
-    setSteps((prev) => [...prev, '']);
+    setStepItems((prev) => [...prev, { id: makeStepId(), text: '' }]);
   };
 
-  // Reorder without a drag-and-drop dependency — up/down arrows swap a
-  // step with its neighbor. Simple, no new library to vet for
-  // Android/New Architecture compatibility (see docs/CODING_STANDARDS.md
-  // on adding dependencies).
-  const moveStep = (index: number, direction: -1 | 1) => {
-    setSteps((prev) => {
-      const target = index + direction;
-      if (target < 0 || target >= prev.length) return prev;
+  // Moves the step at `fromIndex` by `shift` positions (can be more than
+  // one — a fast drag across several rows resolves in a single move,
+  // not a chain of adjacent swaps).
+  const moveStep = (fromIndex: number, shift: number) => {
+    setStepItems((prev) => {
+      const toIndex = Math.min(Math.max(fromIndex + shift, 0), prev.length - 1);
+      if (toIndex === fromIndex) return prev;
       const next = [...prev];
-      [next[index], next[target]] = [next[target], next[index]];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
       return next;
     });
   };
@@ -254,54 +278,29 @@ export default function RecipeInstructionsScreen() {
             </Pressable>
           </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={!isReordering}
+          >
             {formatMode === 'steps' ? (
               <>
-                {steps.map((step, index) => (
-                  <View key={index} style={styles.stepRow}>
-                    <View style={styles.reorderColumn}>
-                      <Pressable
-                        onPress={() => moveStep(index, -1)}
-                        disabled={index === 0}
-                        style={styles.reorderButton}
-                        accessibilityLabel="Move step up"
-                      >
-                        <Ionicons
-                          name="chevron-up"
-                          size={16}
-                          color={index === 0 ? colors.border : colors.textSecondary}
-                        />
-                      </Pressable>
-                      <Pressable
-                        onPress={() => moveStep(index, 1)}
-                        disabled={index === steps.length - 1}
-                        style={styles.reorderButton}
-                        accessibilityLabel="Move step down"
-                      >
-                        <Ionicons
-                          name="chevron-down"
-                          size={16}
-                          color={index === steps.length - 1 ? colors.border : colors.textSecondary}
-                        />
-                      </Pressable>
-                    </View>
-                    <Text style={styles.stepNumber}>{index + 1}.</Text>
-                    <TextInput
-                      style={styles.stepInput}
-                      value={step}
-                      onChangeText={(v) => updateStep(index, v)}
-                      placeholder={`e.g. ${index === 0 ? 'Preheat oven to 350\u00b0F' : 'Next step\u2026'}`}
-                      placeholderTextColor={colors.textSecondary}
-                      multiline
-                    />
-                    <Pressable
-                      onPress={() => removeStep(index)}
-                      style={styles.removeStepButton}
-                      accessibilityLabel="Remove step"
-                    >
-                      <Ionicons name="close" size={18} color={colors.textSecondary} />
-                    </Pressable>
-                  </View>
+                {stepItems.map((item, index) => (
+                  <DraggableStepRow
+                    key={item.id}
+                    index={index}
+                    total={stepItems.length}
+                    text={item.text}
+                    onChangeText={(v) => updateStep(item.id, v)}
+                    onRemove={() => removeStep(item.id)}
+                    onDragStart={() => setIsReordering(true)}
+                    onDragEnd={(shift) => {
+                      setIsReordering(false);
+                      if (shift !== 0) moveStep(index, shift);
+                    }}
+                    colors={colors}
+                    styles={styles}
+                  />
                 ))}
                 <Pressable onPress={addStep} style={styles.addStepButton}>
                   <Ionicons name="add" size={18} color={colors.primary} />
@@ -338,6 +337,100 @@ export default function RecipeInstructionsScreen() {
         onCancel={() => setPendingNav(null)}
       />
     </Screen>
+  );
+}
+
+/**
+ * One draggable step row. Drag starts only from the handle icon
+ * (activateAfterLongPress, same "hold to act" language as the recipe
+ * ingredient list's hold-to-select removal) so it never competes with
+ * the TextInput's own touch handling or the surrounding ScrollView's
+ * normal scroll gesture.
+ *
+ * Simplified drag model: the row visually follows the finger while
+ * held, but the actual list reorder is computed ONCE at release —
+ * total drag distance divided by this row's own measured height,
+ * rounded to a whole number of positions moved. This avoids the much
+ * more failure-prone version (continuously re-deriving swap targets
+ * mid-drag against every other row's live position) for a solo-dev app
+ * where that complexity isn't worth the risk of a subtly-wrong gesture
+ * bug that's hard to reproduce on-device.
+ */
+function DraggableStepRow({
+  index,
+  total,
+  text,
+  onChangeText,
+  onRemove,
+  onDragStart,
+  onDragEnd,
+  colors,
+  styles,
+}: {
+  index: number;
+  total: number;
+  text: string;
+  onChangeText: (value: string) => void;
+  onRemove: () => void;
+  onDragStart: () => void;
+  onDragEnd: (shift: number) => void;
+  colors: Record<ColorToken, string>;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const translateY = useSharedValue(0);
+  const isDragging = useSharedValue(false);
+  const measuredHeight = useRef(64);
+
+  const pan = Gesture.Pan()
+    .activateAfterLongPress(150)
+    .onStart(() => {
+      isDragging.value = true;
+      runOnJS(onDragStart)();
+    })
+    .onUpdate((e) => {
+      translateY.value = e.translationY;
+    })
+    .onEnd((e) => {
+      const rowHeight = measuredHeight.current || 64;
+      const shift = Math.round(e.translationY / rowHeight);
+      const clampedShift = Math.min(Math.max(shift, -index), total - 1 - index);
+      translateY.value = withSpring(0);
+      isDragging.value = false;
+      runOnJS(onDragEnd)(clampedShift);
+    });
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }, { scale: isDragging.value ? 1.02 : 1 }],
+    zIndex: isDragging.value ? 10 : 0,
+    shadowOpacity: isDragging.value ? 0.15 : 0,
+    elevation: isDragging.value ? 4 : 0,
+  }));
+
+  return (
+    <Animated.View
+      style={[styles.stepRow, animatedStyle]}
+      onLayout={(e) => {
+        measuredHeight.current = e.nativeEvent.layout.height;
+      }}
+    >
+      <GestureDetector gesture={pan}>
+        <View style={styles.dragHandle} accessibilityLabel="Drag to reorder step">
+          <Ionicons name="reorder-three-outline" size={20} color={colors.textSecondary} />
+        </View>
+      </GestureDetector>
+      <Text style={styles.stepNumber}>{index + 1}.</Text>
+      <TextInput
+        style={styles.stepInput}
+        value={text}
+        onChangeText={onChangeText}
+        placeholder={`e.g. ${index === 0 ? 'Preheat oven to 350\u00b0F' : 'Next step\u2026'}`}
+        placeholderTextColor={colors.textSecondary}
+        multiline
+      />
+      <Pressable onPress={onRemove} style={styles.removeStepButton} accessibilityLabel="Remove step">
+        <Ionicons name="close" size={18} color={colors.textSecondary} />
+      </Pressable>
+    </Animated.View>
   );
 }
 
@@ -402,9 +495,18 @@ function makeStyles(colors: Record<ColorToken, string>) {
     modeButtonActive: { backgroundColor: colors.surface },
     modeButtonText: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
     modeButtonTextActive: { color: colors.textPrimary },
-    stepRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: spacing.sm, gap: spacing.xxs },
-    reorderColumn: { justifyContent: 'center', marginTop: spacing.xxs },
-    reorderButton: { width: 24, height: 22, alignItems: 'center', justifyContent: 'center' },
+    stepRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      marginBottom: spacing.sm,
+      gap: spacing.xxs,
+      backgroundColor: colors.background,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowRadius: 6,
+      borderRadius: radii.md,
+    },
+    dragHandle: { width: 28, height: 44, alignItems: 'center', justifyContent: 'center' },
     stepNumber: { ...typography.body, color: colors.textSecondary, fontWeight: '600', width: 20, marginTop: spacing.sm + 2 },
     stepInput: {
       flex: 1,
