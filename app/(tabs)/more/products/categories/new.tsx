@@ -1,6 +1,6 @@
 import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
@@ -32,11 +32,38 @@ const ICON_OPTIONS = [
   'star-outline',
 ] as const;
 
+// Literal, describes-the-shape labels — not category-concept names. The
+// point is removing doubt about what the icon actually depicts (does
+// "gift-outline" read as a present, or a box of packaging?), not
+// suggesting what a baker should name their category.
+const ICON_LABELS: Record<(typeof ICON_OPTIONS)[number], string> = {
+  'cafe-outline': 'Coffee',
+  'ice-cream-outline': 'Ice cream',
+  'pizza-outline': 'Pizza',
+  'nutrition-outline': 'Fruit',
+  'wine-outline': 'Wine',
+  'basket-outline': 'Basket',
+  'gift-outline': 'Gift',
+  'restaurant-outline': 'Dining',
+  'flame-outline': 'Flame',
+  'star-outline': 'Star',
+};
+
+const ICON_GRID_COLUMNS = 4;
+
 export default function NewCategoryScreen() {
   useHideFloatingNav();
   const router = useRouter();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  // Computed, not guessed — 64px was a fixed value that happened to fit
+  // 4-per-row with leftover space on the right on this device, but
+  // wouldn't reliably fill the row edge-to-edge on a different screen
+  // width. This derives the exact tile width so 4 columns + 3 gaps
+  // always sum to precisely the container's actual content width.
+  const { width: windowWidth } = useWindowDimensions();
+  const iconTileWidth =
+    (windowWidth - spacing.xl * 2 - spacing.md * (ICON_GRID_COLUMNS - 1)) / ICON_GRID_COLUMNS;
   const createCategory = useCreateProductCategory();
 
   const [name, setName] = useState('');
@@ -100,6 +127,7 @@ export default function NewCategoryScreen() {
               onPress={() => setIcon(name)}
               styles={styles}
               colors={colors}
+              width={iconTileWidth}
             />
           ))}
         </Animated.View>
@@ -123,14 +151,17 @@ function IconTile({
   onPress,
   styles,
   colors,
+  width,
 }: {
-  iconName: string;
+  iconName: (typeof ICON_OPTIONS)[number];
   isSelected: boolean;
   onPress: () => void;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
+  width: number;
 }) {
   const press = usePressScale(0.92);
+  const label = ICON_LABELS[iconName];
 
   return (
     <Pressable
@@ -139,7 +170,8 @@ function IconTile({
       onPressOut={press.onPressOut}
       accessibilityRole="radio"
       accessibilityState={{ selected: isSelected }}
-      accessibilityLabel={iconName.replace('-outline', '')}
+      accessibilityLabel={label}
+      style={[styles.iconTileWrap, { width }]}
     >
       <Animated.View style={[styles.iconTile, isSelected && styles.iconTileSelected, press.style]}>
         <Ionicons
@@ -148,6 +180,12 @@ function IconTile({
           color={isSelected ? colors.textInverse : colors.textPrimary}
         />
       </Animated.View>
+      <Text
+        style={[styles.iconTileLabel, isSelected && styles.iconTileLabelSelected]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
     </Pressable>
   );
 }
@@ -171,6 +209,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       gap: spacing.md,
       marginBottom: spacing.xl,
     },
+    iconTileWrap: { alignItems: 'center' },
     iconTile: {
       width: 56,
       height: 56,
@@ -181,6 +220,16 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     iconTileSelected: {
       backgroundColor: colors.primary,
+    },
+    iconTileLabel: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      marginTop: spacing.xxs,
+      textAlign: 'center',
+    },
+    iconTileLabelSelected: {
+      color: colors.primary,
+      fontWeight: '600',
     },
     createButton: { marginTop: spacing.sm },
   });

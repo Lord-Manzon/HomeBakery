@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useDeactivateProduct, useDuplicateProduct } from '../../../../src/hooks/useProducts';
 import { usePressScale } from '../../../../src/hooks/usePressScale';
 import { ProductActionSheet } from '../../../../src/components/ProductActionSheet';
@@ -41,6 +42,7 @@ import type { ProductCategory, ProductWithVariants } from '../../../../src/types
 
 type SortOption = 'name-asc' | 'name-desc' | 'newest';
 type ViewMode = 'grid' | 'list' | 'large';
+const VIEW_MODE_STORAGE_KEY = 'products:viewMode';
 
 const SORT_OPTIONS: { label: string; value: SortOption }[] = [
   { label: 'Name (A–Z)', value: 'name-asc' },
@@ -86,10 +88,27 @@ export default function ProductsListScreen() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [sortBy, setSortBy] = useState<SortOption>('name-asc');
-  // Grid is the default — it's what actually shows product photos at a
-  // usable size. List stays available for scanning names/prices more
-  // densely.
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  // Large is the default — full-width, photo-first cards read best when
+  // browsing a catalog. Grid/List stay available for denser scanning.
+  const [viewMode, setViewModeState] = useState<ViewMode>('large');
+
+  // Restores the baker's last-used view mode on mount — AsyncStorage is
+  // already a dependency (used for the Supabase session, see
+  // src/services/supabase.ts). Falls back to the 'large' default above
+  // if nothing's been saved yet (first launch, or a baker who's never
+  // touched the Display menu).
+  useEffect(() => {
+    AsyncStorage.getItem(VIEW_MODE_STORAGE_KEY).then((stored) => {
+      if (stored === 'grid' || stored === 'list' || stored === 'large') {
+        setViewModeState(stored);
+      }
+    });
+  }, []);
+
+  const setViewMode = (mode: ViewMode) => {
+    setViewModeState(mode);
+    AsyncStorage.setItem(VIEW_MODE_STORAGE_KEY, mode);
+  };
   const [selectedCategory, setSelectedCategory] = useState<string>('All');
   const [isEditingCategories, setIsEditingCategories] = useState(false);
   const [pendingDeleteCategory, setPendingDeleteCategory] = useState<ProductCategory | null>(
