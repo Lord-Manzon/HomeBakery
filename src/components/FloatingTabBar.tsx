@@ -15,7 +15,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../theme/ThemeContext';
 import { radii, spacing, typography, motionDuration, motionEasing, motionSpring } from '../theme';
 import { useScrollNav } from '../contexts/ScrollNavContext';
-import { MORE_MENU_ITEMS, type MoreMenuItem } from '../constants/moreMenu';
 import type { ColorToken } from '../theme/colors';
 
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -89,6 +88,25 @@ function getAddPanelItems(activeRouteName: string, pathname: string): PanelItem[
   }
   return [];
 }
+
+/**
+ * Flat list shown inside the More panel — replaces the old wrapping-pill
+ * grid + separate "More options" row. Built sections (real pathname) are
+ * tappable and highlight when it's the current route; not-yet-built
+ * sections (Expenses, Reports — see docs/ROADMAP.md phases 9 & 11) get
+ * the same disabled/"Soon" treatment already used for unbuilt Add-panel
+ * items, so both panels read as one consistent pattern. "See all" at
+ * the bottom is the only way to reach what's left (Storefront,
+ * Subscription, Account, etc.) via the full /more hub screen.
+ */
+const MORE_PANEL_ITEMS: PanelItem[] = [
+  { label: 'Ingredients', icon: 'nutrition-outline', pathname: '/more/ingredients' },
+  { label: 'Products', icon: 'cube-outline', pathname: '/more/products' },
+  { label: 'Recipes', icon: 'book-outline', pathname: '/more/recipes' },
+  { label: 'Expenses', icon: 'wallet-outline' }, // Phase 9, not built yet
+  { label: 'Reports', icon: 'bar-chart-outline' }, // Phase 11, not built yet
+  { label: 'Settings', icon: 'settings-outline', pathname: '/more/appearance' },
+];
 
 /**
  * One real navigation tab (Home/Orders/Production/More) OR the
@@ -296,7 +314,7 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
     navigateOnce(() => router.push({ pathname: item.pathname, params: item.params } as never));
   }
 
-  function handleMoreItemPress(item: MoreMenuItem) {
+  function handleMoreItemPress(item: PanelItem) {
     closePanel();
     if (!item.pathname) return;
     if (pathname.startsWith(item.pathname)) return; // already here
@@ -421,35 +439,42 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
                   </View>
                 ) : panelMounted === 'more' ? (
                   <View style={styles.panelList}>
-                    {/* Compact wrapping pills, not a 2-column tile grid —
-                        icon + label inline, width driven naturally by
-                        content per row rather than fixed columns. */}
-                    <View style={styles.chipsWrap}>
-                      {MORE_MENU_ITEMS.filter((item) => item.pathname).map((item) => {
-                        const isActive = !!item.pathname && pathname.startsWith(item.pathname);
-                        return (
-                          <Pressable
-                            key={item.label}
-                            onPress={() => handleMoreItemPress(item)}
-                            style={({ pressed }) => [
-                              styles.pillChip,
-                              isActive && styles.pillChipActive,
-                              pressed && styles.panelRowPressed,
+                    {MORE_PANEL_ITEMS.map((item) => {
+                      const isBuilt = !!item.pathname;
+                      const isActive = isBuilt && pathname.startsWith(item.pathname!);
+                      return (
+                        <Pressable
+                          key={item.label}
+                          onPress={() => handleMoreItemPress(item)}
+                          disabled={!isBuilt}
+                          style={({ pressed }) => [styles.panelRow, pressed && isBuilt && styles.panelRowPressed]}
+                          accessibilityLabel={isBuilt ? item.label : `${item.label}, coming soon`}
+                        >
+                          <View
+                            style={[
+                              styles.panelRowIcon,
+                              isActive && { backgroundColor: `${colors.primary}22` },
                             ]}
-                            accessibilityLabel={item.label}
                           >
                             <Ionicons
                               name={item.icon}
-                              size={15}
-                              color={isActive ? colors.primary : colors.textSecondary}
+                              size={16}
+                              color={isActive ? colors.primary : isBuilt ? colors.textPrimary : colors.textSecondary}
                             />
-                            <Text style={[styles.pillChipLabel, isActive && styles.pillChipLabelActive]}>
-                              {item.label}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </View>
+                          </View>
+                          <Text
+                            style={[
+                              styles.panelRowLabel,
+                              isActive && styles.panelRowLabelPrimary,
+                              !isBuilt && styles.panelRowLabelDisabled,
+                            ]}
+                          >
+                            {item.label}
+                          </Text>
+                          {!isBuilt ? <Text style={styles.panelRowSoon}>Soon</Text> : null}
+                        </Pressable>
+                      );
+                    })}
 
                     <View style={styles.moreMenuDivider} />
 
@@ -460,9 +485,9 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
                         navigateOnce(() => router.push('/more' as never));
                       }}
                       style={({ pressed }) => [styles.moreOptionsRow, pressed && styles.panelRowPressed]}
-                      accessibilityLabel="More options"
+                      accessibilityLabel="See all"
                     >
-                      <Text style={styles.moreOptionsLabel}>More options</Text>
+                      <Text style={styles.moreOptionsLabel}>See all</Text>
                       <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
                     </Pressable>
                   </View>
@@ -516,7 +541,6 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
                 activeIcon={TAB_META.more.activeIcon}
                 label={TAB_META.more.label}
                 isActive={isMoreFocused}
-                chipActive={isMoreFocused || activePanel === 'more'}
                 colors={colors}
                 styles={styles}
                 onPress={() => openPanel('more')}
@@ -564,6 +588,10 @@ function makeStyles(colors: Record<ColorToken, string>) {
       left: 0,
       right: 0,
       bottom: 0,
+      // Distinct surface tone from unifiedCard's base background so the
+      // expanded panel reads as its own elevated sheet, not just a
+      // continuation of the tab row below it.
+  
     },
     panelList: {
       padding: spacing.md,
@@ -612,35 +640,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       ...typography.caption,
       color: colors.textSecondary,
     },
-    // Compact wrapping pills for the More panel — icon + label inline,
-    // width driven by content, natural per-row count via flexWrap.
-    chipsWrap: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      gap: spacing.sm,
-      paddingBottom: spacing.sm,
-    },
-    pillChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.xs,
-      paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      borderRadius: radii.full,
-      backgroundColor: colors.surfaceMuted,
-      minHeight: 36,
-    },
-    pillChipActive: {
-      backgroundColor: `${colors.primary}22`,
-    },
-    pillChipLabel: {
-      ...typography.bodySm,
-      color: colors.textSecondary,
-    },
-    pillChipLabelActive: {
-      color: colors.primary,
-      fontWeight: '600',
-    },
     moreMenuDivider: {
       height: StyleSheet.hairlineWidth,
       backgroundColor: colors.border,
@@ -663,6 +662,10 @@ function makeStyles(colors: Record<ColorToken, string>) {
     tabsRow: {
       flexDirection: 'row',
       paddingTop: spacing.sm,
+      // Thin divider so the tab row reads as clearly separate from the
+      // expanded panel above it, instead of the two blending together.
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
     },
     tabButton: {
       flex: 1,
