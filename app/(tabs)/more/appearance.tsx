@@ -4,6 +4,7 @@ import { useThemeColors } from '../../../src/theme/ThemeContext';
 import { useBakerProfile, useUpdateBakerProfile } from '../../../src/hooks/useBakerProfile';
 import { spacing, radii } from '../../../src/theme';
 import { ACCENT_SWATCHES } from '../../../src/theme/accentSwatches';
+import { Screen } from '../../../src/components/Screen';
 
 type ThemeModePreference = 'light' | 'dark' | 'system';
 
@@ -23,9 +24,11 @@ export default function AppearanceScreen() {
 
   if (isLoadingBaker || !baker) {
     return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background }}>
-        <ActivityIndicator color={colors.primary} />
-      </View>
+      <Screen>
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          <ActivityIndicator color={colors.primary} />
+        </View>
+      </Screen>
     );
   }
 
@@ -40,9 +43,10 @@ export default function AppearanceScreen() {
   };
 
   return (
+    <Screen>
     <ScrollView
-      style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={{ padding: spacing.lg }}
+      style={{ flex: 1 }}
+      contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: spacing.lg }}
     >
       <Text style={{ fontSize: 20, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.xs }}>
         Appearance
@@ -141,5 +145,6 @@ export default function AppearanceScreen() {
         </Text>
       </Pressable>
     </ScrollView>
+    </Screen>
   );
 }
