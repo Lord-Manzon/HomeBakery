@@ -555,6 +555,7 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
                 activeIcon={TAB_META.more.activeIcon}
                 label={TAB_META.more.label}
                 isActive={isMoreFocused}
+                chipActive={activePanel === 'more' || isMoreFocused}
                 colors={colors}
                 styles={styles}
                 onPress={() => openPanel('more')}

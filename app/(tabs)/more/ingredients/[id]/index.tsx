@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
+import { useMemo, useState, useEffect } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import {
   useIngredient,
@@ -38,6 +39,7 @@ import {
 import type { ColorToken } from '../../../../../src/theme/colors';
 
 export default function IngredientDetailScreen() {
+  useHideFloatingNav();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useThemeColors();
@@ -51,6 +53,29 @@ export default function IngredientDetailScreen() {
   const recordUseOrWaste = useRecordUseOrWaste(id);
   const restockIngredient = useRestockIngredient(id);
   const removeIngredient = useRemoveIngredient();
+  const navigation = useNavigation();
+
+  // Hide the bottom tab bar while viewing an ingredient's detail — this
+  // screen is a deep, focused view (stock, history, used-in, actions),
+  // not a place a baker needs to jump tabs from. Restored on unmount so
+  // every other tab gets its bar back. Uses the live theme colors (not
+  // a static import) so the restored bar matches whatever accent/mode
+  // the baker has selected, consistent with how app/(tabs)/_layout.tsx
+  // themes the bar today — if _layout.tsx is later migrated to
+  // useThemeColors() too, this stays in sync automatically since both
+  // read from the same hook.
+  useEffect(() => {
+    const parent = navigation.getParent();
+    parent?.setOptions({ tabBarStyle: { display: 'none' } });
+    return () => {
+      parent?.setOptions({
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+        },
+      });
+    };
+  }, [navigation, colors]);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isUseWasteOpen, setIsUseWasteOpen] = useState(false);
