@@ -335,8 +335,11 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
    * - Orders: nothing to choose between — jump straight to New Order.
    * - Production: nothing to choose between — jump straight to the
    *   ingredient restock flow.
-   * - Anything else (More sub-routes): falls back to the panel, same
-   *   as before this change.
+   * - Ingredients (any /more/ingredients route): nothing to choose
+   *   between either — jump straight to Add ingredient instead of
+   *   opening a panel with a single row to tap through.
+   * - Anything else (other More sub-routes): falls back to the panel,
+   *   same as before this change.
    */
   function handleAddTabPress() {
     if (activeRouteName === 'orders') {
@@ -356,6 +359,17 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
       // item) rather than a specific ingredient's Restock sheet.
       if (pathname === '/more/ingredients') return;
       navigateOnce(() => router.push('/more/ingredients' as never));
+      return;
+    }
+    if (activeRouteName === 'more' && pathname.startsWith('/more/ingredients')) {
+      // Ingredients only ever has one add action — jump straight to it
+      // instead of opening a panel with a single row to tap through.
+      handleAddItemPress({
+        label: 'Add ingredient',
+        icon: 'nutrition-outline',
+        pathname: '/more/ingredients',
+        params: { openAdd: '1' },
+      });
       return;
     }
     openPanel('add');
@@ -497,8 +511,8 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
 
             {/* Five equal tabs, one row. Add has no route — it's purely
                 a panel trigger (Home) or a direct-navigate shortcut
-                (Orders/Production) — styled identically to the real
-                tabs either way. */}
+                (Orders/Production/Ingredients) — styled identically to
+                the real tabs either way. */}
             <View style={styles.tabsRow}>
               <TabItem
                 icon={TAB_META.index.icon}
