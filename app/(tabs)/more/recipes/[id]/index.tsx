@@ -17,10 +17,12 @@ import { useNavigateOnce } from '../../../../../src/hooks/useNavigateOnce';
 import { useThemeColors } from '../../../../../src/theme/ThemeContext';
 import { calculateRecipeBatchCost, calculateSuggestedPrice } from '../../../../../src/services/costing';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
+import { InstructionsTimeline } from '../../../../../src/components/InstructionsTimeline';
 import { RecipeIngredientSheet } from '../../../../../src/components/RecipeIngredientSheet';
 import { Screen } from '../../../../../src/components/Screen';
 import { formatCurrency } from '../../../../../src/utils/currency';
 import { getCategoryIcon } from '../../../../../src/utils/ingredientCategoryIcon';
+import { getRecipeVisual } from '../../../../../src/utils/recipeVisual';
 import { recipeFormSchema } from '../../../../../src/utils/validation/recipeSchemas';
 import { spacing, radii, typography } from '../../../../../src/theme';
 import type { ColorToken } from '../../../../../src/theme/colors';
@@ -72,6 +74,10 @@ export default function RecipeDetailScreen() {
   const [selectedIngredientIds, setSelectedIngredientIds] = useState<Set<string>>(new Set());
   const [isRemoveConfirming, setIsRemoveConfirming] = useState(false);
   const isSelectingIngredients = selectedIngredientIds.size > 0;
+  // Ingredients and Instructions used to be stacked in one long scroll —
+  // split into tabs so each is its own scrollable area instead of one
+  // giant page, per the on-device feedback that it read as too long.
+  const [activeTab, setActiveTab] = useState<'ingredients' | 'instructions'>('ingredients');
 
   if (isError) {
     return (
@@ -100,6 +106,7 @@ export default function RecipeDetailScreen() {
   // ingredient — see docs/DECISIONS.md.
   const usedIngredientIds = new Set(recipe.ingredients.map((ri) => ri.ingredient_id));
   const pickableIngredients = (ingredients ?? []).filter((i) => !usedIngredientIds.has(i.id));
+  const visual = getRecipeVisual(recipe.name);
 
   const startEditingName = () => {
     setNameDraft(recipe.name);
@@ -276,7 +283,7 @@ export default function RecipeDetailScreen() {
         </View>
       ) : null}
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}>
+      <View style={{ paddingBottom: spacing.sm }}>
         {isEditingYield ? (
           <View style={styles.yieldEditRow}>
             <Text style={styles.yieldEditLabel}>Yields</Text>
@@ -336,6 +343,20 @@ export default function RecipeDetailScreen() {
 
           {isCostExpanded ? (
             <View style={styles.costBreakdown}>
+              {recipe.ingredients.length > 0 ? (
+                <>
+                  <Text style={styles.costBreakdownSectionLabel}>Ingredients cost breakdown</Text>
+                  {recipe.ingredients.map((ri) => (
+                    <CostRow
+                      key={ri.id}
+                      label={`${ri.ingredient.name} (${ri.quantity} ${ri.unit})`}
+                      value={formatCurrency(ri.quantity * ri.ingredient.cost_per_unit, baker?.currency)}
+                      colors={colors}
+                    />
+                  ))}
+                  <View style={styles.costBreakdownDivider} />
+                </>
+              ) : null}
               <CostRow label="Ingredient cost (full batch)" value={formatCurrency(batchCost, baker?.currency)} colors={colors} />
               <CostRow
                 label={`Cost per ${recipe.yield_unit}`}
@@ -361,124 +382,6 @@ export default function RecipeDetailScreen() {
             </View>
           ) : null}
         </Pressable>
-
-        <View style={styles.sectionHeaderRow}>
-          {isSelectingIngredients ? (
-            <>
-              <Pressable onPress={clearIngredientSelection} style={styles.addLink}>
-                <Text style={styles.addLinkText}>Cancel</Text>
-              </Pressable>
-              <Text style={styles.sectionHeader}>{selectedIngredientIds.size} selected</Text>
-              <Pressable
-                onPress={() => setIsRemoveConfirming(true)}
-                style={styles.iconButton}
-                accessibilityLabel="Remove selected ingredients"
-              >
-                <Ionicons name="trash-outline" size={18} color={colors.danger} />
-              </Pressable>
-            </>
-          ) : (
-            <>
-              <Text style={styles.sectionHeader}>Ingredients</Text>
-              <Pressable onPress={() => setIngredientSheet({ mode: 'add' })} style={styles.addLink}>
-                <Ionicons name="add" size={16} color={colors.primary} />
-                <Text style={styles.addLinkText}>Add</Text>
-              </Pressable>
-            </>
-          )}
-        </View>
-
-        {isRemoveConfirming ? (
-          <View style={styles.inlineConfirmRow}>
-            <Text style={styles.inlineConfirmText}>
-              Remove {selectedIngredientIds.size} ingredient
-              {selectedIngredientIds.size === 1 ? '' : 's'} from this recipe?
-            </Text>
-            <View style={styles.inlineConfirmActions}>
-              <Pressable onPress={() => setIsRemoveConfirming(false)} style={styles.inlineConfirmCancel}>
-                <Text style={styles.inlineConfirmCancelText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={confirmRemoveSelectedIngredients}
-                style={styles.inlineConfirmDelete}
-                disabled={removeIngredient.isPending}
-              >
-                <Text style={styles.inlineConfirmDeleteText}>
-                  {removeIngredient.isPending ? 'Removing…' : 'Confirm remove'}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        ) : null}
-
-        {recipe.ingredients.length === 0 ? (
-          <Text style={styles.emptyIngredients}>
-            Add ingredients to see your cost per {recipe.yield_unit}.
-          </Text>
-        ) : (
-          recipe.ingredients.map((ri) => {
-            const isSelected = selectedIngredientIds.has(ri.id);
-            return (
-              <Pressable
-                key={ri.id}
-                style={[styles.ingredientRow, isSelected && styles.ingredientRowSelected]}
-                onPress={() => handleIngredientRowPress(ri)}
-                onLongPress={() => toggleIngredientSelection(ri.id)}
-              >
-                <View style={styles.ingredientRowLeft}>
-                  <View style={styles.ingredientIconTile}>
-                    <Ionicons
-                      name={isSelected ? 'checkmark-circle' : getCategoryIcon(ri.ingredient.category)}
-                      size={16}
-                      color={isSelected ? colors.primary : colors.textSecondary}
-                    />
-                  </View>
-                  <Text style={styles.ingredientName}>{ri.ingredient.name}</Text>
-                </View>
-                <Text style={styles.ingredientQty}>
-                  {ri.quantity} {ri.unit}
-                </Text>
-              </Pressable>
-            );
-          })
-        )}
-
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionHeader}>Instructions</Text>
-          <Pressable
-            onPress={() => router.push(`/more/recipes/${id}/instructions`)}
-            style={styles.addLink}
-          >
-            <Ionicons
-              name={recipe.instructions && recipe.instructions.length > 0 ? 'create-outline' : 'add'}
-              size={16}
-              color={colors.primary}
-            />
-            <Text style={styles.addLinkText}>
-              {recipe.instructions && recipe.instructions.length > 0 ? 'Edit' : 'Add'}
-            </Text>
-          </Pressable>
-        </View>
-
-        {!recipe.instructions || recipe.instructions.length === 0 ? (
-          <Pressable onPress={() => router.push(`/more/recipes/${id}/instructions`)}>
-            <Text style={styles.emptyIngredients}>
-              No steps yet — add them so they're not just in your head.
-            </Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            style={styles.instructionsCard}
-            onPress={() => router.push(`/more/recipes/${id}/instructions`)}
-          >
-            {recipe.instructions.map((step, i) => (
-              <View key={i} style={styles.stepRow}>
-                <Text style={styles.stepNumber}>{i + 1}.</Text>
-                <Text style={styles.stepText}>{step}</Text>
-              </View>
-            ))}
-          </Pressable>
-        )}
 
         {usage && usage.length > 0 ? (
           <>
@@ -513,7 +416,147 @@ export default function RecipeDetailScreen() {
               : null}
           </>
         ) : null}
+      </View>
 
+      <View style={styles.tabBar}>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'ingredients' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('ingredients')}
+        >
+          <Text style={[styles.tabButtonText, activeTab === 'ingredients' && styles.tabButtonTextActive]}>
+            Ingredients
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'instructions' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('instructions')}
+        >
+          <Text style={[styles.tabButtonText, activeTab === 'instructions' && styles.tabButtonTextActive]}>
+            Instructions
+          </Text>
+        </Pressable>
+      </View>
+
+      <ScrollView
+        style={styles.tabContent}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
+      >
+        {activeTab === 'ingredients' ? (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              {isSelectingIngredients ? (
+                <>
+                  <Pressable onPress={clearIngredientSelection} style={styles.addLink}>
+                    <Text style={styles.addLinkText}>Cancel</Text>
+                  </Pressable>
+                  <Text style={styles.sectionHeader}>{selectedIngredientIds.size} selected</Text>
+                  <Pressable
+                    onPress={() => setIsRemoveConfirming(true)}
+                    style={styles.iconButton}
+                    accessibilityLabel="Remove selected ingredients"
+                  >
+                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.sectionHeader}>Ingredients</Text>
+                  <Pressable onPress={() => setIngredientSheet({ mode: 'add' })} style={styles.addLink}>
+                    <Ionicons name="add" size={16} color={colors.primary} />
+                    <Text style={styles.addLinkText}>Add</Text>
+                  </Pressable>
+                </>
+              )}
+            </View>
+
+            {isRemoveConfirming ? (
+              <View style={styles.inlineConfirmRow}>
+                <Text style={styles.inlineConfirmText}>
+                  Remove {selectedIngredientIds.size} ingredient
+                  {selectedIngredientIds.size === 1 ? '' : 's'} from this recipe?
+                </Text>
+                <View style={styles.inlineConfirmActions}>
+                  <Pressable onPress={() => setIsRemoveConfirming(false)} style={styles.inlineConfirmCancel}>
+                    <Text style={styles.inlineConfirmCancelText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={confirmRemoveSelectedIngredients}
+                    style={styles.inlineConfirmDelete}
+                    disabled={removeIngredient.isPending}
+                  >
+                    <Text style={styles.inlineConfirmDeleteText}>
+                      {removeIngredient.isPending ? 'Removing…' : 'Confirm remove'}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
+
+            {recipe.ingredients.length === 0 ? (
+              <Text style={styles.emptyIngredients}>
+                Add ingredients to see your cost per {recipe.yield_unit}.
+              </Text>
+            ) : (
+              recipe.ingredients.map((ri) => {
+                const isSelected = selectedIngredientIds.has(ri.id);
+                return (
+                  <Pressable
+                    key={ri.id}
+                    style={[styles.ingredientRow, isSelected && styles.ingredientRowSelected]}
+                    onPress={() => handleIngredientRowPress(ri)}
+                    onLongPress={() => toggleIngredientSelection(ri.id)}
+                  >
+                    <View style={styles.ingredientRowLeft}>
+                      <View style={styles.ingredientIconTile}>
+                        <Ionicons
+                          name={isSelected ? 'checkmark-circle' : getCategoryIcon(ri.ingredient.category)}
+                          size={16}
+                          color={isSelected ? colors.primary : colors.textSecondary}
+                        />
+                      </View>
+                      <Text style={styles.ingredientName}>{ri.ingredient.name}</Text>
+                    </View>
+                    <Text style={styles.ingredientQty}>
+                      {ri.quantity} {ri.unit}
+                    </Text>
+                  </Pressable>
+                );
+              })
+            )}
+          </>
+        ) : (
+          <>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionHeader}>Instructions</Text>
+              <Pressable
+                onPress={() => router.push(`/more/recipes/${id}/instructions`)}
+                style={styles.addLink}
+              >
+                <Ionicons
+                  name={recipe.instructions && recipe.instructions.length > 0 ? 'create-outline' : 'add'}
+                  size={16}
+                  color={colors.primary}
+                />
+                <Text style={styles.addLinkText}>
+                  {recipe.instructions && recipe.instructions.length > 0 ? 'Edit' : 'Add'}
+                </Text>
+              </Pressable>
+            </View>
+
+            {!recipe.instructions || recipe.instructions.length === 0 ? (
+              <Pressable onPress={() => router.push(`/more/recipes/${id}/instructions`)}>
+                <Text style={styles.emptyIngredients}>
+                  No steps yet — add them so they're not just in your head.
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable onPress={() => router.push(`/more/recipes/${id}/instructions`)}>
+                <InstructionsTimeline steps={recipe.instructions} accentColor={visual.color} colors={colors} />
+              </Pressable>
+            )}
+          </>
+        )}
       </ScrollView>
 
       <RecipeIngredientSheet
@@ -636,7 +679,27 @@ function makeStyles(colors: Record<ColorToken, string>) {
     costLabel: { ...typography.bodySm, color: colors.textSecondary },
     costValue: { ...typography.titleLg, color: colors.textPrimary, marginTop: spacing.xxs },
     costBreakdown: { marginTop: spacing.lg, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border },
+    costBreakdownSectionLabel: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      marginBottom: spacing.sm,
+    },
+    costBreakdownDivider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.md },
     costNote: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
+    tabBar: {
+      flexDirection: 'row',
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radii.md,
+      padding: spacing.xxs,
+      marginBottom: spacing.md,
+    },
+    tabButton: { flex: 1, paddingVertical: spacing.sm, alignItems: 'center', borderRadius: radii.sm },
+    tabButtonActive: { backgroundColor: colors.primary },
+    tabButtonText: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
+    tabButtonTextActive: { color: colors.textInverse },
+    tabContent: { flex: 1 },
     sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
     sectionHeader: { ...typography.titleSm, color: colors.textPrimary, marginTop: spacing.lg, marginBottom: spacing.sm },
     addLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
@@ -676,17 +739,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.sm,
     },
     usageText: { ...typography.bodySm, color: colors.textPrimary },
-    instructionsCard: {
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.lg,
-      padding: spacing.lg,
-      marginBottom: spacing.lg,
-    },
-    stepRow: { flexDirection: 'row', marginBottom: spacing.sm },
-    stepNumber: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600', width: 22 },
-    stepText: { ...typography.bodySm, color: colors.textPrimary, flex: 1 },
     inlineConfirmRow: {
       backgroundColor: colors.dangerMuted,
       borderRadius: radii.md,

@@ -1,14 +1,26 @@
 import type { Ingredient } from './ingredient';
 
+/** One instruction step. `duration_minutes`/`temperature_celsius` are
+ * optional per-step metadata (a step doesn't need either) — see
+ * docs/DECISIONS.md's 2026-08-25 "Recipe step timer + temperature
+ * fields" entry. Every step in the DB has this shape as of migration
+ * 0010; a legacy plain-string step should never reach the app, since
+ * that migration normalized existing data on write. */
+export type RecipeStep = {
+  text: string;
+  duration_minutes: number | null;
+  temperature_celsius: number | null;
+};
+
 export type Recipe = {
   id: string;
   baker_id: string;
   name: string;
   yield_quantity: number;
   yield_unit: string;
-  /** Array of step strings, jsonb in the DB. A "one block" recipe is
-   * just a 1-item array — see docs/DECISIONS.md's 2026-08-21 entry. */
-  instructions: string[] | null;
+  /** jsonb array of RecipeStep in the DB. A "one block" recipe is just
+   * a 1-item array — see docs/DECISIONS.md's 2026-08-21 entry. */
+  instructions: RecipeStep[] | null;
   margin_percent: number | null;
   created_at: string;
   updated_at: string;

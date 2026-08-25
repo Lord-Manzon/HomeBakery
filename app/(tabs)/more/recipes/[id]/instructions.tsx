@@ -9,11 +9,13 @@ import { useRecipe, useUpdateRecipe } from '../../../../../src/hooks/useRecipes'
 import { useThemeColors } from '../../../../../src/theme/ThemeContext';
 import { ConfirmDialog } from '../../../../../src/components/ConfirmDialog';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
+import { InstructionsTimeline } from '../../../../../src/components/InstructionsTimeline';
 import { Screen } from '../../../../../src/components/Screen';
 import { getRecipeVisual } from '../../../../../src/utils/recipeVisual';
 import { recipeFormSchema } from '../../../../../src/utils/validation/recipeSchemas';
 import { spacing, radii, typography } from '../../../../../src/theme';
 import type { ColorToken } from '../../../../../src/theme/colors';
+import type { RecipeStep } from '../../../../../src/types/recipe';
 
 type FormatMode = 'steps' | 'block';
 // View: a read-only timeline, the default way to land on this screen
@@ -26,12 +28,32 @@ type ScreenMode = 'view' | 'edit';
 // — keying rows by array index would swap which text a mid-drag gesture
 // is holding onto the instant a reorder happens, since index-as-key
 // makes React reuse the row for whatever now sits in that slot.
-type StepItem = { id: string; text: string };
+//
+// durationMinutes/temperatureCelsius are kept as raw text (not number)
+// while editing, same as every other numeric draft field in this app
+// (see the yield-quantity editor above this file's sibling screen) —
+// lets a baker type "1" then "2" to reach "12" without the field
+// fighting a half-typed value, and an empty string cleanly means "not
+// set" without needing a separate boolean.
+type StepItem = { id: string; text: string; durationMinutes: string; temperatureCelsius: string };
 
 let stepIdCounter = 0;
 function makeStepId(): string {
   stepIdCounter += 1;
   return `step-${Date.now()}-${stepIdCounter}`;
+}
+
+function emptyStepItem(): StepItem {
+  return { id: makeStepId(), text: '', durationMinutes: '', temperatureCelsius: '' };
+}
+
+function stepFromRecipeStep(step: RecipeStep): StepItem {
+  return {
+    id: makeStepId(),
+    text: step.text,
+    durationMinutes: step.duration_minutes != null ? String(step.duration_minutes) : '',
+    temperatureCelsius: step.temperature_celsius != null ? String(step.temperature_celsius) : '',
+  };
 }
 
 export default function RecipeInstructionsScreen() {
@@ -49,7 +71,7 @@ export default function RecipeInstructionsScreen() {
   // anything the baker typed in the format they're not currently viewing.
   const [formatMode, setFormatMode] = useState<FormatMode>('steps');
   const [screenMode, setScreenMode] = useState<ScreenMode>('view');
-  const [stepItems, setStepItems] = useState<StepItem[]>([{ id: makeStepId(), text: '' }]);
+  const [stepItems, setStepItems] = useState<StepItem[]>([emptyStepItem()]);
   const [blockText, setBlockText] = useState('');
   const [initialized, setInitialized] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -67,17 +89,15 @@ export default function RecipeInstructionsScreen() {
   useEffect(() => {
     if (!recipe || initialized) return;
     const existing = recipe.instructions ?? [];
-    const hasContent = existing.some((s) => s.trim().length > 0);
+    const hasContent = existing.some((s) => s.text.trim().length > 0);
     if (existing.length > 1) {
       setFormatMode('steps');
-      setStepItems(existing.map((text) => ({ id: makeStepId(), text })));
-      setBlockText(existing.join('\n'));
+      setStepItems(existing.map(stepFromRecipeStep));
+      setBlockText(existing.map((s) => s.text).join('\n'));
     } else {
       setFormatMode('block');
-      setBlockText(existing[0] ?? '');
-      setStepItems(
-        existing.length === 1 ? [{ id: makeStepId(), text: existing[0] }] : [{ id: makeStepId(), text: '' }]
-      );
+      setBlockText(existing[0]?.text ?? '');
+      setStepItems(existing.length === 1 ? [stepFromRecipeStep(existing[0])] : [emptyStepItem()]);
     }
     setScreenMode(hasContent ? 'view' : 'edit');
     setInitialized(true);
@@ -101,15 +121,33 @@ export default function RecipeInstructionsScreen() {
 
   const visual = getRecipeVisual(recipe.name);
 
+  // Parses a draft numeric field back to a number, or null if it's
+  // empty/not a real number — a stray non-numeric paste silently drops
+  // rather than blocking save, since these fields are optional anyway.
+  const parseOptionalNumber = (raw: string): number | null => {
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    const n = Number(trimmed);
+    return Number.isFinite(n) ? n : null;
+  };
+
   // The steps actually being displayed right now, regardless of which
   // format they were entered in — used both for the view-mode timeline
   // and to detect unsaved edits, so there's one source of truth for
-  // "what would be saved if I hit Save right now."
-  const currentInstructions =
+  // "what would be saved if I hit Save right now." Key order matches
+  // the DB's jsonb_build_object order (migration 0010) so isDirty's
+  // JSON.stringify comparison against recipe.instructions is reliable.
+  const currentInstructions: RecipeStep[] =
     formatMode === 'steps'
-      ? stepItems.map((s) => s.text.trim()).filter(Boolean)
+      ? stepItems
+          .filter((s) => s.text.trim().length > 0)
+          .map((s) => ({
+            text: s.text.trim(),
+            duration_minutes: parseOptionalNumber(s.durationMinutes),
+            temperature_celsius: parseOptionalNumber(s.temperatureCelsius),
+          }))
       : blockText.trim()
-        ? [blockText.trim()]
+        ? [{ text: blockText.trim(), duration_minutes: null, temperature_celsius: null }]
         : [];
   const savedInstructions = recipe.instructions ?? [];
   const isDirty =
@@ -119,17 +157,21 @@ export default function RecipeInstructionsScreen() {
     if (next === formatMode) return;
     if (next === 'block') {
       // Steps -> Block: join whatever's been typed so far into one
-      // paragraph, one step per line.
+      // paragraph, one step per line. Duration/temperature don't carry
+      // over — a free-text block has nowhere to hold them.
       setBlockText(stepItems.map((s) => s.text.trim()).filter(Boolean).join('\n'));
     } else {
       // Block -> Steps: split on line breaks, each non-empty line
-      // becomes its own step row with a fresh stable id.
+      // becomes its own step row with a fresh stable id and no
+      // duration/temperature yet.
       const split = blockText
         .split('\n')
         .map((s) => s.trim())
         .filter(Boolean);
       setStepItems(
-        split.length > 0 ? split.map((text) => ({ id: makeStepId(), text })) : [{ id: makeStepId(), text: '' }]
+        split.length > 0
+          ? split.map((text) => ({ id: makeStepId(), text, durationMinutes: '', temperatureCelsius: '' }))
+          : [emptyStepItem()]
       );
     }
     setFormatMode(next);
@@ -139,14 +181,20 @@ export default function RecipeInstructionsScreen() {
     setStepItems((prev) => prev.map((s) => (s.id === stepId ? { ...s, text: value } : s)));
   };
 
+  const updateStepDuration = (stepId: string, value: string) => {
+    setStepItems((prev) => prev.map((s) => (s.id === stepId ? { ...s, durationMinutes: value } : s)));
+  };
+
+  const updateStepTemperature = (stepId: string, value: string) => {
+    setStepItems((prev) => prev.map((s) => (s.id === stepId ? { ...s, temperatureCelsius: value } : s)));
+  };
+
   const removeStep = (stepId: string) => {
-    setStepItems((prev) =>
-      prev.length === 1 ? [{ id: makeStepId(), text: '' }] : prev.filter((s) => s.id !== stepId)
-    );
+    setStepItems((prev) => (prev.length === 1 ? [emptyStepItem()] : prev.filter((s) => s.id !== stepId)));
   };
 
   const addStep = () => {
-    setStepItems((prev) => [...prev, { id: makeStepId(), text: '' }]);
+    setStepItems((prev) => [...prev, emptyStepItem()]);
   };
 
   // Moves the step at `fromIndex` by `shift` positions (can be more than
@@ -238,24 +286,7 @@ export default function RecipeInstructionsScreen() {
 
       {screenMode === 'view' ? (
         <ScrollView showsVerticalScrollIndicator={false}>
-          {currentInstructions.map((step, index) => {
-            const isLast = index === currentInstructions.length - 1;
-            return (
-              <View key={index} style={styles.timelineRow}>
-                <View style={styles.timelineRail}>
-                  <View style={[styles.timelineDot, { backgroundColor: visual.color }]}>
-                    <Text style={styles.timelineDotText}>{index + 1}</Text>
-                  </View>
-                  {!isLast ? (
-                    <View style={[styles.timelineLine, { backgroundColor: `${visual.color}33` }]} />
-                  ) : null}
-                </View>
-                <View style={styles.timelineCard}>
-                  <Text style={styles.timelineStepText}>{step}</Text>
-                </View>
-              </View>
-            );
-          })}
+          <InstructionsTimeline steps={currentInstructions} accentColor={visual.color} colors={colors} />
         </ScrollView>
       ) : (
         <>
@@ -291,7 +322,11 @@ export default function RecipeInstructionsScreen() {
                     index={index}
                     total={stepItems.length}
                     text={item.text}
+                    durationMinutes={item.durationMinutes}
+                    temperatureCelsius={item.temperatureCelsius}
                     onChangeText={(v) => updateStep(item.id, v)}
+                    onChangeDuration={(v) => updateStepDuration(item.id, v)}
+                    onChangeTemperature={(v) => updateStepTemperature(item.id, v)}
                     onRemove={() => removeStep(item.id)}
                     onDragStart={() => setIsReordering(true)}
                     onDragEnd={(shift) => {
@@ -355,12 +390,21 @@ export default function RecipeInstructionsScreen() {
  * mid-drag against every other row's live position) for a solo-dev app
  * where that complexity isn't worth the risk of a subtly-wrong gesture
  * bug that's hard to reproduce on-device.
+ *
+ * Duration/temperature are two small always-visible fields under the
+ * main text input, rather than hidden behind a "+ add timer" toggle —
+ * simpler to build and reason about first; worth revisiting for a
+ * collapsed/on-demand version if it reads as too busy on-device.
  */
 function DraggableStepRow({
   index,
   total,
   text,
+  durationMinutes,
+  temperatureCelsius,
   onChangeText,
+  onChangeDuration,
+  onChangeTemperature,
   onRemove,
   onDragStart,
   onDragEnd,
@@ -370,7 +414,11 @@ function DraggableStepRow({
   index: number;
   total: number;
   text: string;
+  durationMinutes: string;
+  temperatureCelsius: string;
   onChangeText: (value: string) => void;
+  onChangeDuration: (value: string) => void;
+  onChangeTemperature: (value: string) => void;
   onRemove: () => void;
   onDragStart: () => void;
   onDragEnd: (shift: number) => void;
@@ -413,23 +461,50 @@ function DraggableStepRow({
         measuredHeight.value = e.nativeEvent.layout.height;
       }}
     >
-      <GestureDetector gesture={pan}>
-        <View style={styles.dragHandle} accessibilityLabel="Drag to reorder step">
-          <Ionicons name="reorder-three-outline" size={20} color={colors.textSecondary} />
+      <View style={styles.stepRowTop}>
+        <GestureDetector gesture={pan}>
+          <View style={styles.dragHandle} accessibilityLabel="Drag to reorder step">
+            <Ionicons name="reorder-three-outline" size={20} color={colors.textSecondary} />
+          </View>
+        </GestureDetector>
+        <Text style={styles.stepNumber}>{index + 1}.</Text>
+        <TextInput
+          style={styles.stepInput}
+          value={text}
+          onChangeText={onChangeText}
+          placeholder={`e.g. ${index === 0 ? 'Preheat oven to 350\u00b0F' : 'Next step\u2026'}`}
+          placeholderTextColor={colors.textSecondary}
+          multiline
+        />
+        <Pressable onPress={onRemove} style={styles.removeStepButton} accessibilityLabel="Remove step">
+          <Ionicons name="close" size={18} color={colors.textSecondary} />
+        </Pressable>
+      </View>
+
+      <View style={styles.metaInputRow}>
+        <View style={styles.metaInputGroup}>
+          <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+          <TextInput
+            style={styles.metaInput}
+            value={durationMinutes}
+            onChangeText={onChangeDuration}
+            placeholder="min"
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="number-pad"
+          />
         </View>
-      </GestureDetector>
-      <Text style={styles.stepNumber}>{index + 1}.</Text>
-      <TextInput
-        style={styles.stepInput}
-        value={text}
-        onChangeText={onChangeText}
-        placeholder={`e.g. ${index === 0 ? 'Preheat oven to 350\u00b0F' : 'Next step\u2026'}`}
-        placeholderTextColor={colors.textSecondary}
-        multiline
-      />
-      <Pressable onPress={onRemove} style={styles.removeStepButton} accessibilityLabel="Remove step">
-        <Ionicons name="close" size={18} color={colors.textSecondary} />
-      </Pressable>
+        <View style={styles.metaInputGroup}>
+          <Ionicons name="thermometer-outline" size={14} color={colors.textSecondary} />
+          <TextInput
+            style={styles.metaInput}
+            value={temperatureCelsius}
+            onChangeText={onChangeTemperature}
+            placeholder="\u00b0C"
+            placeholderTextColor={colors.textSecondary}
+            keyboardType="decimal-pad"
+          />
+        </View>
+      </View>
     </Animated.View>
   );
 }
@@ -454,30 +529,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     saveHeaderButtonText: { ...typography.body, color: colors.primary, fontWeight: '700' },
 
-    // View mode — timeline
-    timelineRow: { flexDirection: 'row' },
-    timelineRail: { width: 28, alignItems: 'center' },
-    timelineDot: {
-      width: 24,
-      height: 24,
-      borderRadius: radii.full,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    timelineDotText: { ...typography.caption, color: colors.textInverse, fontWeight: '700' },
-    timelineLine: { flex: 1, width: 2, marginVertical: spacing.xxs },
-    timelineCard: {
-      flex: 1,
-      marginLeft: spacing.sm,
-      marginBottom: spacing.lg,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.md,
-      padding: spacing.md,
-    },
-    timelineStepText: { ...typography.body, color: colors.textPrimary },
-
     // Edit mode
     modeToggle: {
       flexDirection: 'row',
@@ -496,16 +547,14 @@ function makeStyles(colors: Record<ColorToken, string>) {
     modeButtonText: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
     modeButtonTextActive: { color: colors.textPrimary },
     stepRow: {
-      flexDirection: 'row',
-      alignItems: 'flex-start',
       marginBottom: spacing.sm,
-      gap: spacing.xxs,
       backgroundColor: colors.background,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 2 },
       shadowRadius: 6,
       borderRadius: radii.md,
     },
+    stepRowTop: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xxs },
     dragHandle: { width: 28, height: 44, alignItems: 'center', justifyContent: 'center' },
     stepNumber: { ...typography.body, color: colors.textSecondary, fontWeight: '600', width: 20, marginTop: spacing.sm + 2 },
     stepInput: {
@@ -521,6 +570,30 @@ function makeStyles(colors: Record<ColorToken, string>) {
       minHeight: 44,
     },
     removeStepButton: { width: 32, height: 44, alignItems: 'center', justifyContent: 'center' },
+    metaInputRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginLeft: 56,
+      marginTop: spacing.xxs,
+      marginBottom: spacing.xs,
+    },
+    metaInputGroup: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xxs,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.sm,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xxs,
+      backgroundColor: colors.surface,
+    },
+    metaInput: {
+      ...typography.bodySm,
+      color: colors.textPrimary,
+      width: 44,
+      padding: 0,
+    },
     addStepButton: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs, paddingVertical: spacing.sm, marginBottom: spacing.xxxl },
     addStepText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     blockInput: {
