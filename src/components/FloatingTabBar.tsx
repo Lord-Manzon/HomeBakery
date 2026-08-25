@@ -36,11 +36,11 @@ type FloatingTabBarProps = NonNullable<TabBarRenderer> extends (props: infer P) 
 const NAV_ROW_HEIGHT = 72;
 
 // Extra clearance (beyond the bar's own top edge) that both popups add
-// to their vertical offset, so they clear the embedded FAB — which
+// to their vertical offset, so they clear the embedded FAB — whichr
 // pokes 22px above the bar — with a visibly obvious gap rather than a
 // mathematically-minimal one that risks reading as touching due to
 // shadow bleed. Tighten this if it ends up too generous once seen live.
-const POPUP_FAB_CLEARANCE = 60;
+const POPUP_FAB_CLEARANCE = 24;
 
 // Filled variant shown when a tab is active, on top of the color change
 // and pop/rotate motion — a plain outline-vs-outline color swap felt
