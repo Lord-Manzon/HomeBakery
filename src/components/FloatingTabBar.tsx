@@ -7,7 +7,9 @@ import Animated, {
   useSharedValue,
   withTiming,
   withSpring,
+  withSequence,
   runOnJS,
+  interpolateColor,
 } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../theme/ThemeContext';
@@ -27,17 +29,30 @@ type FloatingTabBarProps = NonNullable<TabBarRenderer> extends (props: infer P) 
   ? P
   : never;
 
-// Height of the pill+FAB row (the FAB is the tallest element in it) —
-// used to position the Quick Add card correctly now that it renders
-// inside its own Modal (for a real full-screen tap-outside-to-close
-// backdrop) instead of inline next to the row.
-const NAV_ROW_HEIGHT = 48;
+// Height of the bar — used to position the Quick Add / More popups
+// correctly (they measure the bar's real on-screen position via
+// measureInWindow rather than relying on this constant directly, but
+// it's kept as the pre-measurement fallback default).
+const NAV_ROW_HEIGHT = 72;
 
-const TAB_META: Record<string, { label: string; icon: IconName }> = {
-  index: { label: 'Home', icon: 'home-outline' },
-  orders: { label: 'Orders', icon: 'receipt-outline' },
-  production: { label: 'Production', icon: 'flame-outline' },
-  more: { label: 'More', icon: 'menu-outline' },
+// Extra clearance (beyond the bar's own top edge) that both popups add
+// to their vertical offset, so they clear the embedded FAB — which
+// pokes 22px above the bar — with a visibly obvious gap rather than a
+// mathematically-minimal one that risks reading as touching due to
+// shadow bleed. Tighten this if it ends up too generous once seen live.
+const POPUP_FAB_CLEARANCE = 60;
+
+// Filled variant shown when a tab is active, on top of the color change
+// and pop/rotate motion — a plain outline-vs-outline color swap felt
+// flat; swapping to the filled glyph gives the tap a visible "state
+// changed" feeling beyond just recoloring. 'menu-outline' has no
+// distinct filled counterpart in Ionicons, so More reuses 'menu' as its
+// active glyph (subtly different weight, not a true fill).
+const TAB_META: Record<string, { label: string; icon: IconName; activeIcon: IconName }> = {
+  index: { label: 'Home', icon: 'home-outline', activeIcon: 'home' },
+  orders: { label: 'Orders', icon: 'receipt-outline', activeIcon: 'receipt' },
+  production: { label: 'Production', icon: 'flame-outline', activeIcon: 'flame' },
+  more: { label: 'More', icon: 'menu-outline', activeIcon: 'menu' },
 };
 
 type QuickAddItem = {
@@ -87,10 +102,7 @@ const QUICK_ADD: Record<string, QuickAddItem[]> = {
  *   - 'direct' → Ingredients/Products/Recipes/Orders: + performs that
  *                one obvious action directly, no popup needed.
  *   - 'hidden' → Reports, Settings, Account, the /more hub itself, and
- *                anything unrecognized: no + shown at all. The pill
- *                then centers alone (see `row`'s alignSelf: 'center' —
- *                that's automatic once the FAB isn't rendered, no
- *                extra centering logic needed).
+ *                anything unrecognized: no + shown at all.
  */
 type FabConfig =
   | { mode: 'hidden' }
@@ -110,16 +122,9 @@ function getFabConfig(activeRouteName: string, pathname: string): FabConfig {
     }
     // TODO: add an Expenses branch here once /more/expenses exists —
     // { mode: 'direct', icon: 'wallet-outline', pathname: '/more/expenses/new' }
-    //
-    // Everything else under More — Settings (appearance), the /more hub
-    // screen itself, and any future Account/Reports/etc. screens — has
-    // no obvious "add" action, so no +.
     return { mode: 'hidden' };
   }
   if (activeRouteName === 'orders') {
-    // Add Order isn't built yet (Phase 7) — still shows a + per spec,
-    // it just no-ops until the route exists (same convention as the
-    // disabled "Soon" rows elsewhere).
     return { mode: 'direct', icon: 'receipt-outline' };
   }
   if (activeRouteName === 'index') {
@@ -132,12 +137,103 @@ function getFabConfig(activeRouteName: string, pathname: string): FabConfig {
 }
 
 /**
- * Replaces Expo Router <Tabs>'s default fixed bar (via the `tabBar` prop)
- * with a floating pill nav + a separate floating + button, both hiding
- * together on scroll-down and reappearing on scroll-up (see
- * docs/DECISIONS.md's 2026-08-19 entry, docs/UI_UX_1.md section G).
- * Tapping + opens a small popup card, anchored bottom-right above the
- * FAB, listing that tab's contextual Quick Add actions.
+ * One tab. Highlight is per-tab and independent — a small chip wrapping
+ * just the icon fades from transparent to tinted on focus, rather than
+ * a shared element traveling between tabs (tried that; it was
+ * positioned across the whole row's height to measure correctly, which
+ * visually intruded into the label below — an inline per-tab chip
+ * avoids that entirely since it just sits in the icon's own slot in
+ * normal layout flow). Icon still swaps to a filled variant and does a
+ * pop/rotate "flick" on becoming active.
+ */
+function TabItem({
+  icon,
+  activeIcon,
+  label,
+  isFocused,
+  badgeCount,
+  onPress,
+  colors,
+  styles,
+}: {
+  icon: IconName;
+  activeIcon: IconName;
+  label: string;
+  isFocused: boolean;
+  /** Wired for future use — Orders/Production may show a live count
+   * later. No data source for this exists yet, so every call site below
+   * passes `undefined` today; this just avoids another restructure once
+   * that data's available. */
+  badgeCount?: number;
+  onPress: () => void;
+  colors: Record<ColorToken, string>;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  const progress = useSharedValue(isFocused ? 1 : 0);
+  const scale = useSharedValue(1);
+  const rotate = useSharedValue(0);
+
+  useEffect(() => {
+    progress.value = withTiming(isFocused ? 1 : 0, {
+      duration: motionDuration.fast,
+      easing: motionEasing.standard,
+    });
+    if (isFocused) {
+      // Quick pop past 1.0 then spring-settle, plus a small counter-
+      // rotation that untwists back to 0 — reads as a little "flick"
+      // rather than a plain fade. Judgment-call default; swap freely if
+      // it doesn't feel right in motion.
+      scale.value = withSequence(
+        withTiming(1.22, { duration: 120, easing: motionEasing.decelerate }),
+        withSpring(1, motionSpring.gentle)
+      );
+      rotate.value = withSequence(
+        withTiming(-14, { duration: 0 }),
+        withTiming(0, { duration: 240, easing: motionEasing.decelerate })
+      );
+    }
+  }, [isFocused]);
+
+  const chipAnimStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(progress.value, [0, 1], ['transparent', `${colors.primary}22`]),
+    transform: [{ scale: scale.value }, { rotate: `${rotate.value}deg` }],
+  }));
+
+  const labelAnimStyle = useAnimatedStyle(() => ({
+    color: interpolateColor(progress.value, [0, 1], [colors.textSecondary, colors.primary]),
+  }));
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={styles.tabButton}
+      accessibilityRole="tab"
+      accessibilityState={{ selected: isFocused }}
+      accessibilityLabel={badgeCount ? `${label}, ${badgeCount} new` : label}
+    >
+      <Animated.View style={[styles.iconChip, chipAnimStyle]}>
+        <Ionicons name={isFocused ? activeIcon : icon} size={22} color={isFocused ? colors.primary : colors.textSecondary} />
+        {badgeCount ? (
+          <View style={styles.badge}>
+            <Text style={styles.badgeText}>{badgeCount > 99 ? '99+' : badgeCount}</Text>
+          </View>
+        ) : null}
+      </Animated.View>
+      <Animated.Text style={[styles.tabLabel, labelAnimStyle]}>{label}</Animated.Text>
+    </Pressable>
+  );
+}
+
+/**
+ * Replaces Expo Router <Tabs>'s default fixed bar (via the `tabBar`
+ * prop). Full-width, flush against the bottom of the screen — not a
+ * floating pill — with the Quick Add + embedded as a notch at the
+ * top-center of the bar rather than sitting beside it. A single
+ * traveling highlight slides between whichever tab is active; each
+ * tab's icon also pops/rotates and swaps to a filled variant on
+ * becoming active. Tapping + opens a contextual popup listing that
+ * screen's Quick Add actions (or performs one direct action on
+ * single-purpose screens — see getFabConfig).
  */
 export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   const { colors } = useThemeColors();
@@ -150,22 +246,17 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   const [isCardOpen, setIsCardOpen] = useState(false);
 
   // The Quick Add card renders as a plain full-screen overlay View (not
-  // <Modal> — see the render below for why), which is a separate
-  // sibling from the nav row's own container — the two don't reliably
-  // share the same "distance from screen bottom" coordinate space
-  // (confirmed on-device: a hardcoded height guess put the card flush
-  // against the pill instead of floating above it with a gap).
-  // Measuring the row's real on-screen position with measureInWindow
-  // avoids guessing at that offset entirely.
+  // <Modal> — Android's native Dialog dims the background by default
+  // regardless of our own styles, which is what was showing up as an
+  // unwanted dark backdrop). Measuring the bar's real on-screen position
+  // with measureInWindow avoids guessing at its height/offset.
   const rowRef = useRef<View>(null);
-  const [cardBottomOffset, setCardBottomOffset] = useState(insets.bottom + spacing.xs + NAV_ROW_HEIGHT + spacing.sm);
+  const [cardBottomOffset, setCardBottomOffset] = useState(insets.bottom + spacing.sm + NAV_ROW_HEIGHT);
 
   // Guards every navigation triggered from this bar against rapid
-  // double-taps. Without this, tapping fast enough fires a second press
-  // before `pathname` has updated from the first one, so the "am I
-  // already on this screen?" checks below don't catch it — both taps
-  // push, and you get the same screen duplicated on the stack. A short
-  // cooldown after any nav call blocks the immediate repeat tap.
+  // double-taps — without this, tapping fast enough fires a second press
+  // before `pathname` has updated from the first one, so the "already
+  // here?" checks below don't catch it and you get a duplicated screen.
   const lastNavAtRef = useRef(0);
   function navigateOnce(action: () => void) {
     const now = Date.now();
@@ -177,55 +268,50 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   function measureRowPosition() {
     rowRef.current?.measureInWindow((_x, y) => {
       if (y > 0) {
-        setCardBottomOffset(windowHeight - y + spacing.sm);
+        // The FAB pokes up 22px above the bar's own top edge (see
+        // styles.fab's top: -22). The previous +34 total should have
+        // left a small real gap mathematically, but it was still
+        // reading as touching on-device (likely shadow bleed making a
+        // small gap look like contact, or the FAB's own drop shadow
+        // extending past its visible circle). Bumping to a clearly
+        // visible gap rather than a precisely-calculated minimum one —
+        // easy to tighten later via POPUP_FAB_CLEARANCE if it ends up
+        // too generous.
+        setCardBottomOffset(windowHeight - y + spacing.sm + POPUP_FAB_CLEARANCE);
       }
     });
   }
 
-  // Quick Add "pop" animation — scales/rises up from the FAB's corner
-  // instead of a plain fade, with a light spring on the way in. Driven
-  // manually (rather than Modal's own animationType, or entering/exiting
-  // props) so the closing half gets to actually play: `cardMounted` keeps
-  // the Modal alive through the close animation, only flipping off once
-  // the animation's finished callback fires — otherwise Modal's own
-  // `visible` toggling off would cut the animation short.
+  // Quick Add "pop" animation — scales/rises up instead of a plain fade.
+  // Driven manually so the closing half gets to actually play:
+  // `cardMounted` stays true through the close animation, only flipping
+  // off once the animation's finished callback fires.
   const [cardMounted, setCardMounted] = useState(false);
   const cardProgress = useSharedValue(0);
 
   useEffect(() => {
-  if (isCardOpen) {
-    cardProgress.value = 0;
-    setCardMounted(true);
-
-    requestAnimationFrame(() => {
-      cardProgress.value = withTiming(1, {
-        duration: 100,
+    if (isCardOpen) {
+      cardProgress.value = 0;
+      setCardMounted(true);
+      requestAnimationFrame(() => {
+        cardProgress.value = withTiming(1, { duration: 100 });
       });
-    });
-  } else {
-    cardProgress.value = withTiming(0, {
-      duration: motionDuration.instant,
-    }, (finished) => {
-      if (finished) runOnJS(setCardMounted)(false);
-    });
-  }
-}, [isCardOpen]);
+    } else {
+      cardProgress.value = withTiming(0, { duration: motionDuration.instant }, (finished) => {
+        if (finished) runOnJS(setCardMounted)(false);
+      });
+    }
+  }, [isCardOpen]);
 
-const cardAnimatedStyle = useAnimatedStyle(() => ({
-  opacity: cardProgress.value,
-  transform: [
-    { scale: 0.88 + cardProgress.value * 0.12 },
-    { translateY: (1 - cardProgress.value) * 6 },
-  ],
-}));
+  const cardAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: cardProgress.value,
+    transform: [
+      { scale: 0.88 + cardProgress.value * 0.12 },
+      { translateY: (1 - cardProgress.value) * 6 },
+    ],
+  }));
 
-  // --- More menu (Modal-based popover, same mechanism as Quick Add) ---
-  // A grouped list, not an inline-expanding strip — see the conversation
-  // that led here: with 9 destinations (and growing), a flat/expanding
-  // strip either hides most of them behind swipes or gets cramped. This
-  // reuses the exact Quick Add popover pattern (Modal, backdrop, mounted
-  // state kept alive through the close animation) rather than inventing a
-  // second overlay mechanism.
+  // --- More menu (same overlay mechanism as Quick Add) ---
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   const [moreMenuMounted, setMoreMenuMounted] = useState(false);
   const moreMenuProgress = useSharedValue(0);
@@ -252,8 +338,8 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
 
   function handleMoreMenuPress(item: MoreMenuItem) {
     setIsMoreMenuOpen(false);
-    if (!item.pathname) return; // no built destination yet — same no-op as Quick Add
-    if (pathname.startsWith(item.pathname)) return; // already here — this was the real duplicate bug, not tap speed
+    if (!item.pathname) return;
+    if (pathname.startsWith(item.pathname)) return; // already here
     navigateOnce(() => router.push(item.pathname as never));
   }
 
@@ -261,12 +347,9 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
   const fabConfig = getFabConfig(activeRouteName, pathname);
   const items = fabConfig.mode === 'menu' ? fabConfig.items : [];
 
-  // Android hardware back button: Modal used to intercept this for free
-  // via onRequestClose. Now that both popovers are plain overlay Views
-  // (see the render below — removed Modal because its native Android
-  // Dialog dims the background by default regardless of our own styles,
-  // which is what was still showing up as a dark backdrop), back-button
-  // handling has to be wired up explicitly instead.
+  // Android hardware back button: now that both popovers are plain
+  // overlay Views (not <Modal>), back-button handling is wired up
+  // explicitly instead of relying on Modal's onRequestClose.
   useEffect(() => {
     if (!isCardOpen && !isMoreMenuOpen) return;
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
@@ -293,33 +376,18 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
 
   function handleQuickAddPress(item: QuickAddItem) {
     setIsCardOpen(false);
-    if (!item.pathname) return; // no-op for actions with no built destination yet
+    if (!item.pathname) return;
     if (pathname === item.pathname) {
-      // Already on the target screen — pushing here was the bug: tapping
-      // "Add ingredient" while already in Ingredients pushed a SECOND
-      // copy of the same screen onto the stack, so Android back just
-      // popped to another identical Ingredients screen instead of
-      // actually leaving. Update params in place instead, so the
-      // screen's own effect (e.g. ingredients/index.tsx's openAdd
-      // handling) reacts without navigating anywhere. Same class of fix
-      // as the earlier ingredients/index.tsx openAdd fix.
       if (item.params) {
         navigateOnce(() => router.setParams(item.params as never));
       }
       return;
     }
-    // `as never`: QUICK_ADD's pathnames are assembled dynamically per tab
-    // (not string literals Expo Router's typed-routes codegen can see at
-    // this call site), so the cast is a deliberate, narrow escape hatch —
-    // not a general `any`. Every pathname above is a real, existing route.
     navigateOnce(() => router.push({ pathname: item.pathname, params: item.params } as never));
   }
 
-  // Same push-vs-update-in-place logic as handleQuickAddPress, just for
-  // the single direct action a 'direct'-mode screen's + performs — no
-  // popup to close first since there isn't one.
   function handleDirectFabPress(config: Extract<FabConfig, { mode: 'direct' }>) {
-    if (!config.pathname) return; // not built yet — no-op, e.g. Add Order today
+    if (!config.pathname) return;
     if (pathname === config.pathname) {
       if (config.params) {
         navigateOnce(() => router.setParams(config.params as never));
@@ -331,67 +399,60 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      <View style={[styles.wrap, { paddingBottom: insets.bottom + spacing.xs }]} pointerEvents="box-none">
-      <View ref={rowRef} onLayout={measureRowPosition} collapsable={false}>
-      <Animated.View style={[styles.row, navAnimatedStyle]}>
-        <View style={styles.pill}>
-          {/* Flat 4-tab row — no inline expansion. More opens the grouped
-              popover menu above instead of morphing the bar itself, since
-              a flat/expanding strip doesn't scale to 9 destinations
-              without hiding most of them behind swipes. */}
-          <View style={styles.tabsRow}>
-            {state.routes
-              .filter((route) => TAB_META[route.name])
-              .map((route) => {
-                const routeIndex = state.routes.findIndex((r) => r.key === route.key);
-                const isFocused = state.index === routeIndex;
-                const meta = TAB_META[route.name];
-                const isMoreTab = route.name === 'more';
-                return (
-                  <Pressable
-                    key={route.key}
-                    onPress={() => {
-                      setIsCardOpen(false);
-                      if (isMoreTab) {
-                        setIsMoreMenuOpen((open) => !open);
-                        return;
-                      }
-                      setIsMoreMenuOpen(false);
-                      const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-                      if (!isFocused && !event.defaultPrevented) {
-                        navigation.navigate(route.name);
-                      }
-                    }}
-                    style={styles.tabButton}
-                    accessibilityRole="tab"
-                    accessibilityState={{ selected: isFocused }}
-                    accessibilityLabel={meta.label}
-                  >
-                    <View style={[styles.iconChip, isFocused && styles.tabButtonActive]}>
-                      <Ionicons
-                        name={meta.icon}
-                        size={20}
-                        color={isFocused ? colors.primary : colors.textSecondary}
+      <View style={styles.wrap} pointerEvents="box-none">
+        <Animated.View style={navAnimatedStyle}>
+        <View ref={rowRef} onLayout={measureRowPosition} collapsable={false}>
+          <View style={[styles.bar, { paddingBottom: insets.bottom + spacing.sm }]}>
+            <View style={styles.tabsRow}>
+              {state.routes
+                .filter((route) => TAB_META[route.name])
+                .map((route) => {
+                  const routeIndex = state.routes.findIndex((r) => r.key === route.key);
+                  const isFocused = state.index === routeIndex;
+                  const meta = TAB_META[route.name];
+                  const isMoreTab = route.name === 'more';
+
+                  // The FAB notch sits between Orders and Production —
+                  // an empty fixed-width spacer reserves its clearance
+                  // so tabs never sit under it.
+                  const insertSpacerBefore = route.name === 'production';
+
+                  return (
+                    <View key={route.key} style={styles.tabSlot}>
+                      {insertSpacerBefore ? <View style={styles.fabSpacer} /> : null}
+                      <TabItem
+                        icon={meta.icon}
+                        activeIcon={meta.activeIcon}
+                        label={meta.label}
+                        isFocused={isFocused}
+                        colors={colors}
+                        styles={styles}
+                        onPress={() => {
+                          setIsCardOpen(false);
+                          if (isMoreTab) {
+                            setIsMoreMenuOpen((open) => !open);
+                            return;
+                          }
+                          setIsMoreMenuOpen(false);
+                          const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+                          if (!isFocused && !event.defaultPrevented) {
+                            navigation.navigate(route.name);
+                          }
+                        }}
                       />
                     </View>
-                    <Text
-                      style={[
-                        styles.tabLabel,
-                        { color: isFocused ? colors.primary : colors.textSecondary },
-                      ]}
-                    >
-                      {meta.label}
-                    </Text>
-                  </Pressable>
-                );
-              })}
+                  );
+                })}
+            </View>
           </View>
         </View>
 
-        {/* No + at all on 'hidden' screens (Reports, Settings, Account,
-            the /more hub, etc.) — the pill then centers alone for free
-            via `row`'s existing alignSelf: 'center', no extra layout
-            logic needed once this simply isn't rendered. */}
+        {/* Embedded FAB — overlaps the bar's top edge at center, rather
+            than floating beside the bar. Inside the same Animated.View
+            as the bar (was a sibling before, which is why it wasn't
+            hiding on scroll — fixed), so both move together. No + at
+            all on 'hidden' screens (Reports, Settings, Account, the
+            /more hub, etc.). */}
         {fabConfig.mode !== 'hidden' ? (
           <Pressable
             onPress={() => {
@@ -408,33 +469,26 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
             }
           >
             <Ionicons
-              name={fabConfig.mode === 'menu' && isCardOpen ? 'close' : 'add'}
+              name={(fabConfig.mode === 'menu' && isCardOpen) || isMoreMenuOpen ? 'close' : 'add'}
               size={26}
               color={colors.textInverse}
             />
           </Pressable>
         ) : null}
-      </Animated.View>
-      </View>
+        </Animated.View>
       </View>
 
-      {/* Quick Add popup — plain overlay View, not <Modal>. Modal's native
-          Android Dialog dims the background by default regardless of our
-          own transparent/backdrop styling; a plain sibling View here
-          gives full control with zero platform-imposed dimming. Rendered
-          after the nav row above (same parent), so it stacks on top
-          without needing Modal or manual zIndex. */}
+      {/* Quick Add popup — plain overlay View, not <Modal>. Centered
+          above the bar, same as the More menu below — was right-
+          anchored (right: spacing.lg) from when the FAB sat beside the
+          pill on the right edge; now that it's embedded at center, that
+          anchor left the popup floating off to one side instead of
+          above the FAB. */}
       {cardMounted ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsCardOpen(false)} accessibilityLabel="Close quick add" />
-          <Animated.View
-            style={[
-              styles.card,
-              styles.cardModalPosition,
-              { right: spacing.lg, bottom: cardBottomOffset, transformOrigin: 'bottom right' },
-              cardAnimatedStyle,
-            ]}
-          >
+          <View style={[styles.moreMenuPositioner, { bottom: cardBottomOffset }]} pointerEvents="box-none">
+            <Animated.View style={[styles.card, cardAnimatedStyle]}>
             <Text style={styles.cardLabel}>Quick add</Text>
             {items.map((item, i) => (
               <Pressable
@@ -459,47 +513,53 @@ const cardAnimatedStyle = useAnimatedStyle(() => ({
                 {!item.pathname ? <Text style={styles.cardRowSoon}>Soon</Text> : null}
               </Pressable>
             ))}
-          </Animated.View>
+            </Animated.View>
+          </View>
         </View>
       ) : null}
 
-      {/* More menu popup — same reasoning as Quick Add above: plain
-          overlay View instead of <Modal>, so the scrim below is the
-          *only* dimming that happens, fully under our control. */}
+      {/* More menu popup — Option B (icon grid) over Option A (bottom
+          sheet): "simpler" was the ask, and a dimmed-backdrop sheet is
+          actually more visual weight than a small popover, not less —
+          plus the /more full screen already exists specifically so this
+          popup never has to grow past what's built. A 2x2 grid is a
+          fixed shape though — works cleanly for today's 4 built items,
+          but a 5th (e.g. Expenses) won't tile evenly and will need a
+          decision (3rd row with a gap, or switch to 3 columns) when
+          that happens. */}
       {moreMenuMounted ? (
         <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsMoreMenuOpen(false)} accessibilityLabel="Close more menu" />
-          <View
-            style={[styles.moreMenuPositioner, { bottom: cardBottomOffset }]}
-            pointerEvents="box-none"
-          >
+          <View style={[styles.moreMenuPositioner, { bottom: cardBottomOffset }]} pointerEvents="box-none">
             <Animated.View style={[styles.moreMenuCard, moreMenuAnimatedStyle]}>
-              {MORE_MENU_ITEMS.filter((item) => item.pathname).map((item) => {
-                const isActive = !!item.pathname && pathname.startsWith(item.pathname);
-                return (
-                  <Pressable
-                    key={item.label}
-                    onPress={() => handleMoreMenuPress(item)}
-                    style={({ pressed }) => [styles.cardRow, pressed && styles.cardRowPressed]}
-                    accessibilityLabel={item.label}
-                  >
-                    <View style={styles.cardIcon}>
-                      <Ionicons name={item.icon} size={15} color={isActive ? colors.primary : colors.textPrimary} />
-                    </View>
-                    <Text style={[styles.cardRowLabel, isActive && styles.cardRowLabelPrimary]}>{item.label}</Text>
-                  </Pressable>
-                );
-              })}
+              <View style={styles.moreMenuGrid}>
+                {MORE_MENU_ITEMS.filter((item) => item.pathname).map((item) => {
+                  const isActive = !!item.pathname && pathname.startsWith(item.pathname);
+                  return (
+                    <Pressable
+                      key={item.label}
+                      onPress={() => handleMoreMenuPress(item)}
+                      style={({ pressed }) => [styles.gridTile, pressed && styles.cardRowPressed]}
+                      accessibilityLabel={item.label}
+                    >
+                      <View style={[styles.gridTileIcon, isActive && styles.gridTileIconActive]}>
+                        <Ionicons name={item.icon} size={22} color={isActive ? colors.primary : colors.textPrimary} />
+                      </View>
+                      <Text style={[styles.gridTileLabel, isActive && styles.cardRowLabelPrimary]}>{item.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
 
               <View style={styles.moreMenuDivider} />
 
               <Pressable
                 onPress={() => {
                   setIsMoreMenuOpen(false);
-                  if (pathname === '/more') return; // already here
+                  if (pathname === '/more') return;
                   navigateOnce(() => router.push('/more' as never));
                 }}
-                style={({ pressed }) => [styles.cardRow, pressed && styles.cardRowPressed]}
+                style={({ pressed }) => [styles.moreOptionsRow, pressed && styles.cardRowPressed]}
                 accessibilityLabel="More options"
               >
                 <Text style={styles.moreOptionsLabel}>More options</Text>
@@ -520,77 +580,101 @@ function makeStyles(colors: Record<ColorToken, string>) {
       left: 0,
       right: 0,
       bottom: 0,
-      paddingHorizontal: spacing.sm,
     },
-    row: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      alignSelf: 'center', // center the pill+FAB group as a whole, independent of the card's right-anchor below
-      gap: spacing.sm,
-    },
-    pill: {
+    // Full-width, flush with the bottom of the screen — not a floating
+    // pill. Rounded top corners only, per the reference; bottom stays
+    // square since it sits directly on the screen edge / system nav bar.
+    bar: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: colors.background,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.full,
-      height: 60,
-      position: 'relative',
-      overflow: 'hidden',
-      elevation: 6,
+      borderTopLeftRadius: 28,
+      borderTopRightRadius: 28,
+      paddingTop: spacing.lg,
+      elevation: 8,
       shadowColor: '#000',
-      shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: 0.15,
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.1,
       shadowRadius: 10,
     },
     tabsRow: {
+      flex: 1,
       flexDirection: 'row',
-      paddingHorizontal: spacing.sm,
+      justifyContent: 'space-around',
+      alignItems: 'center',
+      position: 'relative',
+    },
+    // Reserves clearance for the embedded FAB notch between Orders and
+    // Production, so tabs never render underneath it.
+    fabSpacer: {
+      width: 72,
     },
     tabButton: {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 4,
       paddingVertical: spacing.xs,
-      paddingHorizontal: spacing.md + 2,
-      minWidth: 46,
-      minHeight: 46,
+      minWidth: 56,
     },
-    // Highlight pill behind the active tab — Netflix and Google Photos
-    // both do this (rounded fill behind icon+label, not just a color
-    // change) and it reads as a clearer "you are here" than color alone.
-    //
-    // Originally used colors.surfaceMuted, on the theory that a
-    // translucent tint of the user-customizable primary wasn't safely
-    // computable from a plain hex token. Wrong in practice: confirmed
-    // against the actual dark palette (src/theme/palettes.ts) that
-    // surface (#26211D) and surfaceMuted (#2F2925) are close enough in
-    // darkness to be visually indistinguishable — the highlight was
-    // rendering, just invisibly. A hex alpha suffix on primary (e.g.
-    // '#C9683F22') is valid in RN styles and works for ANY chosen accent
-    // color without needing a dedicated token, and guarantees contrast
-    // since it's a tint of the accent itself rather than two similarly
-    // dark neutrals.
+    // Wraps just the icon so the highlight can never intrude into the
+    // label below — a fixed wide-oval size per the reference image,
+    // same size every tab, only its background fades in/out.
     iconChip: {
-      width: 36,
-      height: 28,
+      width: 60,
+      height: 34,
       alignItems: 'center',
       justifyContent: 'center',
       borderRadius: radii.full,
     },
-    tabButtonActive: {
-      backgroundColor: `${colors.primary}22`, // ~13% opacity
+    // Each tab's own outer slot in tabsRow — plain View, no Fragment or
+    // cross-parent measurement needed now that the highlight is per-tab
+    // rather than a single shared traveling element.
+    tabSlot: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    badge: {
+      position: 'absolute',
+      top: -4,
+      right: -8,
+      minWidth: 16,
+      height: 16,
       borderRadius: radii.full,
+      backgroundColor: colors.danger,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 3,
+    },
+    badgeText: {
+      ...typography.caption,
+      fontSize: 9,
+      color: colors.textInverse,
+      fontWeight: '700',
     },
     tabLabel: {
       ...typography.caption,
       fontSize: 11,
     },
+    // --- Embedded FAB notch ---
+    // Overlaps the bar's rounded top edge at center, rather than
+    // floating as a separate circle beside the bar.
+    fab: {
+      position: 'absolute',
+      top: -22,
+      alignSelf: 'center',
+      width: 56,
+      height: 56,
+      borderRadius: radii.full,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      elevation: 6,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.25,
+      shadowRadius: 8,
+    },
     // --- More menu (trimmed popover) ---
-    // Centered above the row rather than right-anchored like Quick Add's
-    // card — More sits mid-pill, not attached to the FAB, and centering
-    // keeps it visually attached to where it opened from.
     moreMenuPositioner: {
       position: 'absolute',
       left: 0,
@@ -599,17 +683,47 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingHorizontal: spacing.lg,
     },
     moreMenuCard: {
-      width: 220,
+      width: 260,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radii.lg,
-      padding: spacing.xs,
+      padding: spacing.sm,
       elevation: 6,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.16,
       shadowRadius: 12,
+    },
+    moreMenuGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+    },
+    gridTile: {
+      width: '50%',
+      alignItems: 'center',
+      paddingVertical: spacing.md,
+      borderRadius: radii.md,
+    },
+    gridTileIcon: {
+      width: 48,
+      height: 48,
+      // Half of moreMenuCard's own radius (radii.lg = 16) — nested
+      // rounded rectangles read more polished when the inner radius is
+      // proportional to the outer one rather than picked independently.
+      borderRadius: 8,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: spacing.xs,
+    },
+    gridTileIconActive: {
+      backgroundColor: `${colors.primary}22`,
+    },
+    gridTileLabel: {
+      ...typography.bodySm,
+      color: colors.textPrimary,
+      textAlign: 'center',
     },
     moreMenuDivider: {
       height: StyleSheet.hairlineWidth,
@@ -617,26 +731,24 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginVertical: spacing.xs,
       marginHorizontal: spacing.sm,
     },
-    // Deliberately quieter than a normal row — no icon chip, muted
-    // color, right-aligned chevron — so "More options" reads as an
-    // escape hatch, not a 5th action competing with the real ones above.
+    // Deliberately its own style rather than reusing cardRow (Quick
+    // Add's rows) — given the same vertical rhythm as the grid tiles
+    // above it (spacing.md, not cardRow's tighter spacing.sm) so it
+    // reads as an intentionally quieter row, not an accidentally
+    // cramped one. Still visually secondary via color/no icon-chip,
+    // just no longer a different density scale.
+    moreOptionsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.sm,
+      borderRadius: radii.md,
+      minHeight: 48,
+    },
     moreOptionsLabel: {
       ...typography.bodySm,
       color: colors.textSecondary,
       flex: 1,
-    },
-    fab: {
-      width: 56,
-      height: 56,
-      borderRadius: radii.full,
-      backgroundColor: colors.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
-      elevation: 4,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.2,
-      shadowRadius: 6,
     },
     card: {
       width: 200,
@@ -650,11 +762,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.16,
       shadowRadius: 12,
-    },
-    cardModalPosition: {
-      position: 'absolute',
-      // `right`/`bottom` set inline at the call site since they depend on
-      // insets.bottom, which isn't available in makeStyles.
     },
     cardLabel: {
       ...typography.caption,
@@ -677,10 +784,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     cardRowPressed: {
       backgroundColor: colors.surfaceMuted,
-    },
-    iconSpacer: {
-      width: 26,
-      height: 26,
     },
     cardIcon: {
       width: 26,
