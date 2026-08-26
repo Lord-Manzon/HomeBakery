@@ -1063,3 +1063,37 @@ no conflict).
 
 **Verified:** `npx tsc --noEmit` — zero errors, project-wide, on the fully
 merged tree. `npx jest` — 4 suites, 50 tests, all passing.
+
+### 2026-08-26 — Fixed Order Form's Save button becoming unreachable with a full item cart
+
+**Decision:** `src/components/OrderForm.tsx`'s `ScrollView` was missing
+`style={{ flex: 1 }}` — it only set `contentContainerStyle`. Added a new
+`scrollView: { flex: 1 }` style and passed it via `style={styles.scrollView}`.
+
+**Why this caused the bug:** `contentContainerStyle` only affects the
+padding/layout of the content *inside* the ScrollView — it doesn't bound
+the ScrollView's own height within its parent. Without `style={{ flex: 1
+}}` on the ScrollView itself, its height isn't reliably constrained inside
+`orders/new.tsx` and `orders/[id]/edit.tsx`'s `flex: 1` container. With a
+short form this went unnoticed, but once the item cart grew (several
+products added), the form's total content exceeded the screen height and
+the ScrollView didn't properly scroll to reveal the rest — including the
+Save button — instead of the content just extending past the visible
+screen. Not specific to Pickup vs. Delivery; Delivery's two extra fields
+just meant fewer items were needed to trigger it, so it likely surfaced
+first in Pickup simply because that's what was being tested.
+
+**Why this was missed originally:** every other `ScrollView` in the
+codebase (`appearance.tsx`, `orders/index.tsx`, `IngredientFormSheet.tsx`)
+already sets `style={{ flex: 1 }}` alongside `contentContainerStyle` —
+`OrderForm.tsx` was the one exception, caught by comparing against those
+working patterns rather than guessing.
+
+**Scope:** since `OrderForm.tsx` is the shared component behind both New
+Order and Edit Order (per the 2026-08-22 "Built Edit Order by extracting a
+shared OrderForm component" entry), this one fix covers both screens —
+no separate fix needed for Edit Order.
+
+**Verified:** `npx tsc --noEmit` — zero errors. Confirmed on-device: added
+5 items to a Pickup order and a Delivery order, scrolled to the bottom in
+both, Save button reachable and tappable in both cases.

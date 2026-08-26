@@ -155,6 +155,7 @@ export function OrderForm({
   return (
     <>
       <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -371,6 +372,7 @@ function SegmentButton({
 
 function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
+    scrollView: { flex: 1 },
     scrollContent: { paddingBottom: spacing.xxl },
     label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.sm, marginTop: spacing.xs },
     segmentRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
