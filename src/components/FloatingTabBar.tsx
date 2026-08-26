@@ -372,6 +372,15 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
       });
       return;
     }
+    if (activeRouteName === 'more' && pathname.startsWith('/more/products')) {
+      // Same as Ingredients — Products only has one add action.
+      handleAddItemPress({
+        label: 'Add product',
+        icon: 'cube-outline',
+        pathname: '/more/products/new',
+      });
+      return;
+    }
     openPanel('add');
   }
 
