@@ -383,6 +383,39 @@ export default function RecipeDetailScreen() {
           ) : null}
         </Pressable>
 
+      </View>
+
+      <View style={styles.tabBar}>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'ingredients' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('ingredients')}
+        >
+          <Text style={[styles.tabButtonText, activeTab === 'ingredients' && styles.tabButtonTextActive]}>
+            Ingredients
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'instructions' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('instructions')}
+        >
+          <Text style={[styles.tabButtonText, activeTab === 'instructions' && styles.tabButtonTextActive]}>
+            Instructions
+          </Text>
+        </Pressable>
+      </View>
+
+      <ScrollView
+        style={styles.tabContent}
+        showsVerticalScrollIndicator={false}
+        // Ingredients can run long and needs to scroll; Instructions is
+        // capped to a fixed-height clipped preview ("View all N steps"
+        // takes you to the full screen for anything longer), so there's
+        // nothing on this tab that ever needs scrolling — locking it
+        // avoids the odd feeling of "swipe over static content and the
+        // page nudges by a few px" for a short recipe.
+        scrollEnabled={activeTab !== 'instructions'}
+        contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
+      >
         {usage && usage.length > 0 ? (
           <>
             <Pressable
@@ -416,32 +449,7 @@ export default function RecipeDetailScreen() {
               : null}
           </>
         ) : null}
-      </View>
 
-      <View style={styles.tabBar}>
-        <Pressable
-          style={[styles.tabButton, activeTab === 'ingredients' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('ingredients')}
-        >
-          <Text style={[styles.tabButtonText, activeTab === 'ingredients' && styles.tabButtonTextActive]}>
-            Ingredients
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.tabButton, activeTab === 'instructions' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('instructions')}
-        >
-          <Text style={[styles.tabButtonText, activeTab === 'instructions' && styles.tabButtonTextActive]}>
-            Instructions
-          </Text>
-        </Pressable>
-      </View>
-
-      <ScrollView
-        style={styles.tabContent}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
-      >
         {activeTab === 'ingredients' ? (
           <>
             <View style={styles.sectionHeaderRow}>
@@ -551,8 +559,32 @@ export default function RecipeDetailScreen() {
                 </Text>
               </Pressable>
             ) : (
-              <Pressable onPress={() => router.push(`/more/recipes/${id}/instructions`)}>
-                <InstructionsTimeline steps={recipe.instructions} accentColor={visual.color} colors={colors} />
+              <Pressable
+                onPress={() => router.push(`/more/recipes/${id}/instructions`)}
+                style={styles.instructionsPreviewWrap}
+              >
+                {/* Fixed-height clipped preview, not its own scroll area — a
+                    long recipe used to grow this timeline to full height
+                    inside the tab's outer ScrollView, which is what was
+                    getting visually cut off by the bottom nav. Clipping to
+                    a couple of steps and sending the rest to the full
+                    screen (below) fixes that and matches "tap to see it
+                    properly" rather than fighting for scroll space here. */}
+                <View style={styles.instructionsPreviewClip} pointerEvents="none">
+                  <InstructionsTimeline
+                    steps={recipe.instructions.slice(0, 5)}
+                    accentColor={visual.color}
+                    colors={colors}
+                  />
+                </View>
+                <View style={styles.instructionsViewAllRow}>
+                  <Text style={styles.instructionsViewAllText}>
+                    {recipe.instructions.length > 5
+                      ? `View all ${recipe.instructions.length} steps`
+                      : 'View full instructions'}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+                </View>
               </Pressable>
             )}
           </>
@@ -705,6 +737,19 @@ function makeStyles(colors: Record<ColorToken, string>) {
     addLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
     addLinkText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     emptyIngredients: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
+    instructionsPreviewWrap: { marginBottom: spacing.xl },
+    instructionsPreviewClip: { maxHeight: 460, overflow: 'hidden' },
+    instructionsViewAllRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xxs,
+      paddingTop: spacing.sm,
+      marginTop: spacing.xxs,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    instructionsViewAllText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     ingredientRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
