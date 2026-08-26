@@ -32,19 +32,15 @@ export const colors = {
   danger: '#C6533F', // low stock, overdue, delete
   dangerMuted: '#F7E7E3',
 
-  // Order status colors (matches docs/PRODUCT.md status flow: Pending →
-  // Confirmed → Preparing → Ready → Completed, or Cancelled)
-  // NOTE: docs/UI_UX.md section F only defines 3 semantic colors
-  // (success/warning/danger) plus primary. Confirmed/Preparing don't have
-  // an approved color of their own yet — mapped to primary/textSecondary
-  // as a reasonable default below, but this is a judgment call, not a
-  // spec'd decision. Flag for a real design pass if the 5-state chip set
-  // ends up looking muddy in practice.
-  statusPending: '#D99A33', // = warning
-  statusConfirmed: '#C9683F', // = primary (placeholder mapping, see note above)
-  statusPreparing: '#8A5FB0', // no token in spec — carried from Phase 1 placeholder, unreviewed
-  statusReady: '#5C8A54', // = success
-  statusCompleted: '#8A8378', // = textSecondary
+  // Order status colors (matches docs/PRODUCT.md's status flow: Pending
+  // -> Delivered -> Completed, or Cancelled -- see docs/DECISIONS.md's
+  // 2026-08-22 entry, which dropped Confirmed/Preparing and renamed Ready
+  // to Delivered). Every value below maps directly to one of section F's
+  // 4 approved semantic colors -- unlike the old 6-value mapping, nothing
+  // here is an unreviewed placeholder.
+  statusPending: '#D99A33', // = warning -- matches "Unpaid/Pending = warning" in section F's Components list
+  statusDelivered: '#5C8A54', // = success -- matches "Paid/Delivered = success" in section F's Components list
+  statusCompleted: '#8A8378', // = textSecondary -- fully done, no longer needs attention, so it fades rather than staying vivid
   statusCancelled: '#C6533F', // = danger
 } as const;
 

@@ -40,3 +40,5 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+# Delivery artifacts (patch files used to hand off changes) — never part of the app
+*.patch

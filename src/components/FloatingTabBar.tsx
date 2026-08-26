@@ -58,7 +58,7 @@ type PanelItem = {
 function getAddPanelItems(activeRouteName: string, pathname: string): PanelItem[] {
   if (activeRouteName === 'index') {
     return [
-      { label: 'Add order', icon: 'receipt-outline' }, // Phase 7, not built yet
+      { label: 'Add order', icon: 'receipt-outline', pathname: '/orders/new' },
       {
         label: 'Add ingredient',
         icon: 'nutrition-outline',
@@ -344,9 +344,9 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   function handleAddTabPress() {
     if (activeRouteName === 'orders') {
       closePanel();
-      // ASSUMPTION: New Order isn't built yet (Phase 7 per ROADMAP.md).
-      // '/orders/new' follows the same convention as '/more/products/new'
-      // — update this if the real route ends up different.
+      // Phase 7 (Orders) has shipped — '/orders/new' is the real route,
+      // confirmed against app/(tabs)/orders/new.tsx, matching the
+      // convention this was originally written against.
       if (pathname === '/orders/new') return;
       navigateOnce(() => router.push('/orders/new' as never));
       return;

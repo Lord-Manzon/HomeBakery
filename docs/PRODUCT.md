@@ -38,8 +38,8 @@ A home-based baker, usually solo, who:
 - **Set up a product**: define a product, its variants (sizes), a recipe, and
   get a suggested price based on cost + desired margin.
 - **Take an order**: enter an order manually, or receive one from the public
-  storefront, and move it through Pending → Confirmed → Preparing → Ready →
-  Completed.
+  storefront, and track it from Pending through Delivered to Completed (or
+  Cancelled).
 - **Plan a baking day**: see what needs to be baked today across all orders,
   check ingredient availability, and mark items done as they're produced.
 - **Manage ingredients**: track stock, cost, and get warned before running out.
@@ -92,10 +92,17 @@ A home-based baker, usually solo, who:
   genuinely differ — the most specific setting always wins. The baker can
   also always override the final suggested price manually, regardless of
   margin.
-- **Orders** always carry a status (Pending → Confirmed → Preparing → Ready →
-  Completed, or Cancelled) and a payment status (Unpaid, or paid via GCash /
-  Cash / Bank Transfer), independent of each other — an order can be
-  Confirmed and Unpaid at the same time.
+- **Orders** carry a status — Pending, Delivered, Completed, or Cancelled —
+  and a payment status (Unpaid, or Paid via a baker-entered method such as
+  Cash, GCash, Bank Transfer, or PayPal), tracked separately but not fully
+  independent: **Completed is a derived state**, set automatically the
+  moment an order is both Delivered and Paid, whichever happens last. An
+  order can be Delivered and Unpaid at the same time (it just isn't
+  Completed yet). Cancelled is reachable from Pending or Delivered, not
+  from Completed. See `docs/DECISIONS.md`'s 2026-08-22 entry for the full
+  reasoning (this simplifies an earlier 6-status design that separately
+  tracked Confirmed/Preparing/Ready, which turned out to duplicate what
+  Production's per-item tracking already covers).
 - **Storefront orders** always enter as **Pending** in the baker's app —
   nothing customer-submitted skips baker review.
 - **Inventory** only changes through a recorded movement (restock, usage,

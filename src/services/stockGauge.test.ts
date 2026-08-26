@@ -60,6 +60,7 @@ describe('gaugeSortValue', () => {
     current_stock: 0,
     cost_per_unit: 0,
     low_stock_threshold: null,
+    is_active: true,
     created_at: '',
     updated_at: '',
   };

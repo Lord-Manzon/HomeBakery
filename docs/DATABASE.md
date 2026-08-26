@@ -143,9 +143,9 @@ answering "what happened to my stock?"
 | `customer_name` | |
 | `customer_contact` | phone/Messenger/etc. |
 | `order_source` | `manual` / `storefront` |
-| `status` | `pending` / `confirmed` / `preparing` / `ready` / `completed` / `cancelled` |
+| `status` | `pending` / `delivered` / `completed` / `cancelled` — see docs/DECISIONS.md's 2026-08-22 entry. `completed` is never set directly by a baker action; it's a derived side effect of both `delivered` and `payment_status = 'paid'` being true (src/services/orderLogic.ts's `resolveStatusAfterMarking`) |
 | `payment_status` | `unpaid` / `paid` |
-| `payment_method` | nullable — `gcash` / `cash` / `bank_transfer` |
+| `payment_method` | nullable free text (no fixed list) — same pattern as `products.category`/`ingredients.category`/`expenses.category`. Curated quick-pick chips live in the UI, not a DB constraint, so a payment app outside the Philippines (PayPal, Venmo, etc.) doesn't need a schema change to be recorded |
 | `fulfillment_type` | `pickup` / `delivery` |
 | `delivery_address` | nullable |
 | `delivery_fee` | nullable, default 0 |

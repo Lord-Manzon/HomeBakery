@@ -7,7 +7,7 @@ import { PrimaryButton } from './PrimaryButton';
 import { ErrorBanner } from './ErrorBanner';
 import { StockGauge } from './StockGauge';
 import { restockFormSchema, type RestockFormInput } from '../utils/validation/ingredientSchemas';
-import { calculateRestockCostPerUnit } from '../services/ingredients';
+import { calculateRestockCostPerUnit } from '../services/ingredientLogic';
 import { useBakerProfile } from '../hooks/useBakerProfile';
 import { formatCurrency } from '../utils/currency';
 import { usePressScale } from '../hooks/usePressScale';

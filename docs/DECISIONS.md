@@ -677,3 +677,389 @@ prematurely reveal the nav when it unmounts. Screens opt in via
 **Follow-up:** `docs/UI_UX_1.md` section G updated to state this
 distinction explicitly, rather than leaving "which screens the global nav
 covers" implicit.
+
+### 2026-08-22 — Simplified orders.status to 4 values; payment_method is now free text
+
+**Decision:** `orders.status`'s original 6-value design
+(`pending`/`confirmed`/`preparing`/`ready`/`completed`/`cancelled`) is
+reduced to 4: `pending` / `delivered` / `completed` / `cancelled`
+(`supabase/migrations/0011_orders_status_payment_method.sql`). New
+lifecycle: `pending` → `delivered` → `completed`, or `cancelled` (from
+`pending` or `delivered`, not from `completed`). **`completed` is never
+set directly by a baker action** — it's a derived side effect, applied
+automatically the moment an order is both `delivered` and
+`payment_status = 'paid'`, whichever happens last
+(`src/services/orderLogic.ts`'s `resolveStatusAfterMarking`). Order Detail
+exposes exactly two quick actions — "Mark Delivered"/"Mark Picked Up"
+(label depends on `fulfillment_type`) and "Mark Paid" — plus a separate
+"Cancel order" inline-confirm action, rather than a 5-step manual stepper.
+
+Separately, `orders.payment_method` changes from a 3-value check
+constraint (`gcash`/`cash`/`bank_transfer`) to nullable free text, same
+pattern as `products.category`/`ingredients.category`/`expenses.category`.
+The UI still offers curated quick-pick chips (Cash, GCash, Bank Transfer,
+PayPal, or type your own — `src/utils/validation/orderSchemas.ts`'s
+`PAYMENT_METHOD_OPTIONS`), defaulting to Cash, so data stays reportable
+without a DB-level cap.
+
+**Why (status):** `confirmed` and `preparing` were dropped because they'd
+duplicate what Phase 8's Production screen already tracks per item via
+`order_items.production_status` — an order-level status doesn't need to
+shadow that granularity. `ready` was renamed to `delivered` to match what
+the baker action actually means. This also resolves a stale term in
+`docs/UI_UX_1.md` section E.2 ("mark-delivered action"), which referred to
+a status value ("delivered") that didn't actually exist in the original
+6-value enum.
+
+**Why (payment_method):** the original 3-value list was Philippines-
+specific (GCash, Cash, Bank Transfer) and didn't fit a baker using PayPal,
+Venmo, or any other regional payment app. Free text with curated chips —
+the pattern already used for every other "categorize this, but let the
+baker's own words win" field in the app — avoids a repeat schema change
+every time a new payment method comes up, while still keeping Reports
+(Phase 11) able to group profit by payment method later.
+
+**Alternatives considered:** Keeping the original 6-status pipeline with a
+baker-facing "next status" stepper — considered closer to the original
+Phase 7 spec, but the baker's actual daily need is captured by two quick
+actions (delivered, paid), and forcing a manual walk through
+confirmed/preparing added steps without adding real information, since
+Production owns per-item progress separately. A fixed, larger
+`payment_method` enum (adding e.g. `paypal`, `venmo`) was also considered
+over free text — rejected because it just delays the same problem to the
+next unlisted payment app a baker outside the Philippines uses.
+
+**Doc impact:** `docs/DATABASE.md`'s `orders` table and `docs/PRODUCT.md`'s
+order business-rule bullet and workflow line updated to match. Existing
+order rows (there shouldn't be any yet — Orders UI didn't exist before
+this phase) are defensively remapped by the migration before the new,
+stricter check constraint is applied:
+`confirmed`/`preparing` → `pending`, `ready` → `delivered`.
+
+**Known follow-up, not resolved by this change:** `src/services/orders.ts`'s
+`updateOrder` currently replaces an order's line items wholesale on every
+edit (delete all `order_items`, re-insert fresh rows) rather than diffing
+by id. That's fine today — Production/inventory deduction (Phase 8)
+doesn't exist yet, so no `order_items.id` is referenced anywhere else yet —
+but it would orphan any future `inventory_movements.reference_id` once
+Phase 8 lands. Worth a proper diff-based update before or during Phase 8,
+flagged here so it isn't forgotten.
+
+### 2026-08-22 — Jest actually installed; extracted `calculateRestockCostPerUnit` out of `ingredients.ts`
+
+**Decision:** Installed `jest`, `jest-expo`, `@types/jest`, and
+`@react-native/jest-preset` (all pinned to versions matching this
+project's Expo SDK 57 / React Native 0.86.2), added a `test` script and a
+`"jest": { "preset": "jest-expo" }` block to `package.json`, and added
+`"types": ["jest"]` to `tsconfig.json`'s `compilerOptions` (needed because
+the installed TypeScript, 6.0.3, doesn't auto-detect `@types/jest` the way
+older TypeScript versions did). This finally lets `costing.test.ts`,
+`stockGauge.test.ts`, and the new `orderLogic.test.ts` actually run,
+closing a gap flagged as open in the 2026-08-16 "stock gauge" entry.
+
+Running the suite for the first time surfaced a real, separate issue:
+`ingredients.test.ts` failed with `[@RNC/AsyncStorage]: NativeModule:
+AsyncStorage is null`. Its only import was
+`calculateRestockCostPerUnit` — a pure function — but that function lived
+inside `ingredients.ts`, which also imports `./supabase` at the top of the
+file. Importing anything from `ingredients.ts` therefore pulls in the real
+Supabase client and, through it, AsyncStorage, which needs a native-module
+mock to run under Jest at all.
+
+Moved `calculateRestockCostPerUnit` into a new file, `ingredientLogic.ts`
+— zero Supabase import, same pattern already used by `costing.ts`,
+`stockGauge.ts`, and the new `orderLogic.ts` (see this same date's earlier
+entry). `ingredients.ts` now imports the function from there instead of
+defining it. `RestockSheet.tsx`'s import updated to match.
+`ingredients.test.ts` renamed to `ingredientLogic.test.ts` (content
+unchanged) to match its subject file, same convention as
+`orderLogic.test.ts`/`stockGauge.test.ts`.
+
+**Why:** `CODING_STANDARDS.md` requires a Jest test for every function
+that computes a number a baker will trust — that's meaningless if the
+test can't run. The AsyncStorage failure wasn't a flaw in the function
+being tested; it was a structural cost of testing pure logic that happened
+to share a file with an unrelated Supabase import. Splitting pure logic
+into its own file — a pattern this codebase already uses three other
+times — fixes it directly rather than working around it with a global
+Jest mock, which would hide the same problem the next time a pure
+function gets added inside a Supabase-importing service file.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest` —
+4 suites, 50 tests, all passing.
+
+### 2026-08-22 — Built the Orders list screen; no per-screen FAB, following Products' precedent
+
+**Decision:** `app/(tabs)/orders.tsx` (a flat placeholder route) replaced
+with a folder-based route (`app/(tabs)/orders/_layout.tsx`,
+`app/(tabs)/orders/index.tsx`), matching the same Stack pattern already
+used by `more/products/` and `more/ingredients/`. The list screen has a
+search bar (filters by customer name, client-side), the four filter chips
+from `docs/UI_UX_1.md` section E.2 (Today/Upcoming/Unpaid/All), and order
+cards showing customer, an item summary ("2× Carrot Cake (Medium) +1
+more" — same "+N more" pattern as Products' variant price chips), status
+badge, payment badge, and total.
+
+`docs/UI_UX_1.md` section E.2 still describes "FAB for new order," but no
+per-screen FAB was built — the global floating + button's contextual Quick
+Add (see the 2026-08-19 entry) already covers "add an order" from every
+tab, and `more/products/index.tsx`'s actual shipped screen already
+dropped its own FAB in favor of that (only an empty-state "Add product"
+button remains there). Orders follows the same already-established
+precedent: no dedicated FAB, just an empty-state "New order" button (only
+shown on the true first-run empty state, i.e. the "All" filter with zero
+orders) plus the global Quick Add. `docs/UI_UX_1.md`'s "FAB for new
+order" line is now stale relative to the actual app, same category of
+drift as Product Detail's already-flagged section 5b — noted here rather
+than silently left inconsistent, full doc pass not done as part of this
+entry.
+
+**New helper file:** `src/utils/dateFormat.ts` (`formatOrderTime`,
+`formatOrderDate`, `todayDateString`) — `src/services/orders.ts` now
+imports `todayDateString` from here instead of keeping its own private
+copy, so the list's server-side "what counts as today" filter and the
+card's client-side "is this overdue" check can never quietly drift apart
+from each other.
+
+**Status colors updated to match the schema:** `src/theme/colors.ts` and
+`src/theme/palettes.ts` (the per-accent-swatch light/dark palette
+builder) both still had `statusConfirmed`/`statusPreparing`/`statusReady`
+from the pre-2026-08-22 6-value status model. Updated to
+`statusPending`/`statusDelivered`/`statusCompleted`/`statusCancelled`,
+matching this same date's earlier status-simplification entry — this was
+a mechanical follow-through on that decision, not a new one, since the
+mapping (Delivered=success, Completed=textSecondary, Cancelled=danger)
+was already implied by that entry's reasoning.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest`
+— 4 suites, 50 tests, all passing (list screen has no logic of its own to
+unit-test; the numbers it displays — totals, status — all come from
+already-tested `orderLogic.ts` functions and `formatCurrency`/
+`formatOrderTime`/`formatOrderDate`, which are pure display formatting,
+not business math, per `docs/CODING_STANDARDS.md`'s "computes a number a
+baker will trust" test requirement).
+
+### 2026-08-22 — Built the New Order screen (multi-item cart)
+
+**Decision:** `app/(tabs)/orders/new.tsx` — full-screen form per
+`docs/UI_UX_1.md`'s interaction-weight table. Customer name/contact,
+Pickup/Delivery segmented toggle (delivery address + fee fields only
+appear for Delivery), date + time pickers
+(`@react-native-community/datetimepicker`, first real usage of that
+dependency added earlier), a multi-item cart, and notes. New component
+`src/components/OrderItemSheet.tsx` — a two-step picker (product, then
+one of its variants, then quantity), same pattern as
+`RecipeIngredientSheet.tsx`'s ingredient picker with an extra step for
+variant. A product with only one variant auto-selects it rather than
+making the baker pick from a list of one.
+
+The cart only ever sends `{product_id, variant_id, quantity}` to
+`orderFormSchema` — never a price. `selling_price` is shown in the picker
+sheet and used for the form's own running subtotal/total display, but
+`src/services/orders.ts`'s `createOrder` re-fetches each variant's
+current price at save time regardless (see that file's existing
+comments), so what's briefly shown while filling out the form is never
+what actually gets persisted.
+
+**Two bugs caught before shipping, not after:** the Delivery-only
+`delivery_address`/`delivery_fee` fields are hidden (not unmounted-and-
+cleared) when the baker switches back to Pickup, so their state doesn't
+reset on its own. Without a fix, switching Delivery → Pickup right before
+saving would have silently submitted a stale address/fee on a pickup
+order. Fixed by forcing both to their empty/zero values at submit time
+whenever `fulfillment_type` isn't `'delivery'`, rather than trusting
+whatever's left in the hidden fields' state.
+
+**Temporary substitution, flagged for Stage 4:** `docs/UI_UX_1.md`'s key
+flow says New Order "saves → Order detail," but Order Detail
+(`/orders/[id]`) doesn't exist until Stage 4. `onSuccess` currently
+navigates back to the Orders list (`router.replace('/orders')`) instead —
+noted in a code comment as needing to become
+`router.replace(\`/orders/${order.id}\`)` once Detail ships, so this
+isn't forgotten as a loose end.
+
+**Wired up:** `src/components/FloatingTabBar.tsx`'s "Add order" Quick Add
+entry now points to `/orders/new` in all three tabs that offer it (Home,
+Orders, Production) — previously disabled/no-op placeholders since Orders
+didn't exist yet.
+
+**New helpers:** `src/utils/dateFormat.ts` gained `toISODateString` and
+`toTimeString` — the inverse of the display formatters added in the
+previous entry, converting a native picker's `Date` back to the
+`"YYYY-MM-DD"`/`"HH:MM:SS"` strings the schema and database expect.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest`
+— 4 suites, 50 tests, all passing (no new business logic requiring its
+own test — the form's running subtotal/total display uses the same
+arithmetic as `calculateOrderTotals`, but isn't itself a separate
+function to test; the authoritative totals calculation still only lives
+in `orderLogic.ts`).
+
+### 2026-08-22 — Built the Order Detail screen (quick actions, cancel, delete)
+
+**Decision:** `app/(tabs)/orders/[id]/index.tsx` — customer, items,
+fulfillment (with delivery address if applicable), schedule, notes,
+payment breakdown, and the status badge (Overdue takes visual priority
+over the order's real status, same rule as the list card). Two quick
+actions per `docs/DECISIONS.md`'s 2026-08-22 status-model entry: "Mark
+Delivered"/"Mark Picked Up" (label depends on `fulfillment_type`) and
+"Mark Paid" — both fire immediately on tap, no confirmation step, per
+`docs/UI_UX_1.md`'s interaction-weight table ("Inline toggle/action" —
+binary changes on a screen already open, same category as the existing
+Payment status / Mark delivered row in that table). "Mark Paid" always
+defaults to Cash on that first tap; the resulting "Paid · Cash" badge is
+itself tappable afterward to correct the method via the new
+`src/components/PaymentMethodSheet.tsx`, matching the "one-tap by
+default, correctable after" design this was originally scoped with.
+
+Delete uses the inline-confirm pattern (button swaps in place), matching
+Recipe Detail's exact implementation — real hard delete, reserved for
+genuine mistakes, per `docs/UI_UX_1.md` section E.2. Cancel is a separate,
+less prominent inline-confirm (a text link, not a button) since it's a
+softer, more-common action that keeps the order in history rather than
+removing it, and is only offered while `canCancelOrder()` allows it
+(Pending or Delivered, never Completed or Cancelled itself).
+
+**Bug caught during review, fixed before shipping:** the initial pass
+computed `showMarkPaid` from `payment_status === 'unpaid'` alone, with no
+check on `status`. That meant a Cancelled-but-still-Unpaid order (a real,
+reachable state — cancelling never touches `payment_status`) would have
+shown a live "Mark Paid" button on an order that's already over. Fixed by
+also requiring `isOrderActive(order.status)`, mirroring the same guard
+`orderLogic.ts`'s `canCancelOrder` already applies to the Cancel action.
+
+**Closed the Stage 3 loose end:** `orders/new.tsx`'s post-save navigation
+now goes to `router.replace(\`/orders/${'{order.id}'}\`)` instead of back to
+the list, matching `docs/UI_UX_1.md`'s "New order form ... saves → Order
+detail" flow now that Detail actually exists.
+
+**Not built in this stage, by design:** the header's pencil icon links to
+`/orders/${'{id}'}/edit`, which doesn't exist yet — Edit Order is scoped as
+its own follow-up stage (reusing the New Order form in edit mode), not
+squeezed into this one.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest`
+— 4 suites, 50 tests, all passing (same reasoning as the previous two
+entries: this screen's own numbers are formatting, not new business
+math — the underlying status/total logic it calls into is already
+covered by `orderLogic.test.ts`).
+
+### 2026-08-22 — Built Edit Order by extracting a shared OrderForm component
+
+**Decision:** Rather than duplicating New Order's ~300-line form into a
+second, separate implementation for editing, extracted
+`src/components/OrderForm.tsx` — customer info, fulfillment toggle,
+date/time pickers, item cart, notes, validation, all of it — as a shared
+component. `orders/new.tsx` and the new `orders/[id]/edit.tsx` are now
+both thin wrappers: each owns only its header, its data source
+(`defaultOrderFormValues()` vs. an existing order hydrated via a new
+`orderToFormValues()` helper), and its mutation (`useCreateOrder` vs.
+`useUpdateOrder(id)`).
+
+**Why extraction over duplication:** this is the same reasoning
+`docs/CODING_STANDARDS.md` already applies to business logic (small,
+named, testable functions over copy-pasted inline logic) — a form this
+size, hand-duplicated, would drift the moment either screen got a fix or
+a new field, since nothing would force the two copies to stay in sync.
+There's no exact precedent for this in the codebase yet (Product editing
+is inline-on-detail, not a second full-screen form), so this is a new
+pattern, not a repeat of an existing one — worth knowing if a similar
+create/edit pair comes up again later (e.g. Recipes).
+
+**New reverse date/time helpers:** `src/utils/dateFormat.ts` gained
+`fromISODateString`/`fromTimeString` — the inverse of the existing
+`toISODateString`/`toTimeString`, needed to turn an existing order's
+stored `"YYYY-MM-DD"`/`"HH:MM:SS"` strings back into `Date` objects the
+native pickers can display.
+
+**Cart item hydration uses each item's frozen `unit_price`**, not the
+variant's current price, as the form's *display-only* reference while
+editing — the actual save still re-fetches each variant's current price
+regardless (existing, already-documented behavior in
+`src/services/orders.ts`), so if a price drifted since the order was
+placed, saving any edit — even an unrelated field — picks up the new
+price. Not new behavior, just now also reachable from the edit path.
+
+**Two guards added during review, not silently skipped:** Order Detail's
+Edit pencil now only renders while `isOrderActive(order.status)` — editing
+a Completed order (already reconciled) or a Cancelled one doesn't fit the
+workflow. `orders/[id]/edit.tsx` also re-checks this itself and redirects
+back with a message if reached anyway (a stale link, browser back, etc.)
+— defense in depth, the same reasoning `cancelOrder`'s service-layer
+`canCancelOrder` check already applies rather than trusting the UI alone
+to have gated it.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest`
+— 4 suites, 50 tests, all passing.
+
+### 2026-08-26 — Renumbered a migration and fixed a doubly-nested path before merging `orders-screen` into `product-screen`
+
+**Decision:** Two pre-merge fixes on `orders-screen`, done as their own
+commit so the merge into `product-screen` stays clean:
+- Renamed `supabase/migrations/0009_orders_status_payment_method.sql` →
+  `0011_orders_status_payment_method.sql`. `product-screen` had
+  independently created its own, unrelated `0009_ingredient_soft_delete.sql`
+  and already has a `0010_recipe_step_metadata.sql` — both branches picking
+  `0009` for different schema changes was a numbering collision waiting to
+  land in the same migrations folder once merged. `0011` is the next free
+  number after `product-screen`'s highest.
+- Moved `supabase/migrations/supabase/migrations/0008_recipe_instructions_steps.sql`
+  to `supabase/migrations/0008_recipe_instructions_steps.sql` — the
+  doubly-nested path from the known VS Code Explorer mistake (tracked
+  since Phase 6), present identically on both branches and never actually
+  fixed. Left as-is, this file sits two folders deep and Supabase's
+  CLI/dashboard migration runner won't discover it at the expected path.
+**Why now:** Both issues were only surfaced by comparing `orders-screen`
+against `product-screen` directly ahead of merging them — neither was
+visible working on either branch alone, since each branch only sees its
+own migrations folder.
+**No content changes** — both fixes are pure `git mv` renames, so the SQL
+itself is untouched; `docs/DECISIONS.md`'s existing reference to the old
+`0009_orders_status_payment_method.sql` filename (this file, earlier
+entry) was updated to `0011` to match.
+**Verified:** `npx tsc --noEmit` and `npx jest` re-run after the rename —
+unaffected, as expected for a pure file-path change (4 suites, 50 tests,
+all passing).
+
+**Also cleaned up in the same pass:** `stage1-fixes.patch` through
+`stage5-edit-order.patch` — the hand-off patch files used to deliver this
+phase's changes across sessions — had been accidentally committed into
+`orders-screen` (first appearing in the `a25b6db` "refactor
+calculateRestockCostPerUnit" commit). These are delivery artifacts, never
+part of the app, so they're removed from tracking here and `*.patch` is
+added to `.gitignore` so this doesn't recur.
+
+### 2026-08-26 — Merged `orders-screen` into `product-screen`
+
+**Decision:** `product-screen` now includes all of Phase 7 (Orders) —
+Orders list, New Order, Order Detail, Edit Order, `orderLogic.ts`, and the
+`0011_orders_status_payment_method.sql` migration.
+
+**One real conflict, resolved deliberately, not mechanically:**
+`src/components/FloatingTabBar.tsx` had diverged significantly — `product-
+screen` had independently rebuilt the whole Add-button system (a grouped
+More-menu popover, direct-navigate shortcuts for Orders/Production) and,
+in doing so, had already wired `/orders/new` for the Orders and Production
+tabs with its own double-tap guard (`navigateOnce`), written speculatively
+ahead of Phase 7 actually existing. `orders-screen`'s changes to this same
+file were a now-superseded, simpler version of the same idea. Resolution:
+kept `product-screen`'s version of the file entirely, and made the one
+addition it was still missing — the Home tab's "Add order" panel row,
+which still said "Phase 7, not built yet," now points to `/orders/new`
+too, with the stale comment updated to match.
+
+**One pre-existing bug surfaced, not caused, by the merge:**
+`stockGauge.test.ts`'s `base: Ingredient` fixture was missing `is_active`
+(added to the `Ingredient` type by `product-screen`'s own ingredient
+soft-delete work). This was invisible before because `product-screen`
+never had Jest's types actually installed/type-checking; merging in
+`orders-screen`'s working Jest setup made the gap visible. Fixed by adding
+`is_active: true` to the fixture — no behavior change, test-only.
+
+**Everything else merged automatically**, including `docs/DATABASE.md`,
+`docs/PRODUCT.md`, and `docs/DECISIONS.md` itself (both branches had
+appended entries at the end independently; git resolved this cleanly with
+no conflict).
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide, on the fully
+merged tree. `npx jest` — 4 suites, 50 tests, all passing.
