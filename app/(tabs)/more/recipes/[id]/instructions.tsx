@@ -9,7 +9,6 @@ import { useRecipe, useUpdateRecipe } from '../../../../../src/hooks/useRecipes'
 import { useThemeColors } from '../../../../../src/theme/ThemeContext';
 import { ConfirmDialog } from '../../../../../src/components/ConfirmDialog';
 import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
-import { InstructionsTimeline } from '../../../../../src/components/InstructionsTimeline';
 import { Screen } from '../../../../../src/components/Screen';
 import { getRecipeVisual } from '../../../../../src/utils/recipeVisual';
 import { recipeFormSchema } from '../../../../../src/utils/validation/recipeSchemas';
@@ -18,20 +17,15 @@ import type { ColorToken } from '../../../../../src/theme/colors';
 import type { RecipeStep } from '../../../../../src/types/recipe';
 
 type FormatMode = 'steps' | 'block';
-// View: a read-only timeline, the default way to land on this screen
-// when steps already exist — matches "tap an instruction to view it."
-// Edit: the existing steps/block editor, entered via the pencil icon.
-type ScreenMode = 'view' | 'edit';
 
 // Steps carry a stable id separate from their position in the list. A
 // drag gesture needs to keep following the SAME step's text as it moves
-// — keying rows by array index would swap which text a mid-drag gesture
+// -- keying rows by array index would swap which text a mid-drag gesture
 // is holding onto the instant a reorder happens, since index-as-key
 // makes React reuse the row for whatever now sits in that slot.
 //
 // durationMinutes/temperatureCelsius are kept as raw text (not number)
-// while editing, same as every other numeric draft field in this app
-// (see the yield-quantity editor above this file's sibling screen) —
+// while editing, same as every other numeric draft field in this app --
 // lets a baker type "1" then "2" to reach "12" without the field
 // fighting a half-typed value, and an empty string cleanly means "not
 // set" without needing a separate boolean.
@@ -56,6 +50,14 @@ function stepFromRecipeStep(step: RecipeStep): StepItem {
   };
 }
 
+/**
+ * One screen, always editable -- no separate "view" screen/mode to pass
+ * through first. Steps render as a numbered timeline (matches
+ * InstructionsTimeline's look) where the step text itself IS the input;
+ * typing or dragging to reorder is what makes the screen dirty, which is
+ * what surfaces Save -- there's no pencil tap to "enter edit mode" first.
+ * See docs/DECISIONS.md's entry on collapsing the old view/edit split.
+ */
 export default function RecipeInstructionsScreen() {
   useHideFloatingNav();
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -70,7 +72,6 @@ export default function RecipeInstructionsScreen() {
   // one another on every render) so toggling back and forth doesn't lose
   // anything the baker typed in the format they're not currently viewing.
   const [formatMode, setFormatMode] = useState<FormatMode>('steps');
-  const [screenMode, setScreenMode] = useState<ScreenMode>('view');
   const [stepItems, setStepItems] = useState<StepItem[]>([emptyStepItem()]);
   const [blockText, setBlockText] = useState('');
   const [initialized, setInitialized] = useState(false);
@@ -82,14 +83,11 @@ export default function RecipeInstructionsScreen() {
 
   // Seed local state once the recipe loads. Existing multi-step data
   // opens in Steps format; a single legacy block (or no instructions
-  // yet) opens in One block format — see docs/DECISIONS.md's 2026-08-21
-  // entry. A recipe with no steps yet has nothing to view, so it skips
-  // straight to edit mode instead of showing an empty timeline that
-  // needs an extra tap to do anything with.
+  // yet) opens in One block format -- see docs/DECISIONS.md's 2026-08-21
+  // entry.
   useEffect(() => {
     if (!recipe || initialized) return;
     const existing = recipe.instructions ?? [];
-    const hasContent = existing.some((s) => s.text.trim().length > 0);
     if (existing.length > 1) {
       setFormatMode('steps');
       setStepItems(existing.map(stepFromRecipeStep));
@@ -99,7 +97,6 @@ export default function RecipeInstructionsScreen() {
       setBlockText(existing[0]?.text ?? '');
       setStepItems(existing.length === 1 ? [stepFromRecipeStep(existing[0])] : [emptyStepItem()]);
     }
-    setScreenMode(hasContent ? 'view' : 'edit');
     setInitialized(true);
   }, [recipe, initialized]);
 
@@ -122,7 +119,7 @@ export default function RecipeInstructionsScreen() {
   const visual = getRecipeVisual(recipe.name);
 
   // Parses a draft numeric field back to a number, or null if it's
-  // empty/not a real number — a stray non-numeric paste silently drops
+  // empty/not a real number -- a stray non-numeric paste silently drops
   // rather than blocking save, since these fields are optional anyway.
   const parseOptionalNumber = (raw: string): number | null => {
     const trimmed = raw.trim();
@@ -131,12 +128,10 @@ export default function RecipeInstructionsScreen() {
     return Number.isFinite(n) ? n : null;
   };
 
-  // The steps actually being displayed right now, regardless of which
-  // format they were entered in — used both for the view-mode timeline
-  // and to detect unsaved edits, so there's one source of truth for
-  // "what would be saved if I hit Save right now." Key order matches
-  // the DB's jsonb_build_object order (migration 0010) so isDirty's
-  // JSON.stringify comparison against recipe.instructions is reliable.
+  // The steps as currently typed, regardless of which format they're in
+  // -- the single source of truth for both what's rendered and whether
+  // there are unsaved edits. Key order matches the DB's jsonb_build_object
+  // order (migration 0010) so the JSON.stringify dirty-check is reliable.
   const currentInstructions: RecipeStep[] =
     formatMode === 'steps'
       ? stepItems
@@ -150,15 +145,14 @@ export default function RecipeInstructionsScreen() {
         ? [{ text: blockText.trim(), duration_minutes: null, temperature_celsius: null }]
         : [];
   const savedInstructions = recipe.instructions ?? [];
-  const isDirty =
-    screenMode === 'edit' && JSON.stringify(currentInstructions) !== JSON.stringify(savedInstructions);
+  const isDirty = JSON.stringify(currentInstructions) !== JSON.stringify(savedInstructions);
 
   const switchFormat = (next: FormatMode) => {
     if (next === formatMode) return;
     if (next === 'block') {
       // Steps -> Block: join whatever's been typed so far into one
       // paragraph, one step per line. Duration/temperature don't carry
-      // over — a free-text block has nowhere to hold them.
+      // over -- a free-text block has nowhere to hold them.
       setBlockText(stepItems.map((s) => s.text.trim()).filter(Boolean).join('\n'));
     } else {
       // Block -> Steps: split on line breaks, each non-empty line
@@ -198,7 +192,7 @@ export default function RecipeInstructionsScreen() {
   };
 
   // Moves the step at `fromIndex` by `shift` positions (can be more than
-  // one — a fast drag across several rows resolves in a single move,
+  // one -- a fast drag across several rows resolves in a single move,
   // not a chain of adjacent swaps).
   const moveStep = (fromIndex: number, shift: number) => {
     setStepItems((prev) => {
@@ -222,13 +216,10 @@ export default function RecipeInstructionsScreen() {
   const handleSave = () => {
     // Only validate the field this screen actually edits (instructions).
     // Re-validating the whole recipe here would fail on any OTHER field
-    // that has old data predating a validation rule (e.g. a legacy
-    // yield_unit saved before that check existed) — and show this
+    // that has old data predating a validation rule -- and show this
     // screen an error about a field the baker never touched. The rest
     // of the payload is passed through as-is, since updateRecipe always
-    // expects the full recipe shape (see docs/DECISIONS.md's 2026-08-18
-    // "Product name is editable inline" entry for the same "always
-    // resend everything" constraint).
+    // expects the full recipe shape.
     const instructionsResult = recipeFormSchema.shape.instructions.safeParse(currentInstructions);
 
     if (!instructionsResult.success) {
@@ -245,9 +236,10 @@ export default function RecipeInstructionsScreen() {
         instructions: instructionsResult.data,
       },
       {
-        // Back to the timeline view, staying on this screen — matches
-        // the view <-> edit toggle rather than leaving on every save.
-        onSuccess: () => setScreenMode('view'),
+        // No explicit "back to view" step needed -- once the mutation
+        // succeeds, the recipe query refetches, currentInstructions
+        // matches it again, isDirty goes false on its own, and Save
+        // quietly gives way back to the format-toggle icon.
         onError: () => setSaveError("Couldn't save. Try again."),
       }
     );
@@ -260,104 +252,82 @@ export default function RecipeInstructionsScreen() {
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
         </Pressable>
         <Text style={styles.title}>Instructions</Text>
-        {screenMode === 'view' ? (
+        <View style={styles.headerActions}>
+          {isDirty ? (
+            <Pressable
+              onPress={handleSave}
+              style={styles.saveHeaderButton}
+              disabled={updateRecipe.isPending}
+              accessibilityLabel="Save instructions"
+            >
+              {updateRecipe.isPending ? (
+                <ActivityIndicator color={colors.primary} size="small" />
+              ) : (
+                <Text style={styles.saveHeaderButtonText}>Save</Text>
+              )}
+            </Pressable>
+          ) : null}
           <Pressable
-            onPress={() => setScreenMode('edit')}
+            onPress={() => switchFormat(formatMode === 'steps' ? 'block' : 'steps')}
             style={styles.iconButton}
-            accessibilityLabel="Edit instructions"
+            accessibilityLabel={formatMode === 'steps' ? 'Switch to one block' : 'Switch to steps'}
           >
-            <Ionicons name="pencil" size={18} color={colors.primary} />
+            <Ionicons name="swap-horizontal-outline" size={20} color={colors.textPrimary} />
           </Pressable>
-        ) : (
-          <Pressable
-            onPress={handleSave}
-            style={styles.saveHeaderButton}
-            disabled={updateRecipe.isPending}
-            accessibilityLabel="Save instructions"
-          >
-            {updateRecipe.isPending ? (
-              <ActivityIndicator color={colors.primary} size="small" />
-            ) : (
-              <Text style={styles.saveHeaderButtonText}>Save</Text>
-            )}
-          </Pressable>
-        )}
+        </View>
       </View>
 
-      {screenMode === 'view' ? (
-        <ScrollView showsVerticalScrollIndicator={false}>
-          <InstructionsTimeline steps={currentInstructions} accentColor={visual.color} colors={colors} />
-        </ScrollView>
-      ) : (
-        <>
-          <View style={styles.modeToggle}>
-            <Pressable
-              style={[styles.modeButton, formatMode === 'steps' && styles.modeButtonActive]}
-              onPress={() => switchFormat('steps')}
-            >
-              <Text style={[styles.modeButtonText, formatMode === 'steps' && styles.modeButtonTextActive]}>
-                Steps
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[styles.modeButton, formatMode === 'block' && styles.modeButtonActive]}
-              onPress={() => switchFormat('block')}
-            >
-              <Text style={[styles.modeButtonText, formatMode === 'block' && styles.modeButtonTextActive]}>
-                One block
-              </Text>
-            </Pressable>
-          </View>
+      <Text style={styles.formatLabel}>{formatMode === 'steps' ? 'Steps' : 'One block'}</Text>
 
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={!isReordering}
-          >
-            {formatMode === 'steps' ? (
-              <>
-                {stepItems.map((item, index) => (
-                  <DraggableStepRow
-                    key={item.id}
-                    index={index}
-                    total={stepItems.length}
-                    text={item.text}
-                    durationMinutes={item.durationMinutes}
-                    temperatureCelsius={item.temperatureCelsius}
-                    onChangeText={(v) => updateStep(item.id, v)}
-                    onChangeDuration={(v) => updateStepDuration(item.id, v)}
-                    onChangeTemperature={(v) => updateStepTemperature(item.id, v)}
-                    onRemove={() => removeStep(item.id)}
-                    onDragStart={() => setIsReordering(true)}
-                    onDragEnd={(shift) => {
-                      setIsReordering(false);
-                      if (shift !== 0) moveStep(index, shift);
-                    }}
-                    colors={colors}
-                    styles={styles}
-                  />
-                ))}
-                <Pressable onPress={addStep} style={styles.addStepButton}>
-                  <Ionicons name="add" size={18} color={colors.primary} />
-                  <Text style={styles.addStepText}>Add step</Text>
-                </Pressable>
-              </>
-            ) : (
-              <TextInput
-                style={styles.blockInput}
-                value={blockText}
-                onChangeText={setBlockText}
-                placeholder="Write out the full recipe \u2014 oven temp, method, timing, notes..."
-                placeholderTextColor={colors.textSecondary}
-                multiline
-                textAlignVertical="top"
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={!isReordering}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {formatMode === 'steps' ? (
+          <>
+            {stepItems.map((item, index) => (
+              <DraggableStepRow
+                key={item.id}
+                index={index}
+                total={stepItems.length}
+                text={item.text}
+                durationMinutes={item.durationMinutes}
+                temperatureCelsius={item.temperatureCelsius}
+                accentColor={visual.color}
+                onChangeText={(v) => updateStep(item.id, v)}
+                onChangeDuration={(v) => updateStepDuration(item.id, v)}
+                onChangeTemperature={(v) => updateStepTemperature(item.id, v)}
+                onRemove={() => removeStep(item.id)}
+                onDragStart={() => setIsReordering(true)}
+                onDragEnd={(shift) => {
+                  setIsReordering(false);
+                  if (shift !== 0) moveStep(index, shift);
+                }}
+                colors={colors}
+                styles={styles}
               />
-            )}
+            ))}
+            <Pressable onPress={addStep} style={styles.addStepButton}>
+              <Ionicons name="add" size={18} color={colors.primary} />
+              <Text style={styles.addStepText}>Add step</Text>
+            </Pressable>
+          </>
+        ) : (
+          <TextInput
+            style={styles.blockInput}
+            value={blockText}
+            onChangeText={setBlockText}
+            placeholder="Write out the full recipe -- oven temp, method, timing, notes..."
+            placeholderTextColor={colors.textSecondary}
+            multiline
+            textAlignVertical="top"
+          />
+        )}
 
-            {saveError ? <ErrorBanner message={saveError} /> : null}
-          </ScrollView>
-        </>
-      )}
+        {saveError ? <ErrorBanner message={saveError} /> : null}
+      </ScrollView>
 
       <ConfirmDialog
         visible={pendingNav != null}
@@ -376,14 +346,18 @@ export default function RecipeInstructionsScreen() {
 }
 
 /**
- * One draggable step row. Drag starts only from the handle icon
- * (activateAfterLongPress, same "hold to act" language as the recipe
- * ingredient list's hold-to-select removal) so it never competes with
- * the TextInput's own touch handling or the surrounding ScrollView's
- * normal scroll gesture.
+ * One step in the always-editable timeline. Visually it's the same
+ * numbered-dot-and-rail language as the read-only InstructionsTimeline
+ * (so a baker landing here sees the recipe they know), but the step
+ * text is a real, borderless TextInput sitting directly in the card --
+ * there's nothing separate to tap to "start editing." Drag starts only
+ * from the handle icon (activateAfterLongPress, same "hold to act"
+ * language as the recipe ingredient list's hold-to-select removal) so
+ * it never competes with the TextInput's own touch handling or the
+ * surrounding ScrollView's normal scroll gesture.
  *
  * Simplified drag model: the row visually follows the finger while
- * held, but the actual list reorder is computed ONCE at release —
+ * held, but the actual list reorder is computed ONCE at release --
  * total drag distance divided by this row's own measured height,
  * rounded to a whole number of positions moved. This avoids the much
  * more failure-prone version (continuously re-deriving swap targets
@@ -392,7 +366,7 @@ export default function RecipeInstructionsScreen() {
  * bug that's hard to reproduce on-device.
  *
  * Duration/temperature are two small always-visible fields under the
- * main text input, rather than hidden behind a "+ add timer" toggle —
+ * main text input, rather than hidden behind a "+ add timer" toggle --
  * simpler to build and reason about first; worth revisiting for a
  * collapsed/on-demand version if it reads as too busy on-device.
  */
@@ -402,6 +376,7 @@ function DraggableStepRow({
   text,
   durationMinutes,
   temperatureCelsius,
+  accentColor,
   onChangeText,
   onChangeDuration,
   onChangeTemperature,
@@ -416,6 +391,7 @@ function DraggableStepRow({
   text: string;
   durationMinutes: string;
   temperatureCelsius: string;
+  accentColor: string;
   onChangeText: (value: string) => void;
   onChangeDuration: (value: string) => void;
   onChangeTemperature: (value: string) => void;
@@ -425,6 +401,7 @@ function DraggableStepRow({
   colors: Record<ColorToken, string>;
   styles: ReturnType<typeof makeStyles>;
 }) {
+  const isLast = index === total - 1;
   const translateY = useSharedValue(0);
   const isDragging = useSharedValue(false);
   const measuredHeight = useSharedValue(64);
@@ -450,8 +427,8 @@ function DraggableStepRow({
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }, { scale: isDragging.value ? 1.02 : 1 }],
     zIndex: isDragging.value ? 10 : 0,
-    shadowOpacity: isDragging.value ? 0.15 : 0,
-    elevation: isDragging.value ? 4 : 0,
+    shadowOpacity: isDragging.value ? 0.18 : 0.06,
+    elevation: isDragging.value ? 4 : 1,
   }));
 
   return (
@@ -461,48 +438,56 @@ function DraggableStepRow({
         measuredHeight.value = e.nativeEvent.layout.height;
       }}
     >
-      <View style={styles.stepRowTop}>
-        <GestureDetector gesture={pan}>
-          <View style={styles.dragHandle} accessibilityLabel="Drag to reorder step">
-            <Ionicons name="reorder-three-outline" size={20} color={colors.textSecondary} />
-          </View>
-        </GestureDetector>
-        <Text style={styles.stepNumber}>{index + 1}.</Text>
-        <TextInput
-          style={styles.stepInput}
-          value={text}
-          onChangeText={onChangeText}
-          placeholder={`e.g. ${index === 0 ? 'Preheat oven to 350\u00b0F' : 'Next step\u2026'}`}
-          placeholderTextColor={colors.textSecondary}
-          multiline
-        />
-        <Pressable onPress={onRemove} style={styles.removeStepButton} accessibilityLabel="Remove step">
-          <Ionicons name="close" size={18} color={colors.textSecondary} />
-        </Pressable>
+      <View style={styles.rail}>
+        <View style={[styles.dot, { backgroundColor: accentColor }]}>
+          <Text style={styles.dotText}>{index + 1}</Text>
+        </View>
+        {!isLast ? <View style={[styles.line, { backgroundColor: `${accentColor}33` }]} /> : null}
       </View>
 
-      <View style={styles.metaInputRow}>
-        <View style={styles.metaInputGroup}>
-          <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+      <View style={styles.stepCard}>
+        <View style={styles.stepCardTop}>
           <TextInput
-            style={styles.metaInput}
-            value={durationMinutes}
-            onChangeText={onChangeDuration}
-            placeholder="min"
+            style={styles.stepInput}
+            value={text}
+            onChangeText={onChangeText}
+            placeholder={index === 0 ? 'e.g. Preheat oven to 350F' : 'Next step...'}
             placeholderTextColor={colors.textSecondary}
-            keyboardType="number-pad"
+            multiline
           />
+          <GestureDetector gesture={pan}>
+            <View style={styles.dragHandle} accessibilityLabel="Drag to reorder step">
+              <Ionicons name="reorder-three-outline" size={18} color={colors.textSecondary} />
+            </View>
+          </GestureDetector>
+          <Pressable onPress={onRemove} style={styles.removeStepButton} accessibilityLabel="Remove step">
+            <Ionicons name="close" size={16} color={colors.textSecondary} />
+          </Pressable>
         </View>
-        <View style={styles.metaInputGroup}>
-          <Ionicons name="thermometer-outline" size={14} color={colors.textSecondary} />
-          <TextInput
-            style={styles.metaInput}
-            value={temperatureCelsius}
-            onChangeText={onChangeTemperature}
-            placeholder="\u00b0C"
-            placeholderTextColor={colors.textSecondary}
-            keyboardType="decimal-pad"
-          />
+
+        <View style={styles.metaInputRow}>
+          <View style={styles.metaInputGroup}>
+            <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+            <TextInput
+              style={styles.metaInput}
+              value={durationMinutes}
+              onChangeText={onChangeDuration}
+              placeholder="min"
+              placeholderTextColor={colors.textSecondary}
+              keyboardType="number-pad"
+            />
+          </View>
+          <View style={styles.metaInputGroup}>
+            <Ionicons name="thermometer-outline" size={14} color={colors.textSecondary} />
+            <TextInput
+              style={styles.metaInput}
+              value={temperatureCelsius}
+              onChangeText={onChangeTemperature}
+              placeholder="C"
+              placeholderTextColor={colors.textSecondary}
+              keyboardType="decimal-pad"
+            />
+          </View>
         </View>
       </View>
     </Animated.View>
@@ -516,10 +501,11 @@ function makeStyles(colors: Record<ColorToken, string>) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: spacing.lg,
+      marginBottom: spacing.xxs,
     },
     title: { ...typography.titleLg, color: colors.textPrimary },
-    iconButton: { width: 44, height: 44, borderRadius: radii.full, alignItems: 'center', justifyContent: 'center' },
+    headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
+    iconButton: { width: 40, height: 44, borderRadius: radii.full, alignItems: 'center', justifyContent: 'center' },
     saveHeaderButton: {
       minWidth: 44,
       height: 44,
@@ -529,73 +515,87 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     saveHeaderButtonText: { ...typography.body, color: colors.primary, fontWeight: '700' },
 
-    // Edit mode
-    modeToggle: {
-      flexDirection: 'row',
-      backgroundColor: colors.surfaceMuted,
-      borderRadius: radii.md,
-      padding: spacing.xxs,
-      marginBottom: spacing.lg,
+    formatLabel: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      fontWeight: '600',
+      textTransform: 'uppercase',
+      letterSpacing: 0.4,
+      marginBottom: spacing.md,
     },
-    modeButton: {
-      flex: 1,
-      paddingVertical: spacing.sm,
-      alignItems: 'center',
-      borderRadius: radii.sm,
-    },
-    modeButtonActive: { backgroundColor: colors.surface },
-    modeButtonText: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
-    modeButtonTextActive: { color: colors.textPrimary },
+
+    scrollContent: { paddingBottom: spacing.xxxl },
+
+    // Steps timeline
     stepRow: {
+      flexDirection: 'row',
       marginBottom: spacing.sm,
-      backgroundColor: colors.background,
       shadowColor: '#000',
       shadowOffset: { width: 0, height: 2 },
       shadowRadius: 6,
-      borderRadius: radii.md,
     },
-    stepRowTop: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xxs },
-    dragHandle: { width: 28, height: 44, alignItems: 'center', justifyContent: 'center' },
-    stepNumber: { ...typography.body, color: colors.textSecondary, fontWeight: '600', width: 20, marginTop: spacing.sm + 2 },
-    stepInput: {
+    rail: { width: 28, alignItems: 'center' },
+    dot: {
+      width: 24,
+      height: 24,
+      borderRadius: radii.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: spacing.xxs,
+    },
+    dotText: { ...typography.caption, color: colors.textInverse, fontWeight: '700' },
+    line: { flex: 1, width: 2, marginVertical: spacing.xxs },
+    stepCard: {
       flex: 1,
+      marginLeft: spacing.sm,
+      backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radii.md,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm + 2,
-      fontSize: typography.body.fontSize,
-      color: colors.textPrimary,
-      backgroundColor: colors.surface,
-      minHeight: 44,
+      padding: spacing.md,
     },
-    removeStepButton: { width: 32, height: 44, alignItems: 'center', justifyContent: 'center' },
+    stepCardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xxs },
+    dragHandle: { width: 26, height: 28, alignItems: 'center', justifyContent: 'center' },
+    stepInput: {
+      flex: 1,
+      fontSize: typography.body.fontSize,
+      lineHeight: typography.body.lineHeight,
+      color: colors.textPrimary,
+      padding: 0,
+      minHeight: 24,
+    },
+    removeStepButton: { width: 26, height: 28, alignItems: 'center', justifyContent: 'center' },
     metaInputRow: {
       flexDirection: 'row',
       gap: spacing.sm,
-      marginLeft: 56,
-      marginTop: spacing.xxs,
-      marginBottom: spacing.xs,
+      marginTop: spacing.sm,
     },
     metaInputGroup: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.xxs,
-      borderWidth: 1,
-      borderColor: colors.border,
+      backgroundColor: colors.surfaceMuted,
       borderRadius: radii.sm,
       paddingHorizontal: spacing.sm,
       paddingVertical: spacing.xxs,
-      backgroundColor: colors.surface,
     },
     metaInput: {
       ...typography.bodySm,
       color: colors.textPrimary,
-      width: 44,
+      width: 40,
       padding: 0,
     },
-    addStepButton: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs, paddingVertical: spacing.sm, marginBottom: spacing.xxxl },
+    addStepButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xxs,
+      paddingVertical: spacing.sm,
+      paddingLeft: spacing.xxl + spacing.xxs,
+      marginBottom: spacing.xxxl,
+    },
     addStepText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
+
+    // One block
     blockInput: {
       borderWidth: 1,
       borderColor: colors.border,
