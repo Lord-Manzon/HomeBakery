@@ -1,5 +1,5 @@
 import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
@@ -80,6 +80,28 @@ export default function RecipeInstructionsScreen() {
   // Disabled while a row is actively being dragged, so a drag near the
   // top/bottom of the visible list doesn't also try to scroll the page.
   const [isReordering, setIsReordering] = useState(false);
+  // Duration/temperature stay hidden until a step's row is actually
+  // being worked on — cleaner default (a recipe with 6 empty timer/temp
+  // chips read as clutter), reveals on demand. A row has three separate
+  // inputs (text, duration, temp), so "focus" is tracked at the ROW
+  // level, not per-field: moving focus from the text field to the
+  // duration field within the same row shouldn't collapse the meta
+  // fields in between. Same short-debounce-on-blur pattern as the
+  // recipe detail screen's yield quantity/unit editor, for the same
+  // reason — blur on one field fires before focus lands on the next.
+  const [activeStepId, setActiveStepId] = useState<string | null>(null);
+  const stepBlurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusStepRow = (stepId: string) => {
+    if (stepBlurTimeout.current) {
+      clearTimeout(stepBlurTimeout.current);
+      stepBlurTimeout.current = null;
+    }
+    setActiveStepId(stepId);
+  };
+  const blurStepRow = () => {
+    if (stepBlurTimeout.current) clearTimeout(stepBlurTimeout.current);
+    stepBlurTimeout.current = setTimeout(() => setActiveStepId(null), 80);
+  };
 
   // Seed local state once the recipe loads. Existing multi-step data
   // opens in Steps format; a single legacy block (or no instructions
@@ -296,6 +318,9 @@ export default function RecipeInstructionsScreen() {
                 durationMinutes={item.durationMinutes}
                 temperatureCelsius={item.temperatureCelsius}
                 accentColor={visual.color}
+                isActive={activeStepId === item.id}
+                onFocusRow={() => focusStepRow(item.id)}
+                onBlurRow={blurStepRow}
                 onChangeText={(v) => updateStep(item.id, v)}
                 onChangeDuration={(v) => updateStepDuration(item.id, v)}
                 onChangeTemperature={(v) => updateStepTemperature(item.id, v)}
@@ -377,6 +402,9 @@ function DraggableStepRow({
   durationMinutes,
   temperatureCelsius,
   accentColor,
+  isActive,
+  onFocusRow,
+  onBlurRow,
   onChangeText,
   onChangeDuration,
   onChangeTemperature,
@@ -392,6 +420,9 @@ function DraggableStepRow({
   durationMinutes: string;
   temperatureCelsius: string;
   accentColor: string;
+  isActive: boolean;
+  onFocusRow: () => void;
+  onBlurRow: () => void;
   onChangeText: (value: string) => void;
   onChangeDuration: (value: string) => void;
   onChangeTemperature: (value: string) => void;
@@ -454,6 +485,8 @@ function DraggableStepRow({
             placeholder={index === 0 ? 'e.g. Preheat oven to 350F' : 'Next step...'}
             placeholderTextColor={colors.textSecondary}
             multiline
+            onFocus={onFocusRow}
+            onBlur={onBlurRow}
           />
           <GestureDetector gesture={pan}>
             <View style={styles.dragHandle} accessibilityLabel="Drag to reorder step">
@@ -465,30 +498,43 @@ function DraggableStepRow({
           </Pressable>
         </View>
 
-        <View style={styles.metaInputRow}>
-          <View style={styles.metaInputGroup}>
-            <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
-            <TextInput
-              style={styles.metaInput}
-              value={durationMinutes}
-              onChangeText={onChangeDuration}
-              placeholder="min"
-              placeholderTextColor={colors.textSecondary}
-              keyboardType="number-pad"
-            />
+        {/* Hidden by default — a recipe with several steps and no
+            timers/temps set read as visual clutter with six empty "min"
+            / "°C" chips always on screen. Shows once this row is being
+            worked on (any of its three inputs has focus), and stays
+            visible afterward if a value was actually set, so a baker
+            who DID set a timer doesn't lose sight of it once they tap
+            away. */}
+        {isActive || durationMinutes || temperatureCelsius ? (
+          <View style={styles.metaInputRow}>
+            <View style={styles.metaInputGroup}>
+              <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+              <TextInput
+                style={styles.metaInput}
+                value={durationMinutes}
+                onChangeText={onChangeDuration}
+                placeholder="min"
+                placeholderTextColor={colors.textSecondary}
+                keyboardType="number-pad"
+                onFocus={onFocusRow}
+                onBlur={onBlurRow}
+              />
+            </View>
+            <View style={styles.metaInputGroup}>
+              <Ionicons name="thermometer-outline" size={14} color={colors.textSecondary} />
+              <TextInput
+                style={styles.metaInput}
+                value={temperatureCelsius}
+                onChangeText={onChangeTemperature}
+                placeholder="C"
+                placeholderTextColor={colors.textSecondary}
+                keyboardType="decimal-pad"
+                onFocus={onFocusRow}
+                onBlur={onBlurRow}
+              />
+            </View>
           </View>
-          <View style={styles.metaInputGroup}>
-            <Ionicons name="thermometer-outline" size={14} color={colors.textSecondary} />
-            <TextInput
-              style={styles.metaInput}
-              value={temperatureCelsius}
-              onChangeText={onChangeTemperature}
-              placeholder="C"
-              placeholderTextColor={colors.textSecondary}
-              keyboardType="decimal-pad"
-            />
-          </View>
-        </View>
+        ) : null}
       </View>
     </Animated.View>
   );
