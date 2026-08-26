@@ -109,6 +109,22 @@ const MORE_PANEL_ITEMS: PanelItem[] = [
 ];
 
 /**
+ * The exact route of every top-level screen reachable via the More
+ * panel/hub, plus the hub itself. Used to decide push vs replace: a
+ * navigation whose TARGET is one of these paths is a switch between
+ * peer top-level screens (must not grow the back stack); anything else
+ * (a sub-route like /more/products/new or /more/products/[id]) is a
+ * normal detail screen and should push. Keep this derived from
+ * MORE_PANEL_ITEMS/'/more' rather than hand-listed, so a newly-wired-up
+ * destination (Expenses, Reports, ...) picks up the right behavior the
+ * moment it gets a real pathname, with nothing else to update.
+ */
+const TOP_LEVEL_MORE_PATHS = new Set<string>([
+  '/more',
+  ...MORE_PANEL_ITEMS.map((item) => item.pathname).filter((p): p is string => !!p),
+]);
+
+/**
  * One real navigation tab (Home/Orders/Production/More) OR the
  * synthetic Add tab (no route of its own — see FloatingTabBar). Same
  * visual language either way: icon pops/rotates and swaps to a filled
@@ -311,14 +327,26 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
       }
       return;
     }
-    navigateOnce(() => router.push({ pathname: item.pathname, params: item.params } as never));
+    // Some Add-panel items (e.g. "Add ingredient") land on a top-level
+    // destination's own route; others (e.g. "Add product" →
+    // /more/products/new) land on a real detail/creation sub-screen.
+    // Only the former should replace — see TOP_LEVEL_MORE_PATHS.
+    const navigate = TOP_LEVEL_MORE_PATHS.has(item.pathname) ? router.replace : router.push;
+    navigateOnce(() => navigate({ pathname: item.pathname, params: item.params } as never));
   }
 
   function handleMoreItemPress(item: PanelItem) {
     closePanel();
     if (!item.pathname) return;
     if (pathname.startsWith(item.pathname)) return; // already here
-    navigateOnce(() => router.push(item.pathname as never));
+    // replace, not push: Ingredients/Products/Recipes/Settings are
+    // peer top-level screens (same tier as Home/Orders/Production/More)
+    // — switching between them must not grow the back stack, same as
+    // switching tabs doesn't. Only navigation INTO a detail screen
+    // (e.g. a specific product) should push. See the nav-rule note atop
+    // this file's More-panel section and the matching fix in
+    // more/index.tsx.
+    navigateOnce(() => router.replace(item.pathname as never));
   }
 
   function handleRealTabPress(route: { key: string; name: string }, isFocused: boolean) {
@@ -358,7 +386,10 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
       // (same destination as the existing "Add ingredient" quick-add
       // item) rather than a specific ingredient's Restock sheet.
       if (pathname === '/more/ingredients') return;
-      navigateOnce(() => router.push('/more/ingredients' as never));
+      // replace: this jumps straight to the Ingredients top-level screen
+      // from Production (another top-level screen) — same rule as the
+      // More-panel switches, not a detail push.
+      navigateOnce(() => router.replace('/more/ingredients' as never));
       return;
     }
     if (activeRouteName === 'more' && pathname.startsWith('/more/ingredients')) {
@@ -505,7 +536,10 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
                       onPress={() => {
                         closePanel();
                         if (pathname === '/more') return;
-                        navigateOnce(() => router.push('/more' as never));
+                        // replace: the More hub is a peer top-level screen
+                        // too, not a detail of whichever destination you're
+                        // leaving — same reasoning as handleMoreItemPress.
+                        navigateOnce(() => router.replace('/more' as never));
                       }}
                       style={({ pressed }) => [styles.moreOptionsRow, pressed && styles.panelRowPressed]}
                       accessibilityLabel="See all"
