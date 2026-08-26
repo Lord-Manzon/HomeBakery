@@ -42,7 +42,16 @@ export default function MoreScreen() {
             <Pressable
               key={item.label}
               style={[styles.menuRow, i > 0 && styles.menuRowDivider]}
-              onPress={() => item.pathname && router.push(item.pathname as never)}
+              onPress={() => {
+                if (!item.pathname) return;
+                if (pathname.startsWith(item.pathname)) return; // already here
+                // replace, not push: every destination in this list is a
+                // peer top-level screen (Ingredients/Products/Recipes/
+                // Settings/...), same tier as this hub itself — switching
+                // between them must not grow the back stack. Matches the
+                // same rule applied to the More panel in FloatingTabBar.tsx.
+                router.replace(item.pathname as never);
+              }}
               disabled={!item.pathname}
               accessibilityLabel={item.pathname ? item.label : `${item.label}, coming soon`}
             >
