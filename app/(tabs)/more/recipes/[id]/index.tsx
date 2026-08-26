@@ -383,39 +383,6 @@ export default function RecipeDetailScreen() {
           ) : null}
         </Pressable>
 
-      </View>
-
-      <View style={styles.tabBar}>
-        <Pressable
-          style={[styles.tabButton, activeTab === 'ingredients' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('ingredients')}
-        >
-          <Text style={[styles.tabButtonText, activeTab === 'ingredients' && styles.tabButtonTextActive]}>
-            Ingredients
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.tabButton, activeTab === 'instructions' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('instructions')}
-        >
-          <Text style={[styles.tabButtonText, activeTab === 'instructions' && styles.tabButtonTextActive]}>
-            Instructions
-          </Text>
-        </Pressable>
-      </View>
-
-      <ScrollView
-        style={styles.tabContent}
-        showsVerticalScrollIndicator={false}
-        // Ingredients can run long and needs to scroll; Instructions is
-        // capped to a fixed-height clipped preview ("View all N steps"
-        // takes you to the full screen for anything longer), so there's
-        // nothing on this tab that ever needs scrolling — locking it
-        // avoids the odd feeling of "swipe over static content and the
-        // page nudges by a few px" for a short recipe.
-        scrollEnabled={activeTab !== 'instructions'}
-        contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
-      >
         {usage && usage.length > 0 ? (
           <>
             <Pressable
@@ -449,7 +416,39 @@ export default function RecipeDetailScreen() {
               : null}
           </>
         ) : null}
+      </View>
 
+      <View style={styles.tabBar}>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'ingredients' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('ingredients')}
+        >
+          <Text style={[styles.tabButtonText, activeTab === 'ingredients' && styles.tabButtonTextActive]}>
+            Ingredients
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabButton, activeTab === 'instructions' && styles.tabButtonActive]}
+          onPress={() => setActiveTab('instructions')}
+        >
+          <Text style={[styles.tabButtonText, activeTab === 'instructions' && styles.tabButtonTextActive]}>
+            Instructions
+          </Text>
+        </Pressable>
+      </View>
+
+      <ScrollView
+        style={styles.tabContent}
+        showsVerticalScrollIndicator={false}
+        // Ingredients can run long and needs to scroll; Instructions is
+        // capped to a fixed-height clipped preview ("View all N steps"
+        // takes you to the full screen for anything longer), so there's
+        // nothing on this tab that ever needs scrolling — locking it
+        // avoids the odd feeling of "swipe over static content and the
+        // page nudges by a few px" for a short recipe.
+        scrollEnabled={activeTab !== 'instructions'}
+        contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
+      >
         {activeTab === 'ingredients' ? (
           <>
             <View style={styles.sectionHeaderRow}>
@@ -538,7 +537,7 @@ export default function RecipeDetailScreen() {
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionHeader}>Instructions</Text>
               <Pressable
-                onPress={() => router.push(`/more/recipes/${id}/instructions`)}
+                onPress={() => navigateOnce(`/more/recipes/${id}/instructions`)}
                 style={styles.addLink}
               >
                 <Ionicons
@@ -553,14 +552,14 @@ export default function RecipeDetailScreen() {
             </View>
 
             {!recipe.instructions || recipe.instructions.length === 0 ? (
-              <Pressable onPress={() => router.push(`/more/recipes/${id}/instructions`)}>
+              <Pressable onPress={() => navigateOnce(`/more/recipes/${id}/instructions`)}>
                 <Text style={styles.emptyIngredients}>
                   No steps yet — add them so they're not just in your head.
                 </Text>
               </Pressable>
             ) : (
               <Pressable
-                onPress={() => router.push(`/more/recipes/${id}/instructions`)}
+                onPress={() => navigateOnce(`/more/recipes/${id}/instructions`)}
                 style={styles.instructionsPreviewWrap}
               >
                 {/* Fixed-height clipped preview, not its own scroll area — a
