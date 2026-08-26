@@ -12,6 +12,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../theme/ThemeContext';
 import { radii, spacing, motionDuration, motionEasingCurve, motionSpring } from '../theme';
@@ -169,34 +170,46 @@ export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: B
       onRequestClose={animateOutAndDismiss}
       statusBarTranslucent
     >
-      <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={animateOutAndDismiss} />
-      </Animated.View>
-      <Animated.View
-        style={[
-          styles.sheet,
-          {
-            paddingBottom: spacing.xxl + insets.bottom,
-            bottom: androidKeyboardHeight,
-            maxHeight:
-              androidKeyboardHeight > 0
-                ? SCREEN_HEIGHT - androidKeyboardHeight - insets.top - spacing.xl
-                : '85%',
-          },
-          { transform: [{ translateY: sheetTranslateY }] },
-        ]}
-      >
-        <View style={styles.dragHandleArea} {...panResponder.panHandlers}>
-          <View style={styles.dragHandle} />
-        </View>
-        <ScrollView
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          automaticallyAdjustKeyboardInsets
+      {/*
+        react-native-gesture-handler needs its own GestureHandlerRootView
+        HERE, inside the Modal — Modal renders into a separate native
+        view hierarchy that is NOT a descendant of the app root's
+        GestureHandlerRootView (see app/_layout.tsx), so gestures like
+        UsageSlider's Gesture.Pan() silently receive no touch events
+        without this. Plain Pressable/onPress (the quick chips, the
+        drag handle's PanResponder) are unaffected either way — this
+        only matters for react-native-gesture-handler specifically.
+      */}
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={animateOutAndDismiss} />
+        </Animated.View>
+        <Animated.View
+          style={[
+            styles.sheet,
+            {
+              paddingBottom: spacing.xxl + insets.bottom,
+              bottom: androidKeyboardHeight,
+              maxHeight:
+                androidKeyboardHeight > 0
+                  ? SCREEN_HEIGHT - androidKeyboardHeight - insets.top - spacing.xl
+                  : '85%',
+            },
+            { transform: [{ translateY: sheetTranslateY }] },
+          ]}
         >
-          {children}
-        </ScrollView>
-      </Animated.View>
+          <View style={styles.dragHandleArea} {...panResponder.panHandlers}>
+            <View style={styles.dragHandle} />
+          </View>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            automaticallyAdjustKeyboardInsets
+          >
+            {children}
+          </ScrollView>
+        </Animated.View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

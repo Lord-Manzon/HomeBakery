@@ -5,6 +5,7 @@ import {
   getIngredients,
   getMovementHistory,
   getRecipesUsingIngredient,
+  getTodayUsage,
   recordUseOrWaste,
   removeIngredient,
   restockIngredient,
@@ -15,9 +16,20 @@ import type { IngredientFormInput, RestockFormInput, UseWasteReason } from '../u
 const ingredientsKey = ['ingredients'] as const;
 const ingredientKey = (id: string) => ['ingredients', id] as const;
 const movementsKey = (id: string) => ['ingredients', id, 'movements'] as const;
+const todayUsageKey = ['ingredients', 'todayUsage'] as const;
 
 export function useIngredients() {
   return useQuery({ queryKey: ingredientsKey, queryFn: getIngredients });
+}
+
+/**
+ * Today's usage+waste totals per ingredient (see getTodayUsage for the
+ * "local calendar day" definition). Invalidated alongside ingredientsKey
+ * on every mutation below that can change it, so the card badge updates
+ * immediately after Save — same pattern as the rest of this file.
+ */
+export function useTodayUsage() {
+  return useQuery({ queryKey: todayUsageKey, queryFn: getTodayUsage });
 }
 
 export function useIngredient(id: string) {
@@ -97,6 +109,7 @@ export function useRecordUseOrWaste(id: string) {
       queryClient.setQueryData(ingredientKey(id), data);
       queryClient.invalidateQueries({ queryKey: ingredientsKey });
       queryClient.invalidateQueries({ queryKey: movementsKey(id) });
+      queryClient.invalidateQueries({ queryKey: todayUsageKey });
     },
   });
 }

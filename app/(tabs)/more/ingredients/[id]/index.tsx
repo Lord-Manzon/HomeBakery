@@ -108,7 +108,7 @@ export default function IngredientDetailScreen() {
   const statusLabel =
     gauge.status === 'out' ? 'Out of stock' : gauge.status === 'low' ? 'Low stock' : 'In stock';
   const statusColor =
-    gauge.status === 'out' || gauge.status === 'low' ? colors.danger : colors.success;
+    gauge.status === 'out' ? colors.danger : gauge.status === 'low' ? colors.warning : colors.success;
 
   // history is already sorted created_at desc (see getMovementHistory), so
   // the first 'restock' row is the most recent one — no extra query
@@ -388,7 +388,7 @@ function UsedInChip({
       accessibilityRole="button"
     >
       <Animated.View style={[styles.usedInChip, press.style]}>
-        <Ionicons name="restaurant-outline" size={13} color={colors.textSecondary} />
+        <Ionicons name="book-outline" size={13} color={colors.textSecondary} />
         <Text style={styles.usedInChipText}>{recipe.name}</Text>
       </Animated.View>
     </Pressable>

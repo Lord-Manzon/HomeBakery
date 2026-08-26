@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useHideNavOnScroll } from '../../../../src/hooks/useHideNavOnScroll';
-import { useCreateIngredient, useIngredients } from '../../../../src/hooks/useIngredients';
+import { useCreateIngredient, useIngredients, useTodayUsage } from '../../../../src/hooks/useIngredients';
 import { useBakerProfile, useUpdateBakerProfile } from '../../../../src/hooks/useBakerProfile';
 import { usePressScale } from '../../../../src/hooks/usePressScale';
 import { useThemeColors } from '../../../../src/theme/ThemeContext';
@@ -47,6 +47,7 @@ export default function IngredientsListScreen() {
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { data: ingredients, isLoading, isError, refetch } = useIngredients();
+  const { data: todayUsage } = useTodayUsage();
   const { data: baker } = useBakerProfile();
   const updateBakerProfile = useUpdateBakerProfile();
   const [search, setSearch] = useState('');
@@ -203,6 +204,7 @@ export default function IngredientsListScreen() {
               <IngredientCard
                 ingredient={item}
                 sensitivity={sensitivity}
+                usedToday={todayUsage?.[item.id] ?? 0}
                 index={index}
                 styles={styles}
                 colors={colors}
@@ -267,6 +269,7 @@ function CategoryChip({
 function IngredientCard({
   ingredient,
   sensitivity,
+  usedToday,
   index,
   styles,
   colors,
@@ -274,6 +277,7 @@ function IngredientCard({
 }: {
   ingredient: Ingredient;
   sensitivity: GaugeSensitivity;
+  usedToday: number;
   index: number;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
@@ -310,9 +314,21 @@ function IngredientCard({
                 {ingredient.current_stock} {ingredient.unit}
               </Text>
               {lowStock ? (
-                <View style={styles.lowStockBadge}>
-                  <Text style={styles.lowStockBadgeText}>
+                <View
+                  style={[
+                    styles.lowStockBadge,
+                    { backgroundColor: gauge.status === 'out' ? colors.dangerMuted : colors.warningMuted },
+                  ]}
+                >
+                  <Text style={[styles.lowStockBadgeText, { color: tintColor }]}>
                     {gauge.status === 'out' ? 'Out of stock' : 'Low stock'}
+                  </Text>
+                </View>
+              ) : usedToday > 0 ? (
+                <View style={styles.usedTodayBadge}>
+                  <Ionicons name="arrow-down" size={9} color={colors.textSecondary} />
+                  <Text style={styles.usedTodayBadgeText}>
+                    Used {usedToday} {ingredient.unit} today
                   </Text>
                 </View>
               ) : null}
@@ -422,13 +438,23 @@ function makeStyles(colors: Record<ColorToken, string>) {
     cardCategory: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xxs },
     cardStock: { ...typography.body, color: colors.textPrimary },
     lowStockBadge: {
-      backgroundColor: colors.dangerMuted,
       borderRadius: radii.full,
       paddingHorizontal: spacing.sm,
       paddingVertical: 2,
       marginTop: spacing.xxs,
     },
-    lowStockBadgeText: { ...typography.caption, color: colors.danger },
+    lowStockBadgeText: { ...typography.caption },
+    usedTodayBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      marginTop: spacing.xxs,
+    },
+    usedTodayBadgeText: { ...typography.caption, color: colors.textSecondary },
     emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     emptyTitle: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.xs },
     emptyNote: {

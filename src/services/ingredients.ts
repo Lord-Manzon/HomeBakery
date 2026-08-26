@@ -1,5 +1,4 @@
 import { supabase } from './supabase';
-import { calculateRestockCostPerUnit } from './ingredientLogic';
 import type { Ingredient, InventoryMovement, MovementType } from '../types/ingredient';
 import type { IngredientFormInput, RestockFormInput, UseWasteReason } from '../utils/validation/ingredientSchemas';
 
@@ -27,6 +26,44 @@ export async function getMovementHistory(ingredientId: string): Promise<Inventor
     .order('created_at', { ascending: false });
   if (error) throw error;
   return data as InventoryMovement[];
+}
+
+/**
+ * Sum of today's `usage` + `waste` movements per ingredient, keyed by
+ * ingredient_id — powers the "Used Xkg today" card badge (see
+ * IngredientCard in app/(tabs)/more/ingredients/index.tsx).
+ *
+ * "Today" is the LOCAL calendar day (resets at midnight on the baker's
+ * device), not a rolling 24h window — matches how a baker actually
+ * thinks about it ("what did I use today" = today's bake), and is a
+ * simpler, cheaper query than a continuously-sliding window. See
+ * docs/DECISIONS.md's usage-badge entry if one gets added.
+ *
+ * Both `usage` (Used in production) and `waste` (Wasted/Spoiled) count
+ * toward the same total, and the badge always reads "Used" regardless
+ * of reason — deliberately not splitting into separate used/wasted
+ * badges, per product decision.
+ *
+ * quantity_change is stored negative for usage/waste (see
+ * recordUseOrWaste below), so this returns positive totals via Math.abs.
+ */
+export async function getTodayUsage(): Promise<Record<string, number>> {
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+
+  const { data, error } = await supabase
+    .from('inventory_movements')
+    .select('ingredient_id, quantity_change')
+    .in('movement_type', ['usage', 'waste'] satisfies MovementType[])
+    .gte('created_at', startOfToday.toISOString());
+  if (error) throw error;
+
+  const totals: Record<string, number> = {};
+  for (const row of data ?? []) {
+    const id = row.ingredient_id as string;
+    totals[id] = (totals[id] ?? 0) + Math.abs(row.quantity_change as number);
+  }
+  return totals;
 }
 
 async function getCurrentBakerId(): Promise<string> {
@@ -177,6 +214,29 @@ function dedupeRecipes(recipes: BlockingRecipe[]): BlockingRecipe[] {
   const seen = new Map<string, BlockingRecipe>();
   for (const r of recipes) seen.set(r.id, r);
   return Array.from(seen.values());
+}
+
+/**
+ * Weighted-average cost-per-unit after a restock. Pure function, unit
+ * tested separately (see ingredients.test.ts) per
+ * docs/CODING_STANDARDS.md — this is exactly the kind of number a baker
+ * will trust for their costing math.
+ *
+ * Blends the value of stock already on hand with the new purchase, rather
+ * than discarding what was already there. If currentStock is 0 (first
+ * ever restock, or ingredient was fully depleted), the result is simply
+ * this purchase's price per unit.
+ */
+export function calculateRestockCostPerUnit(
+  currentStock: number,
+  currentCostPerUnit: number,
+  quantityAdded: number,
+  totalCostPaid: number
+): number {
+  const totalStockAfter = currentStock + quantityAdded;
+  if (totalStockAfter <= 0) return currentCostPerUnit; // guard: avoid divide-by-zero
+  const existingValue = currentStock * currentCostPerUnit;
+  return (existingValue + totalCostPaid) / totalStockAfter;
 }
 
 /**
