@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Stack } from 'expo-router';
-//import { StatusBar } from 'expo-status-bar';
+import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -9,8 +9,21 @@ import { AuthProvider, useAuth } from '../src/hooks/useAuth';
 import { useBakerProfile } from '../src/hooks/useBakerProfile';
 import { signOut } from '../src/services/auth';
 import { colors, spacing, typography } from '../src/theme';
-import { ThemeProvider } from '../src/theme/ThemeContext';
+import { ThemeProvider, useThemeColors } from '../src/theme/ThemeContext';
 import { hasCompletedOnboarding } from '../src/types/baker';
+
+/**
+ * Status bar icon color has to track the resolved theme, not a fixed
+ * value. Light mode's background is a warm cream (#FBF7F1, see
+ * palettes.ts), so light/white system icons (the default) are nearly
+ * invisible against it — that's the "white notification bar" issue.
+ * Dark mode needs the opposite. Rendered inside ThemeProvider (not
+ * RootLayout) since useThemeColors() only works below that provider.
+ */
+function ThemedStatusBar() {
+  const { mode } = useThemeColors();
+  return <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />;
+}
 
 const queryClient = new QueryClient();
 
@@ -20,7 +33,6 @@ export default function RootLayout() {
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
           <AuthProvider>
-            {/* <StatusBar style="dark" /> */}
             <RootNavigator />
           </AuthProvider>
         </QueryClientProvider>
@@ -38,6 +50,10 @@ function RootNavigator() {
   if (stillResolving) {
     return (
       <View style={styles.center}>
+        {/* Outside ThemeProvider here, but this screen always uses the
+            static light palette (colors.background below), so "dark"
+            icons are always correct for it — no theme lookup needed. */}
+        <StatusBar style="dark" />
         <ActivityIndicator color={colors.primary} size="large" />
       </View>
     );
@@ -49,6 +65,7 @@ function RootNavigator() {
   if (session && bakerProfile.isError) {
     return (
       <View style={styles.center}>
+        <StatusBar style="dark" />
         <Text style={styles.errorTitle}>Couldn't load your profile</Text>
         <Text style={styles.errorSubtitle}>Check your connection and try again.</Text>
         <View style={styles.retryButton}>
@@ -73,6 +90,7 @@ function RootNavigator() {
 
   return (
     <ThemeProvider preference={themePreference}>
+      <ThemedStatusBar />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Protected guard={!isLoggedIn}>
           <Stack.Screen name="(auth)" />
