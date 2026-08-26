@@ -683,7 +683,7 @@ covers" implicit.
 **Decision:** `orders.status`'s original 6-value design
 (`pending`/`confirmed`/`preparing`/`ready`/`completed`/`cancelled`) is
 reduced to 4: `pending` / `delivered` / `completed` / `cancelled`
-(`supabase/migrations/0009_orders_status_payment_method.sql`). New
+(`supabase/migrations/0011_orders_status_payment_method.sql`). New
 lifecycle: `pending` → `delivered` → `completed`, or `cancelled` (from
 `pending` or `delivered`, not from `completed`). **`completed` is never
 set directly by a baker action** — it's a derived side effect, applied
@@ -991,3 +991,40 @@ to have gated it.
 
 **Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest`
 — 4 suites, 50 tests, all passing.
+
+### 2026-08-26 — Renumbered a migration and fixed a doubly-nested path before merging `orders-screen` into `product-screen`
+
+**Decision:** Two pre-merge fixes on `orders-screen`, done as their own
+commit so the merge into `product-screen` stays clean:
+- Renamed `supabase/migrations/0009_orders_status_payment_method.sql` →
+  `0011_orders_status_payment_method.sql`. `product-screen` had
+  independently created its own, unrelated `0009_ingredient_soft_delete.sql`
+  and already has a `0010_recipe_step_metadata.sql` — both branches picking
+  `0009` for different schema changes was a numbering collision waiting to
+  land in the same migrations folder once merged. `0011` is the next free
+  number after `product-screen`'s highest.
+- Moved `supabase/migrations/supabase/migrations/0008_recipe_instructions_steps.sql`
+  to `supabase/migrations/0008_recipe_instructions_steps.sql` — the
+  doubly-nested path from the known VS Code Explorer mistake (tracked
+  since Phase 6), present identically on both branches and never actually
+  fixed. Left as-is, this file sits two folders deep and Supabase's
+  CLI/dashboard migration runner won't discover it at the expected path.
+**Why now:** Both issues were only surfaced by comparing `orders-screen`
+against `product-screen` directly ahead of merging them — neither was
+visible working on either branch alone, since each branch only sees its
+own migrations folder.
+**No content changes** — both fixes are pure `git mv` renames, so the SQL
+itself is untouched; `docs/DECISIONS.md`'s existing reference to the old
+`0009_orders_status_payment_method.sql` filename (this file, earlier
+entry) was updated to `0011` to match.
+**Verified:** `npx tsc --noEmit` and `npx jest` re-run after the rename —
+unaffected, as expected for a pure file-path change (4 suites, 50 tests,
+all passing).
+
+**Also cleaned up in the same pass:** `stage1-fixes.patch` through
+`stage5-edit-order.patch` — the hand-off patch files used to deliver this
+phase's changes across sessions — had been accidentally committed into
+`orders-screen` (first appearing in the `a25b6db` "refactor
+calculateRestockCostPerUnit" commit). These are delivery artifacts, never
+part of the app, so they're removed from tracking here and `*.patch` is
+added to `.gitignore` so this doesn't recur.
