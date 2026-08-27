@@ -1097,3 +1097,57 @@ no separate fix needed for Edit Order.
 **Verified:** `npx tsc --noEmit` — zero errors. Confirmed on-device: added
 5 items to a Pickup order and a Delivery order, scrolled to the bottom in
 both, Save button reachable and tappable in both cases.
+
+### 2026-08-26 — Added revert capability for Mark Paid/Mark Delivered, and swipe-to-reveal quick actions on the Orders list
+
+**Decision, part 1 — revert:** Long-pressing the Order Detail status
+badge reverts delivery (Delivered/Completed → Pending); long-pressing the
+payment badge reverts payment (Paid → Unpaid, clearing `payment_method`
+too). Both go through a lightweight inline confirm first — unlike the
+original Mark Paid/Mark Delivered actions, which stay instant-tap with no
+confirmation (per the 2026-08-22 entry), since reverting either dimension
+of a `completed` order moves it back to active, a real enough consequence
+to warrant a check. Short-tap behavior on both badges is unchanged (the
+paid badge still opens `PaymentMethodSheet` to correct the method).
+
+**Why long-press, not a separate button:** matches the existing
+long-press-to-edit convention already established for category chips
+(2026-08-18 entry) rather than inventing a new interaction — one fewer
+pattern to learn, and doesn't add a second competing button next to
+Mark Paid/Mark Delivered.
+
+**New shared logic in `orderLogic.ts`:** `canMarkDelivered`, `canMarkPaid`
+(promoted out of Order Detail's inline conditions so the Orders list's
+swipe actions and this screen's buttons can't drift out of sync),
+`canRevertDelivered`, `canRevertPaid`, and `resolveStatusAfterReverting`
+— the reverse of `resolveStatusAfterMarking`. Reverting delivery from
+`completed` drops to `pending`, payment untouched; reverting payment from
+`completed` drops to `delivered`, delivery untouched — each dimension
+reverts independently, mirroring how marking works.
+
+**Decision, part 2 — swipe actions:** The Orders list's cards now support
+swipe-left-to-reveal, showing Mark Paid and Mark Delivered as inline
+action buttons (in that order — Paid closest to the card edge, Delivered
+furthest) using `react-native-gesture-handler`'s `Gesture.Pan` +
+`react-native-reanimated`'s `useSharedValue`/`useAnimatedStyle` — both
+already project dependencies, no new package added. Only the actions that
+actually apply to an order's current status are shown; an order with
+nothing left to mark (e.g. already Completed) gets no swipe actions and
+the gesture is disabled entirely, not an empty reveal. Tapping an open
+(swiped) card closes it instead of navigating to Order Detail — standard
+swipeable-list convention (iOS Mail/Reminders), which the reference video
+for this feature was itself modeling.
+
+**Decision, part 3 — price size:** Added `typography.metric` (22/600) —
+`UI_UX_1.md` section F's design-token table already specified this scale
+but nothing had implemented it. The order total moved out of the crowded
+bottom row (payment badge + meta text) into its own row paired with the
+items summary, sized at `metric`, matching the "bigger, easy to spot on
+the right" reference design.
+
+**Scope note:** swipe actions currently apply to the Orders tab list
+only. Bringing the same actions to Home's "today's orders" section is
+deferred — Home (Phase 10) doesn't exist yet.
+
+**Verified:** `npx tsc --noEmit` — zero errors. `npx jest` — 4 suites, 62
+tests (12 new, covering the revert/mark helpers), all passing.

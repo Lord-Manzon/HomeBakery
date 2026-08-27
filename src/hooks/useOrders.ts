@@ -7,6 +7,8 @@ import {
   getOrders,
   markOrderDelivered,
   markOrderPaid,
+  revertOrderDelivered,
+  revertOrderPaid,
   updateOrder,
 } from '../services/orders';
 import type { Order, OrderListFilter } from '../types/order';
@@ -80,6 +82,30 @@ export function useMarkOrderPaid() {
       order: Pick<Order, 'id' | 'status'>;
       paymentMethod: string;
     }) => markOrderPaid(order, paymentMethod),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+    },
+  });
+}
+
+// Undo counterparts to the two mutations above -- see
+// src/services/orderLogic.ts's resolveStatusAfterReverting doc comment
+// for how each dimension (delivered/paid) reverts independently.
+
+export function useRevertOrderDelivered() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (order: Pick<Order, 'id' | 'status'>) => revertOrderDelivered(order),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+    },
+  });
+}
+
+export function useRevertOrderPaid() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (order: Pick<Order, 'id' | 'status'>) => revertOrderPaid(order),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersBaseKey });
     },

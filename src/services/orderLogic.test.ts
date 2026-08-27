@@ -1,8 +1,13 @@
 import {
   calculateOrderTotals,
   canCancelOrder,
+  canMarkDelivered,
+  canMarkPaid,
+  canRevertDelivered,
+  canRevertPaid,
   isOrderActive,
   resolveStatusAfterMarking,
+  resolveStatusAfterReverting,
 } from './orderLogic';
 
 describe('calculateOrderTotals', () => {
@@ -92,5 +97,80 @@ describe('isOrderActive', () => {
   it('treats completed and cancelled as not active', () => {
     expect(isOrderActive('completed')).toBe(false);
     expect(isOrderActive('cancelled')).toBe(false);
+  });
+});
+
+describe('canMarkDelivered', () => {
+  it('only allows marking delivered from pending', () => {
+    expect(canMarkDelivered('pending')).toBe(true);
+    expect(canMarkDelivered('delivered')).toBe(false);
+    expect(canMarkDelivered('completed')).toBe(false);
+    expect(canMarkDelivered('cancelled')).toBe(false);
+  });
+});
+
+describe('canMarkPaid', () => {
+  it('allows marking paid while unpaid and active', () => {
+    expect(canMarkPaid('pending', 'unpaid')).toBe(true);
+    expect(canMarkPaid('delivered', 'unpaid')).toBe(true);
+  });
+
+  it('does not allow marking paid if already paid', () => {
+    expect(canMarkPaid('pending', 'paid')).toBe(false);
+  });
+
+  it('does not allow marking paid on a cancelled-but-unpaid order', () => {
+    expect(canMarkPaid('cancelled', 'unpaid')).toBe(false);
+  });
+});
+
+describe('canRevertDelivered', () => {
+  it('allows reverting from delivered or completed', () => {
+    expect(canRevertDelivered('delivered')).toBe(true);
+    expect(canRevertDelivered('completed')).toBe(true);
+  });
+
+  it('does not allow reverting from pending (nothing to undo) or cancelled', () => {
+    expect(canRevertDelivered('pending')).toBe(false);
+    expect(canRevertDelivered('cancelled')).toBe(false);
+  });
+});
+
+describe('canRevertPaid', () => {
+  it('allows reverting payment from any non-cancelled status', () => {
+    expect(canRevertPaid('pending')).toBe(true);
+    expect(canRevertPaid('delivered')).toBe(true);
+    expect(canRevertPaid('completed')).toBe(true);
+  });
+
+  it('does not allow reverting payment on a cancelled order', () => {
+    expect(canRevertPaid('cancelled')).toBe(false);
+  });
+});
+
+describe('resolveStatusAfterReverting', () => {
+  it('reverting delivery from completed drops to pending (payment untouched by this function)', () => {
+    expect(resolveStatusAfterReverting({ action: 'delivered', currentStatus: 'completed' })).toBe(
+      'pending'
+    );
+  });
+
+  it('reverting delivery from delivered drops to pending', () => {
+    expect(resolveStatusAfterReverting({ action: 'delivered', currentStatus: 'delivered' })).toBe(
+      'pending'
+    );
+  });
+
+  it('reverting payment from completed drops to delivered (still delivered, just unpaid)', () => {
+    expect(resolveStatusAfterReverting({ action: 'paid', currentStatus: 'completed' })).toBe(
+      'delivered'
+    );
+  });
+
+  it('reverting payment from pending or delivered does not change status', () => {
+    expect(resolveStatusAfterReverting({ action: 'paid', currentStatus: 'pending' })).toBe('pending');
+    expect(resolveStatusAfterReverting({ action: 'paid', currentStatus: 'delivered' })).toBe(
+      'delivered'
+    );
   });
 });

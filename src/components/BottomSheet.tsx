@@ -81,6 +81,15 @@ type BottomSheetProps = {
  * easing/spring values from theme/motion.ts) — see docs/DECISIONS.md.
  * Neither branch's fix is dropped: this file has both the Android
  * keyboard handling AND the theme-reactive styling.
+ *
+ * UPDATED 2026-08-26: content is now wrapped in its own
+ * GestureHandlerRootView, inside the Modal — react-native-gesture-handler
+ * gestures (e.g. UsageSlider's Gesture.Pan()) don't work inside RN's core
+ * Modal component otherwise, since Modal renders into a separate native
+ * view hierarchy that isn't a descendant of the app root's
+ * GestureHandlerRootView. Plain Pressable/onPress and the drag handle's
+ * PanResponder were never affected by this — only gesture-handler's own
+ * gestures were silently inert without it.
  */
 export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: BottomSheetProps) {
   const insets = useSafeAreaInsets();

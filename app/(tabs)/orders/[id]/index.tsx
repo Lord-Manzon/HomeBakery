@@ -7,11 +7,20 @@ import {
   useOrder,
   useMarkOrderDelivered,
   useMarkOrderPaid,
+  useRevertOrderDelivered,
+  useRevertOrderPaid,
   useCancelOrder,
   useDeleteOrder,
 } from '../../../../src/hooks/useOrders';
 import { useBakerProfile } from '../../../../src/hooks/useBakerProfile';
-import { isOrderActive, canCancelOrder } from '../../../../src/services/orderLogic';
+import {
+  isOrderActive,
+  canCancelOrder,
+  canMarkDelivered,
+  canMarkPaid,
+  canRevertDelivered,
+  canRevertPaid,
+} from '../../../../src/services/orderLogic';
 import { formatOrderDate, formatOrderTime, todayDateString } from '../../../../src/utils/dateFormat';
 import { formatCurrency } from '../../../../src/utils/currency';
 import { Screen } from '../../../../src/components/Screen';
@@ -52,10 +61,14 @@ export default function OrderDetailScreen() {
   const { data: baker } = useBakerProfile();
   const markDelivered = useMarkOrderDelivered();
   const markPaid = useMarkOrderPaid();
+  const revertDelivered = useRevertOrderDelivered();
+  const revertPaid = useRevertOrderPaid();
   const cancelOrder = useCancelOrder();
   const deleteOrder = useDeleteOrder();
 
-  const [pendingAction, setPendingAction] = useState<'cancel' | 'delete' | null>(null);
+  const [pendingAction, setPendingAction] = useState<
+    'cancel' | 'delete' | 'revert-delivered' | 'revert-paid' | null
+  >(null);
   const [paymentSheetOpen, setPaymentSheetOpen] = useState(false);
 
   if (isError) {
@@ -84,11 +97,11 @@ export default function OrderDetailScreen() {
   const dateLabel = formatOrderDate(order.scheduled_date);
   const whenLabel = time ? `${dateLabel} · ${time}` : dateLabel;
 
-  // Per docs/DECISIONS.md's 2026-08-22 entry: the only active status
-  // that hasn't been delivered yet is 'pending' -- once delivered, status
-  // moves past this and the button has nothing left to do.
-  const showMarkDelivered = order.status === 'pending';
-  const showMarkPaid = order.payment_status === 'unpaid' && isOrderActive(order.status);
+  // Per docs/DECISIONS.md's 2026-08-26 entry: these now come from
+  // src/services/orderLogic.ts so the Orders list's swipe actions and
+  // this screen's buttons can never drift out of sync with each other.
+  const showMarkDelivered = canMarkDelivered(order.status);
+  const showMarkPaid = canMarkPaid(order.status, order.payment_status);
   const canCancel = canCancelOrder(order.status);
 
   return (
@@ -120,9 +133,15 @@ export default function OrderDetailScreen() {
         </View>
       </View>
 
-      <View style={[styles.badge, { backgroundColor: `${badgeColor}1F` }]}>
+      <Pressable
+        onLongPress={() => {
+          if (canRevertDelivered(order.status)) setPendingAction('revert-delivered');
+        }}
+        disabled={!canRevertDelivered(order.status)}
+        style={[styles.badge, { backgroundColor: `${badgeColor}1F` }]}
+      >
         <Text style={[styles.badgeText, { color: badgeColor }]}>{badgeLabel}</Text>
-      </View>
+      </Pressable>
 
       {pendingAction === 'delete' ? (
         <View style={styles.inlineConfirmRow}>
@@ -168,6 +187,61 @@ export default function OrderDetailScreen() {
             >
               <Text style={styles.inlineConfirmDeleteText}>
                 {cancelOrder.isPending ? 'Cancelling…' : 'Confirm cancel'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      {pendingAction === 'revert-delivered' ? (
+        <View style={styles.inlineConfirmRow}>
+          <Text style={styles.inlineConfirmText}>
+            Mark this order as not {order.fulfillment_type === 'delivery' ? 'delivered' : 'picked up'}{' '}
+            after all? It moves back to Pending.
+          </Text>
+          <View style={styles.inlineConfirmActions}>
+            <Pressable onPress={() => setPendingAction(null)} style={styles.inlineConfirmCancel}>
+              <Text style={styles.inlineConfirmCancelText}>Never mind</Text>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                revertDelivered.mutate(
+                  { id: order.id, status: order.status },
+                  { onSuccess: () => setPendingAction(null) }
+                )
+              }
+              style={styles.inlineConfirmDelete}
+              disabled={revertDelivered.isPending}
+            >
+              <Text style={styles.inlineConfirmDeleteText}>
+                {revertDelivered.isPending ? 'Updating…' : 'Confirm'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      {pendingAction === 'revert-paid' ? (
+        <View style={styles.inlineConfirmRow}>
+          <Text style={styles.inlineConfirmText}>
+            Mark this order as unpaid again? This clears the recorded payment method too.
+          </Text>
+          <View style={styles.inlineConfirmActions}>
+            <Pressable onPress={() => setPendingAction(null)} style={styles.inlineConfirmCancel}>
+              <Text style={styles.inlineConfirmCancelText}>Never mind</Text>
+            </Pressable>
+            <Pressable
+              onPress={() =>
+                revertPaid.mutate(
+                  { id: order.id, status: order.status },
+                  { onSuccess: () => setPendingAction(null) }
+                )
+              }
+              style={styles.inlineConfirmDelete}
+              disabled={revertPaid.isPending}
+            >
+              <Text style={styles.inlineConfirmDeleteText}>
+                {revertPaid.isPending ? 'Updating…' : 'Confirm'}
               </Text>
             </Pressable>
           </View>
@@ -242,6 +316,11 @@ export default function OrderDetailScreen() {
           <Pressable
             onPress={() => {
               if (order.payment_status === 'paid') setPaymentSheetOpen(true);
+            }}
+            onLongPress={() => {
+              if (order.payment_status === 'paid' && canRevertPaid(order.status)) {
+                setPendingAction('revert-paid');
+              }
             }}
             style={[
               styles.paymentBadge,

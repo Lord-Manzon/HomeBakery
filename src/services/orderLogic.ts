@@ -61,3 +61,70 @@ export function canCancelOrder(status: OrderStatus): boolean {
 export function isOrderActive(status: OrderStatus): boolean {
   return status === 'pending' || status === 'delivered';
 }
+
+/**
+ * Whether "Mark Delivered"/"Mark Picked Up" should be offered. The only
+ * active status that hasn't been delivered yet is 'pending' -- once
+ * delivered, status has moved past this and the action has nothing left
+ * to do. Shared by the Orders list (swipe actions) and Order Detail (quick
+ * action button) so both stay in sync by construction, not by convention.
+ */
+export function canMarkDelivered(status: OrderStatus): boolean {
+  return status === 'pending';
+}
+
+/** Whether "Mark Paid" should be offered -- unpaid, and still in flight
+ * (mirrors the 2026-08-22 fix guarding against showing this on a
+ * Cancelled-but-still-Unpaid order). */
+export function canMarkPaid(status: OrderStatus, paymentStatus: 'unpaid' | 'paid'): boolean {
+  return paymentStatus === 'unpaid' && isOrderActive(status);
+}
+
+/**
+ * Whether delivery can be REVERTED (Delivered/Completed -> Pending). Only
+ * offered once delivery has actually been marked -- reverting from
+ * 'pending' has nothing to undo, and a 'cancelled' order is closed to
+ * further changes.
+ */
+export function canRevertDelivered(status: OrderStatus): boolean {
+  return status === 'delivered' || status === 'completed';
+}
+
+/**
+ * Whether payment can be REVERTED (paid -> unpaid). Offered from any
+ * non-cancelled status -- pending+paid is a real, reachable state (a
+ * baker who collects payment up front, before delivery), so this isn't
+ * limited to 'delivered'/'completed' the way canRevertDelivered is.
+ * Callers still also check `payment_status === 'paid'` themselves, same
+ * pattern as canMarkPaid checking 'unpaid'.
+ */
+export function canRevertPaid(status: OrderStatus): boolean {
+  return status !== 'cancelled';
+}
+
+/**
+ * The reverse of resolveStatusAfterMarking, for undoing a Mark
+ * Delivered/Mark Paid tap made in error. Each dimension (delivered/paid)
+ * reverts independently:
+ * - Reverting delivery from 'completed' drops to 'pending' but leaves
+ *   payment_status untouched (still paid) -- the caller doesn't touch
+ *   payment_status for a 'delivered' revert.
+ * - Reverting payment from 'completed' drops to 'delivered' (still
+ *   delivered, just no longer paid) -- the caller sets payment_status to
+ *   'unpaid' alongside this for a 'paid' revert.
+ * - From 'pending' or 'delivered' (not yet 'completed'), reverting
+ *   payment doesn't change `status` at all -- only payment_status moves.
+ * Never called for 'cancelled' -- callers guard with canRevertDelivered/
+ * canRevertPaid first, same pattern as resolveStatusAfterMarking's own
+ * callers.
+ */
+export function resolveStatusAfterReverting(input: {
+  action: 'delivered' | 'paid';
+  currentStatus: OrderStatus;
+}): OrderStatus {
+  if (input.action === 'delivered') {
+    return 'pending';
+  }
+  // action === 'paid'
+  return input.currentStatus === 'completed' ? 'delivered' : input.currentStatus;
+}

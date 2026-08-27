@@ -2,13 +2,20 @@ import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useHideNavOnScroll } from '../../../src/hooks/useHideNavOnScroll';
-import { useOrders } from '../../../src/hooks/useOrders';
+import { useOrders, useMarkOrderDelivered, useMarkOrderPaid } from '../../../src/hooks/useOrders';
 import { useBakerProfile } from '../../../src/hooks/useBakerProfile';
 import { usePressScale } from '../../../src/hooks/usePressScale';
 import { useThemeColors } from '../../../src/theme/ThemeContext';
-import { isOrderActive } from '../../../src/services/orderLogic';
+import { isOrderActive, canMarkDelivered, canMarkPaid } from '../../../src/services/orderLogic';
 import { formatOrderDate, formatOrderTime, todayDateString } from '../../../src/utils/dateFormat';
 import { formatCurrency } from '../../../src/utils/currency';
 import { Screen } from '../../../src/components/Screen';
@@ -44,6 +51,8 @@ export default function OrdersListScreen() {
   const [search, setSearch] = useState('');
   const { data: orders, isLoading, isError, refetch } = useOrders(filter);
   const { data: baker } = useBakerProfile();
+  const markDelivered = useMarkOrderDelivered();
+  const markPaid = useMarkOrderPaid();
 
   const filtered = (orders ?? []).filter((o) =>
     o.customer_name.toLowerCase().includes(search.toLowerCase())
@@ -144,13 +153,19 @@ export default function OrdersListScreen() {
               </Text>
             }
             renderItem={({ item, index }) => (
-              <OrderCard
+              <SwipeableOrderCard
                 order={item}
                 index={index}
                 currency={baker?.currency}
                 styles={styles}
                 colors={colors}
                 onPress={() => router.push(`/orders/${item.id}`)}
+                onMarkDelivered={() =>
+                  markDelivered.mutate({ id: item.id, status: item.status, payment_status: item.payment_status })
+                }
+                onMarkPaid={() =>
+                  markPaid.mutate({ order: { id: item.id, status: item.status }, paymentMethod: 'Cash' })
+                }
               />
             )}
           />
@@ -218,6 +233,125 @@ function formatItemsSummary(items: OrderWithItems['items']): string {
   return items.length === 1 ? firstLabel : `${firstLabel} +${items.length - 1} more`;
 }
 
+// Per docs/DECISIONS.md's 2026-08-26 entry: swipe left to reveal quick
+// actions, right-to-left, in the order "Mark Paid" then "Mark Delivered"
+// (Paid revealed first/closest to the card edge, Delivered revealed last,
+// closest to the screen edge). Only the actions that actually apply to
+// this order's current status are shown -- an order with nothing left to
+// mark (e.g. already Completed) has no swipe actions at all, and the
+// gesture is disabled entirely rather than revealing an empty row.
+const SWIPE_ACTION_WIDTH = 88;
+const SWIPE_OPEN_THRESHOLD = 40;
+
+function SwipeableOrderCard({
+  order,
+  index,
+  currency,
+  styles,
+  colors,
+  onPress,
+  onMarkPaid,
+  onMarkDelivered,
+}: {
+  order: OrderWithItems;
+  index: number;
+  currency: string | null | undefined;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Record<ColorToken, string>;
+  onPress: () => void;
+  onMarkPaid: () => void;
+  onMarkDelivered: () => void;
+}) {
+  const canPay = canMarkPaid(order.status, order.payment_status);
+  const canDeliver = canMarkDelivered(order.status);
+  const actionCount = (canPay ? 1 : 0) + (canDeliver ? 1 : 0);
+  const revealWidth = SWIPE_ACTION_WIDTH * actionCount;
+
+  const translateX = useSharedValue(0);
+
+  function close() {
+    translateX.value = withSpring(0, { damping: 22, stiffness: 220 });
+  }
+
+  const panGesture = Gesture.Pan()
+    .enabled(actionCount > 0)
+    .activeOffsetX([-10, 10])
+    .failOffsetY([-10, 10])
+    .onUpdate((e) => {
+      translateX.value = Math.min(0, Math.max(-revealWidth, e.translationX));
+    })
+    .onEnd(() => {
+      const shouldOpen = translateX.value < -SWIPE_OPEN_THRESHOLD;
+      translateX.value = withSpring(shouldOpen ? -revealWidth : 0, { damping: 22, stiffness: 220 });
+    });
+
+  const cardAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  function handleCardPress() {
+    // Tapping an open (swiped) card closes it instead of navigating --
+    // matches the standard swipeable-list convention (iOS Mail/Reminders)
+    // this pattern is deliberately modeled on, per the 2026-08-26 entry.
+    if (translateX.value !== 0) {
+      close();
+      return;
+    }
+    onPress();
+  }
+
+  return (
+    <View style={styles.swipeContainer}>
+      {actionCount > 0 ? (
+        <View style={styles.swipeActionsRow}>
+          {canPay ? (
+            <Pressable
+              style={[styles.swipeAction, { backgroundColor: colors.success }]}
+              onPress={() => {
+                onMarkPaid();
+                close();
+              }}
+            >
+              <Ionicons name="cash-outline" size={18} color={colors.textInverse} />
+              <Text style={styles.swipeActionText}>Paid</Text>
+            </Pressable>
+          ) : null}
+          {canDeliver ? (
+            <Pressable
+              style={[styles.swipeAction, { backgroundColor: colors.primary }]}
+              onPress={() => {
+                onMarkDelivered();
+                close();
+              }}
+            >
+              <Ionicons
+                name={order.fulfillment_type === 'delivery' ? 'bicycle-outline' : 'bag-handle-outline'}
+                size={18}
+                color={colors.textInverse}
+              />
+              <Text style={styles.swipeActionText}>
+                {order.fulfillment_type === 'delivery' ? 'Delivered' : 'Picked up'}
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+      <GestureDetector gesture={panGesture}>
+        <Animated.View style={cardAnimatedStyle}>
+          <OrderCard
+            order={order}
+            index={index}
+            currency={currency}
+            styles={styles}
+            colors={colors}
+            onPress={handleCardPress}
+          />
+        </Animated.View>
+      </GestureDetector>
+    </View>
+  );
+}
+
 function OrderCard({
   order,
   index,
@@ -262,9 +396,12 @@ function OrderCard({
             </View>
           </View>
 
-          <Text style={styles.cardItems} numberOfLines={1}>
-            {formatItemsSummary(order.items)}
-          </Text>
+          <View style={styles.cardMiddleRow}>
+            <Text style={styles.cardItems} numberOfLines={1}>
+              {formatItemsSummary(order.items)}
+            </Text>
+            <Text style={styles.cardTotal}>{formatCurrency(order.total, currency)}</Text>
+          </View>
 
           <View style={styles.cardBottomRow}>
             <View style={styles.cardMetaGroup}>
@@ -290,7 +427,6 @@ function OrderCard({
                 {order.payment_status === 'paid' ? 'Paid' : 'Unpaid'}
               </Text>
             </View>
-            <Text style={styles.cardTotal}>{formatCurrency(order.total, currency)}</Text>
           </View>
         </Animated.View>
       </Pressable>
@@ -348,9 +484,16 @@ function makeStyles(colors: Record<ColorToken, string>) {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radii.lg,
+      // Only the left corners round on the card itself -- the right
+      // corners are handled by swipeContainer's own borderRadius +
+      // overflow:'hidden' clipping it at rest. Rounding all 4 corners
+      // here caused a visible gap once the card slid left over the swipe
+      // actions: the card's own top-right/bottom-right curves exposed a
+      // sliver of the page background mid-seam instead of sitting flush
+      // against the action buttons.
+      borderTopLeftRadius: radii.lg,
+      borderBottomLeftRadius: radii.lg,
       padding: spacing.md,
-      marginBottom: spacing.sm,
     },
     cardTopRow: {
       flexDirection: 'row',
@@ -366,7 +509,19 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: 2,
     },
     badgeText: { ...typography.caption, fontWeight: '600' },
-    cardItems: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.sm },
+    // Per docs/DECISIONS.md's 2026-08-26 entry: the price moved out of
+    // cardBottomRow (too crowded next to the payment badge at 22px) into
+    // its own row paired with the items summary, matching the reference
+    // design's "price on the right, bigger, easy to spot" request.
+    cardMiddleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    cardItems: { ...typography.bodySm, color: colors.textSecondary, flex: 1 },
+    cardTotal: { ...typography.metric, color: colors.textPrimary },
     cardBottomRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -380,7 +535,31 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: 2,
     },
     paymentBadgeText: { ...typography.caption, fontWeight: '600' },
-    cardTotal: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
+    // Swipe-to-reveal wrapper (Mark Paid / Mark Delivered) -- the card's
+    // own marginBottom moved here so the actions row behind it lines up
+    // exactly with the card's edges instead of poking out underneath.
+    swipeContainer: {
+      marginBottom: spacing.sm,
+      borderRadius: radii.lg,
+      overflow: 'hidden',
+      position: 'relative',
+    },
+    swipeActionsRow: {
+      position: 'absolute',
+      top: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+    },
+    swipeAction: {
+      width: SWIPE_ACTION_WIDTH,
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xxs,
+    },
+    swipeActionText: { ...typography.caption, color: colors.textInverse, fontWeight: '600' },
     emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     emptyTitle: {
       ...typography.titleLg,

@@ -1,5 +1,12 @@
 import { supabase } from './supabase';
-import { calculateOrderTotals, canCancelOrder, resolveStatusAfterMarking } from './orderLogic';
+import {
+  calculateOrderTotals,
+  canCancelOrder,
+  canRevertDelivered,
+  canRevertPaid,
+  resolveStatusAfterMarking,
+  resolveStatusAfterReverting,
+} from './orderLogic';
 import { todayDateString } from '../utils/dateFormat';
 import type { Order, OrderItem, OrderItemWithNames, OrderListFilter, OrderWithItems } from '../types/order';
 import type { OrderFormInput } from '../utils/validation/orderSchemas';
@@ -302,6 +309,43 @@ export async function cancelOrder(order: Pick<Order, 'id' | 'status'>): Promise<
   const { data, error } = await supabase
     .from('orders')
     .update({ status: 'cancelled' })
+    .eq('id', order.id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Order;
+}
+
+/** Undoes a "Mark Delivered"/"Mark Picked Up" made in error. Only touches
+ * `status` -- payment_status is a separate, independent dimension (see
+ * orderLogic.ts's resolveStatusAfterReverting doc comment). Guarded here
+ * too, not just by the caller's canRevertDelivered() check in the UI. */
+export async function revertOrderDelivered(order: Pick<Order, 'id' | 'status'>): Promise<Order> {
+  if (!canRevertDelivered(order.status)) {
+    throw new Error('This order is not marked delivered.');
+  }
+  const newStatus = resolveStatusAfterReverting({ action: 'delivered', currentStatus: order.status });
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ status: newStatus })
+    .eq('id', order.id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Order;
+}
+
+/** Undoes a "Mark Paid" made in error -- clears payment_method alongside
+ * payment_status, same "never leave payment_method stale" rule
+ * markOrderPaid follows in reverse. */
+export async function revertOrderPaid(order: Pick<Order, 'id' | 'status'>): Promise<Order> {
+  if (!canRevertPaid(order.status)) {
+    throw new Error('This order can no longer be changed.');
+  }
+  const newStatus = resolveStatusAfterReverting({ action: 'paid', currentStatus: order.status });
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ status: newStatus, payment_status: 'unpaid', payment_method: null })
     .eq('id', order.id)
     .select()
     .single();

@@ -38,6 +38,10 @@ export const typography = {
   bodySm: { fontSize: 13, lineHeight: 18, fontWeight: '400' as const },
   // Matches section F "Secondary/caption" (12/400).
   caption: { fontSize: 12, lineHeight: 16, fontWeight: '400' as const },
+  // Matches section F "Metric numbers" (22/600) -- documented in
+  // UI_UX_1.md's design system table but never actually implemented as a
+  // token until the 2026-08-26 Orders card price bump needed it.
+  metric: { fontSize: 22, lineHeight: 28, fontWeight: '600' as const },
 } as const;
 
 export type TypographyToken = keyof typeof typography;
