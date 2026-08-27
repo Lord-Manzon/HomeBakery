@@ -31,7 +31,7 @@ export async function getMovementHistory(ingredientId: string): Promise<Inventor
 /**
  * Sum of today's `usage` + `waste` movements per ingredient, keyed by
  * ingredient_id — powers the "Used Xkg today" card badge (see
- * IngredientCard in app/(tabs)/more/ingredients/index.tsx).
+ * IngredientCard in app/(tabs)/ingredients/index.tsx).
  *
  * "Today" is the LOCAL calendar day (resets at midnight on the baker's
  * device), not a rolling 24h window — matches how a baker actually

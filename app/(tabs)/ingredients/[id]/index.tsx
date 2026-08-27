@@ -1,4 +1,4 @@
-import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
+import { useHideFloatingNav } from '../../../../src/hooks/useHideFloatingNav';
 import { useMemo, useState, useEffect } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,22 +12,22 @@ import {
   useRemoveIngredient,
   useRestockIngredient,
   useUpdateIngredient,
-} from '../../../../../src/hooks/useIngredients';
-import type { BlockingRecipe } from '../../../../../src/services/ingredients';
-import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
-import { formatCurrency } from '../../../../../src/utils/currency';
-import { usePressScale } from '../../../../../src/hooks/usePressScale';
-import { useThemeColors } from '../../../../../src/theme/ThemeContext';
-import type { InventoryMovement, MovementType } from '../../../../../src/types/ingredient';
-import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
-import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
-import { StockGauge } from '../../../../../src/components/StockGauge';
-import { IngredientFormSheet } from '../../../../../src/components/IngredientFormSheet';
-import { UseWasteSheet } from '../../../../../src/components/UseWasteSheet';
-import { RestockSheet } from '../../../../../src/components/RestockSheet';
-import { ConfirmDialog } from '../../../../../src/components/ConfirmDialog';
-import { Screen } from '../../../../../src/components/Screen';
-import { getIngredientGauge, type GaugeSensitivity } from '../../../../../src/services/stockGauge';
+} from '../../../../src/hooks/useIngredients';
+import type { BlockingRecipe } from '../../../../src/services/ingredients';
+import { useBakerProfile } from '../../../../src/hooks/useBakerProfile';
+import { formatCurrency } from '../../../../src/utils/currency';
+import { usePressScale } from '../../../../src/hooks/usePressScale';
+import { useThemeColors } from '../../../../src/theme/ThemeContext';
+import type { InventoryMovement, MovementType } from '../../../../src/types/ingredient';
+import { ErrorBanner } from '../../../../src/components/ErrorBanner';
+import { PrimaryButton } from '../../../../src/components/PrimaryButton';
+import { StockGauge } from '../../../../src/components/StockGauge';
+import { IngredientFormSheet } from '../../../../src/components/IngredientFormSheet';
+import { UseWasteSheet } from '../../../../src/components/UseWasteSheet';
+import { RestockSheet } from '../../../../src/components/RestockSheet';
+import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
+import { Screen } from '../../../../src/components/Screen';
+import { getIngredientGauge, type GaugeSensitivity } from '../../../../src/services/stockGauge';
 import {
   radii,
   spacing,
@@ -35,8 +35,8 @@ import {
   motionDuration,
   motionEasing,
   motionStagger,
-} from '../../../../../src/theme';
-import type { ColorToken } from '../../../../../src/theme/colors';
+} from '../../../../src/theme';
+import type { ColorToken } from '../../../../src/theme/colors';
 
 export default function IngredientDetailScreen() {
   useHideFloatingNav();
@@ -329,7 +329,7 @@ function BlockedRecipesNotice({
           <Text key={recipe.id}>
             <Text
               style={styles.blockedNoticeLink}
-              onPress={() => router.push(`/more/recipes/${recipe.id}`)}
+              onPress={() => router.push(`/recipes/${recipe.id}`)}
             >
               {recipe.name}
             </Text>
@@ -382,7 +382,7 @@ function UsedInChip({
 
   return (
     <Pressable
-      onPress={() => router.push(`/more/recipes/${recipe.id}`)}
+      onPress={() => router.push(`/recipes/${recipe.id}`)}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       accessibilityRole="button"

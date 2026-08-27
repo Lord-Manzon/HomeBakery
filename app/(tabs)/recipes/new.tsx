@@ -1,17 +1,17 @@
-import { useHideFloatingNav } from '../../../../src/hooks/useHideFloatingNav';
+import { useHideFloatingNav } from '../../../src/hooks/useHideFloatingNav';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useCreateRecipe } from '../../../../src/hooks/useRecipes';
-import { useThemeColors } from '../../../../src/theme/ThemeContext';
-import { ErrorBanner } from '../../../../src/components/ErrorBanner';
-import { FormField } from '../../../../src/components/FormField';
-import { PrimaryButton } from '../../../../src/components/PrimaryButton';
-import { Screen } from '../../../../src/components/Screen';
-import { spacing, radii, typography } from '../../../../src/theme';
-import type { ColorToken } from '../../../../src/theme/colors';
-import { recipeFormSchema } from '../../../../src/utils/validation/recipeSchemas';
+import { useCreateRecipe } from '../../../src/hooks/useRecipes';
+import { useThemeColors } from '../../../src/theme/ThemeContext';
+import { ErrorBanner } from '../../../src/components/ErrorBanner';
+import { FormField } from '../../../src/components/FormField';
+import { PrimaryButton } from '../../../src/components/PrimaryButton';
+import { Screen } from '../../../src/components/Screen';
+import { spacing, radii, typography } from '../../../src/theme';
+import type { ColorToken } from '../../../src/theme/colors';
+import { recipeFormSchema } from '../../../src/utils/validation/recipeSchemas';
 
 export default function NewRecipeScreen() {
   useHideFloatingNav();
@@ -45,7 +45,7 @@ export default function NewRecipeScreen() {
     }
     setErrors({});
     createRecipe.mutate(result.data, {
-      onSuccess: (recipe) => router.replace(`/more/recipes/${recipe.id}`),
+      onSuccess: (recipe) => router.replace(`/recipes/${recipe.id}`),
     });
   };
 

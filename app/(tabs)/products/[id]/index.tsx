@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
+import { useHideFloatingNav } from '../../../../src/hooks/useHideFloatingNav';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -14,21 +14,21 @@ import {
   useUpdateProduct,
   useUpdateVariant,
   useVariants,
-} from '../../../../../src/hooks/useProducts';
-import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
-import { useThemeColors } from '../../../../../src/theme/ThemeContext';
-import { usePressScale } from '../../../../../src/hooks/usePressScale';
-import { getCategoryVisual } from '../../../../../src/utils/productCategoryIcon';
-import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
-import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
-import { VariantFormSheet } from '../../../../../src/components/VariantFormSheet';
-import { ConfirmDialog } from '../../../../../src/components/ConfirmDialog';
-import { Screen } from '../../../../../src/components/Screen';
-import { uploadProductPhoto } from '../../../../../src/services/products';
-import { formatCurrency } from '../../../../../src/utils/currency';
-import { spacing, radii, typography, motionDuration, motionEasing, motionStagger } from '../../../../../src/theme';
-import type { ColorToken } from '../../../../../src/theme/colors';
-import type { ProductCategory, ProductVariant } from '../../../../../src/types/product';
+} from '../../../../src/hooks/useProducts';
+import { useBakerProfile } from '../../../../src/hooks/useBakerProfile';
+import { useThemeColors } from '../../../../src/theme/ThemeContext';
+import { usePressScale } from '../../../../src/hooks/usePressScale';
+import { getCategoryVisual } from '../../../../src/utils/productCategoryIcon';
+import { ErrorBanner } from '../../../../src/components/ErrorBanner';
+import { PrimaryButton } from '../../../../src/components/PrimaryButton';
+import { VariantFormSheet } from '../../../../src/components/VariantFormSheet';
+import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
+import { Screen } from '../../../../src/components/Screen';
+import { uploadProductPhoto } from '../../../../src/services/products';
+import { formatCurrency } from '../../../../src/utils/currency';
+import { spacing, radii, typography, motionDuration, motionEasing, motionStagger } from '../../../../src/theme';
+import type { ColorToken } from '../../../../src/theme/colors';
+import type { ProductCategory, ProductVariant } from '../../../../src/types/product';
 
 export default function ProductDetailScreen() {
   useHideFloatingNav();
@@ -117,7 +117,7 @@ export default function ProductDetailScreen() {
 
   const handleRecipeAndCosting = () => {
     if (!defaultVariant) return;
-    router.push(`/more/products/${product.id}/recipe?variantId=${defaultVariant.id}`);
+    router.push(`/products/${product.id}/recipe?variantId=${defaultVariant.id}`);
   };
 
   const handlePickPhoto = async () => {
@@ -310,7 +310,7 @@ export default function ProductDetailScreen() {
                   );
                 })}
                 <Pressable
-                  onPress={() => router.push('/more/products/categories/new')}
+                  onPress={() => router.push('/products/categories/new')}
                   style={styles.categoryPickerChipNew}
                 >
                   <Ionicons name="add" size={14} color={colors.primary} />

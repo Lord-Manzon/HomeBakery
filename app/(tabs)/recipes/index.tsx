@@ -3,14 +3,14 @@ import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-na
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { useRecipes } from '../../../../src/hooks/useRecipes';
-import { useNavigateOnce } from '../../../../src/hooks/useNavigateOnce';
-import { usePressScale } from '../../../../src/hooks/usePressScale';
-import { useThemeColors } from '../../../../src/theme/ThemeContext';
-import { ErrorBanner } from '../../../../src/components/ErrorBanner';
-import { PrimaryButton } from '../../../../src/components/PrimaryButton';
-import { Screen } from '../../../../src/components/Screen';
-import { getRecipeVisual } from '../../../../src/utils/recipeVisual';
+import { useRecipes } from '../../../src/hooks/useRecipes';
+import { useNavigateOnce } from '../../../src/hooks/useNavigateOnce';
+import { usePressScale } from '../../../src/hooks/usePressScale';
+import { useThemeColors } from '../../../src/theme/ThemeContext';
+import { ErrorBanner } from '../../../src/components/ErrorBanner';
+import { PrimaryButton } from '../../../src/components/PrimaryButton';
+import { Screen } from '../../../src/components/Screen';
+import { getRecipeVisual } from '../../../src/utils/recipeVisual';
 import {
   spacing,
   radii,
@@ -18,9 +18,9 @@ import {
   motionDuration,
   motionEasing,
   motionStagger,
-} from '../../../../src/theme';
-import type { ColorToken } from '../../../../src/theme/colors';
-import type { Recipe } from '../../../../src/types/recipe';
+} from '../../../src/theme';
+import type { ColorToken } from '../../../src/theme/colors';
+import type { Recipe } from '../../../src/types/recipe';
 
 /**
  * Standalone Recipes list, separate from any one product — per
@@ -109,7 +109,7 @@ export default function RecipesListScreen() {
             A recipe holds your ingredients and quantities — link it to a product variant to see
             its cost and a suggested price.
           </Text>
-          <PrimaryButton title="Add your first recipe" onPress={() => router.push('/more/recipes/new')} />
+          <PrimaryButton title="Add your first recipe" onPress={() => router.push('/recipes/new')} />
         </View>
       ) : filtered.length === 0 ? (
         <View style={styles.centerBlock}>
@@ -156,7 +156,7 @@ function RecipeCard({
       entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
     >
       <Pressable
-        onPress={() => navigateOnce(`/more/recipes/${recipe.id}`)}
+        onPress={() => navigateOnce(`/recipes/${recipe.id}`)}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
       >

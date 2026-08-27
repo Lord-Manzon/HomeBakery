@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useDeactivateProduct, useDuplicateProduct } from '../../../../src/hooks/useProducts';
-import { usePressScale } from '../../../../src/hooks/usePressScale';
-import { ProductActionSheet } from '../../../../src/components/ProductActionSheet';
-import { DuplicateProductSheet } from '../../../../src/components/DuplicateProductSheet';
-import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
+import { useDeactivateProduct, useDuplicateProduct } from '../../../src/hooks/useProducts';
+import { usePressScale } from '../../../src/hooks/usePressScale';
+import { ProductActionSheet } from '../../../src/components/ProductActionSheet';
+import { DuplicateProductSheet } from '../../../src/components/DuplicateProductSheet';
+import { ConfirmDialog } from '../../../src/components/ConfirmDialog';
 import { Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View,type ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -21,14 +21,14 @@ import {
   useDeleteProductCategory,
   useProductCategories,
   useProducts,
-} from '../../../../src/hooks/useProducts';
-import { useBakerProfile } from '../../../../src/hooks/useBakerProfile';
-import { useHideNavOnScroll } from '../../../../src/hooks/useHideNavOnScroll';
-import { useThemeColors } from '../../../../src/theme/ThemeContext';
-import { ErrorBanner } from '../../../../src/components/ErrorBanner';
-import { Screen } from '../../../../src/components/Screen';
-import { formatCurrency } from '../../../../src/utils/currency';
-import { getCategoryVisual } from '../../../../src/utils/productCategoryIcon';
+} from '../../../src/hooks/useProducts';
+import { useBakerProfile } from '../../../src/hooks/useBakerProfile';
+import { useHideNavOnScroll } from '../../../src/hooks/useHideNavOnScroll';
+import { useThemeColors } from '../../../src/theme/ThemeContext';
+import { ErrorBanner } from '../../../src/components/ErrorBanner';
+import { Screen } from '../../../src/components/Screen';
+import { formatCurrency } from '../../../src/utils/currency';
+import { getCategoryVisual } from '../../../src/utils/productCategoryIcon';
 import {
   spacing,
   radii,
@@ -36,9 +36,9 @@ import {
   motionDuration,
   motionEasing,
   motionStagger,
-} from '../../../../src/theme';
-import type { ColorToken } from '../../../../src/theme/colors';
-import type { ProductCategory, ProductWithVariants } from '../../../../src/types/product';
+} from '../../../src/theme';
+import type { ColorToken } from '../../../src/theme/colors';
+import type { ProductCategory, ProductWithVariants } from '../../../src/types/product';
 
 type SortOption = 'name-asc' | 'name-desc' | 'newest';
 type ViewMode = 'grid' | 'list' | 'large';
@@ -67,7 +67,7 @@ export default function ProductsListScreen() {
   const navigateToProduct = (productId: string) => {
     if (isNavigatingRef.current) return;
     isNavigatingRef.current = true;
-    router.push(`/more/products/${productId}`);
+    router.push(`/products/${productId}`);
     setTimeout(() => {
       isNavigatingRef.current = false;
     }, 600);
@@ -313,7 +313,7 @@ export default function ProductsListScreen() {
           })}
           <Pressable
             onPress={
-              isEditingCategories ? undefined : () => router.push('/more/products/categories/new')
+              isEditingCategories ? undefined : () => router.push('/products/categories/new')
             }
             style={[styles.categoryChipNew, isEditingCategories && styles.categoryChipNewDisabled]}
           >
@@ -341,7 +341,7 @@ export default function ProductsListScreen() {
             </Text>
             <Pressable
               style={styles.emptyButton}
-              onPress={() => router.push('/more/products/new')}
+              onPress={() => router.push('/products/new')}
             >
               <Text style={styles.emptyButtonText}>Add product</Text>
             </Pressable>
@@ -429,7 +429,7 @@ export default function ProductsListScreen() {
             {
               onSuccess: (newProduct) => {
                 setDuplicatingProduct(null);
-                router.push(`/more/products/${newProduct.id}`);
+                router.push(`/products/${newProduct.id}`);
               },
             }
           );

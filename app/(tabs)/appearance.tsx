@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
-import { useThemeColors } from '../../../src/theme/ThemeContext';
-import { useBakerProfile, useUpdateBakerProfile } from '../../../src/hooks/useBakerProfile';
-import { spacing, radii } from '../../../src/theme';
-import { ACCENT_SWATCHES } from '../../../src/theme/accentSwatches';
-import { Screen } from '../../../src/components/Screen';
+import { useThemeColors } from '../../src/theme/ThemeContext';
+import { useBakerProfile, useUpdateBakerProfile } from '../../src/hooks/useBakerProfile';
+import { spacing, radii } from '../../src/theme';
+import { ACCENT_SWATCHES } from '../../src/theme/accentSwatches';
+import { Screen } from '../../src/components/Screen';
 
 type ThemeModePreference = 'light' | 'dark' | 'system';
 

@@ -2,29 +2,29 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useProduct, useUpdateVariant, useUpdateVariantRecipeLink, useUpdateVariantSuggestedPrice, useVariants } from '../../../../../src/hooks/useProducts';
-import { useRecipe, useRecipes } from '../../../../../src/hooks/useRecipes';
-import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
-import { useThemeColors } from '../../../../../src/theme/ThemeContext';
+import { useProduct, useUpdateVariant, useUpdateVariantRecipeLink, useUpdateVariantSuggestedPrice, useVariants } from '../../../../src/hooks/useProducts';
+import { useRecipe, useRecipes } from '../../../../src/hooks/useRecipes';
+import { useBakerProfile } from '../../../../src/hooks/useBakerProfile';
+import { useThemeColors } from '../../../../src/theme/ThemeContext';
 import {
   calculateActualMarginPercent,
   calculateProfit,
   calculateVariantCost,
   calculateSuggestedPrice,
   resolveMarginPercent,
-} from '../../../../../src/services/costing';
-import { BottomSheet } from '../../../../../src/components/BottomSheet';
-import { ConfirmDialog } from '../../../../../src/components/ConfirmDialog';
-import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
-import { SuccessBanner } from '../../../../../src/components/SuccessBanner';
-import { FormField } from '../../../../../src/components/FormField';
-import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
-import { Screen } from '../../../../../src/components/Screen';
-import { formatCurrency } from '../../../../../src/utils/currency';
-import { getRecipeVisual } from '../../../../../src/utils/recipeVisual';
-import { spacing, radii, typography } from '../../../../../src/theme';
-import type { ColorToken } from '../../../../../src/theme/colors';
-import type { Recipe } from '../../../../../src/types/recipe';
+} from '../../../../src/services/costing';
+import { BottomSheet } from '../../../../src/components/BottomSheet';
+import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
+import { ErrorBanner } from '../../../../src/components/ErrorBanner';
+import { SuccessBanner } from '../../../../src/components/SuccessBanner';
+import { FormField } from '../../../../src/components/FormField';
+import { PrimaryButton } from '../../../../src/components/PrimaryButton';
+import { Screen } from '../../../../src/components/Screen';
+import { formatCurrency } from '../../../../src/utils/currency';
+import { getRecipeVisual } from '../../../../src/utils/recipeVisual';
+import { spacing, radii, typography } from '../../../../src/theme';
+import type { ColorToken } from '../../../../src/theme/colors';
+import type { Recipe } from '../../../../src/types/recipe';
 
 /**
  * Real Phase 6 implementation, replacing the Phase 4 placeholder (see
@@ -34,7 +34,7 @@ import type { Recipe } from '../../../../../src/types/recipe';
  * entry on the Product/Recipe separation), sets this variant's own
  * recipe_portion and margin override, and shows a live cost breakdown.
  * Ingredient management itself lives on the recipe's own detail screen
- * (/more/recipes/[id]) — this screen is about how THIS variant uses that
+ * (/recipes/[id]) — this screen is about how THIS variant uses that
  * recipe, not about editing the recipe.
  */
 export default function RecipeAndCostingScreen() {
@@ -245,7 +245,7 @@ export default function RecipeAndCostingScreen() {
             </Text>
             <View style={styles.noRecipeActions}>
               <PrimaryButton title="Link a recipe" onPress={() => setIsPickerOpen(true)} />
-              <Pressable onPress={() => router.push('/more/recipes/new')}>
+              <Pressable onPress={() => router.push('/recipes/new')}>
                 <Text style={styles.newRecipeLink}>Or create a new recipe</Text>
               </Pressable>
             </View>
@@ -254,7 +254,7 @@ export default function RecipeAndCostingScreen() {
           <>
             <Pressable
               style={styles.recipeLinkRow}
-              onPress={() => router.push(`/more/recipes/${variant.recipe_id}`)}
+              onPress={() => router.push(`/recipes/${variant.recipe_id}`)}
             >
               <View
                 style={[
@@ -399,7 +399,7 @@ export default function RecipeAndCostingScreen() {
           // replace, not push — switching variants shouldn't stack a new
           // screen per variant; back should return to the product, not
           // walk through every variant you glanced at along the way.
-          confirmOrRun(() => router.replace(`/more/products/${id}/recipe?variantId=${v.id}`));
+          confirmOrRun(() => router.replace(`/products/${id}/recipe?variantId=${v.id}`));
         }}
         colors={colors}
       />

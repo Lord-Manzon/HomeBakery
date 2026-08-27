@@ -1,21 +1,42 @@
 import { StyleSheet, Text, View, Pressable } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { PrimaryButton } from '../../../src/components/PrimaryButton';
-import { useBakerProfile } from '../../../src/hooks/useBakerProfile';
-import { signOut } from '../../../src/services/auth';
-import { useThemeColors } from '../../../src/theme/ThemeContext';
-import { spacing, typography } from '../../../src/theme';
-import { MORE_MENU_ITEMS } from '../../../src/constants/moreMenu';
-import { Screen } from '../../../src/components/Screen';
+import { PrimaryButton } from '../../src/components/PrimaryButton';
+import { useBakerProfile } from '../../src/hooks/useBakerProfile';
+import { signOut } from '../../src/services/auth';
+import { useThemeColors } from '../../src/theme/ThemeContext';
+import { spacing, typography } from '../../src/theme';
+import { MORE_MENU_ITEMS } from '../../src/constants/moreMenu';
+import { Screen } from '../../src/components/Screen';
 import { useMemo } from 'react';
 
+/**
+ * Full "More" hub — reachable both as its own tab and via the trimmed
+ * FloatingTabBar panel's "See all" row. A flat file (not a folder with
+ * a nested _layout.tsx/Stack) as of the navigation-architecture fix:
+ * Ingredients/Products/Recipes/Settings used to live here as pushed
+ * Stack.Screens, which is what let switching between them pollute a
+ * shared back stack. They're now their own sibling top-level tabs (see
+ * app/(tabs)/_layout.tsx) — this screen just links out to them.
+ */
 export default function MoreScreen() {
   const { data: baker } = useBakerProfile();
   const router = useRouter();
   const pathname = usePathname();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  // Every item.pathname here points at the root of another top-level
+  // tab (Ingredients/Products/Recipes/Settings — see
+  // app/(tabs)/_layout.tsx), so router.push resolves to a tab switch,
+  // not a stack push: each section keeps its own independent back
+  // stack, and hopping between them from this hub can't pollute
+  // another section's history. See the FloatingTabBar.tsx header
+  // comment and docs/DECISIONS.md's navigation-architecture entry.
+  function handleItemPress(itemPathname: string) {
+    if (pathname.startsWith(itemPathname)) return; // already there
+    router.push(itemPathname as never);
+  }
 
   return (
     <Screen style={styles.container}>
@@ -42,16 +63,7 @@ export default function MoreScreen() {
             <Pressable
               key={item.label}
               style={[styles.menuRow, i > 0 && styles.menuRowDivider]}
-              onPress={() => {
-                if (!item.pathname) return;
-                if (pathname.startsWith(item.pathname)) return; // already here
-                // replace, not push: every destination in this list is a
-                // peer top-level screen (Ingredients/Products/Recipes/
-                // Settings/...), same tier as this hub itself — switching
-                // between them must not grow the back stack. Matches the
-                // same rule applied to the More panel in FloatingTabBar.tsx.
-                router.replace(item.pathname as never);
-              }}
+              onPress={() => item.pathname && handleItemPress(item.pathname)}
               disabled={!item.pathname}
               accessibilityLabel={item.pathname ? item.label : `${item.label}, coming soon`}
             >

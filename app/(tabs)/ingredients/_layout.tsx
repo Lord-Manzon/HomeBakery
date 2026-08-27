@@ -1,5 +1,5 @@
 import { Stack } from 'expo-router';
-import { useThemeColors } from '../../../../src/theme/ThemeContext';
+import { useThemeColors } from '../../../src/theme/ThemeContext';
 
 export default function IngredientsLayout() {
   const { colors } = useThemeColors();

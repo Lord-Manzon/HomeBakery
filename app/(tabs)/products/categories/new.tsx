@@ -1,18 +1,18 @@
-import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
+import { useHideFloatingNav } from '../../../../src/hooks/useHideFloatingNav';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { useThemeColors } from '../../../../../src/theme/ThemeContext';
-import { useCreateProductCategory } from '../../../../../src/hooks/useProducts';
-import { usePressScale } from '../../../../../src/hooks/usePressScale';
-import { FormField } from '../../../../../src/components/FormField';
-import { Screen } from '../../../../../src/components/Screen';
-import { PrimaryButton } from '../../../../../src/components/PrimaryButton';
-import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
-import { spacing, radii, typography, motionDuration, motionEasing } from '../../../../../src/theme';
-import type { ColorToken } from '../../../../../src/theme/colors';
+import { useThemeColors } from '../../../../src/theme/ThemeContext';
+import { useCreateProductCategory } from '../../../../src/hooks/useProducts';
+import { usePressScale } from '../../../../src/hooks/usePressScale';
+import { FormField } from '../../../../src/components/FormField';
+import { Screen } from '../../../../src/components/Screen';
+import { PrimaryButton } from '../../../../src/components/PrimaryButton';
+import { ErrorBanner } from '../../../../src/components/ErrorBanner';
+import { spacing, radii, typography, motionDuration, motionEasing } from '../../../../src/theme';
+import type { ColorToken } from '../../../../src/theme/colors';
 
 // A fixed, curated icon set (matches the "choose an icon" reference
 // mockup) rather than a searchable/full icon library — keeps the grid

@@ -1,20 +1,20 @@
-import { useHideFloatingNav } from '../../../../../src/hooks/useHideFloatingNav';
+import { useHideFloatingNav } from '../../../../src/hooks/useHideFloatingNav';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useRecipe, useUpdateRecipe } from '../../../../../src/hooks/useRecipes';
-import { useThemeColors } from '../../../../../src/theme/ThemeContext';
-import { ConfirmDialog } from '../../../../../src/components/ConfirmDialog';
-import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
-import { Screen } from '../../../../../src/components/Screen';
-import { getRecipeVisual } from '../../../../../src/utils/recipeVisual';
-import { recipeFormSchema } from '../../../../../src/utils/validation/recipeSchemas';
-import { spacing, radii, typography } from '../../../../../src/theme';
-import type { ColorToken } from '../../../../../src/theme/colors';
-import type { RecipeStep } from '../../../../../src/types/recipe';
+import { useRecipe, useUpdateRecipe } from '../../../../src/hooks/useRecipes';
+import { useThemeColors } from '../../../../src/theme/ThemeContext';
+import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
+import { ErrorBanner } from '../../../../src/components/ErrorBanner';
+import { Screen } from '../../../../src/components/Screen';
+import { getRecipeVisual } from '../../../../src/utils/recipeVisual';
+import { recipeFormSchema } from '../../../../src/utils/validation/recipeSchemas';
+import { spacing, radii, typography } from '../../../../src/theme';
+import type { ColorToken } from '../../../../src/theme/colors';
+import type { RecipeStep } from '../../../../src/types/recipe';
 
 type FormatMode = 'steps' | 'block';
 

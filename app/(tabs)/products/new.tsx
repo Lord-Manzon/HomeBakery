@@ -1,4 +1,4 @@
-import { useHideFloatingNav } from '../../../../src/hooks/useHideFloatingNav';
+import { useHideFloatingNav } from '../../../src/hooks/useHideFloatingNav';
 import { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,24 +11,24 @@ import Animated, {
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
-import { useThemeColors } from '../../../../src/theme/ThemeContext';
+import { useThemeColors } from '../../../src/theme/ThemeContext';
 import {
   useCreateProduct,
   useDeleteProductCategory,
   useProductCategories,
   useProducts,
-} from '../../../../src/hooks/useProducts';
-import { productFormSchema } from '../../../../src/utils/validation/productSchemas';
-import { getCategoryVisual } from '../../../../src/utils/productCategoryIcon';
-import { FormField } from '../../../../src/components/FormField';
-import { Screen } from '../../../../src/components/Screen';
-import { PrimaryButton } from '../../../../src/components/PrimaryButton';
-import { ErrorBanner } from '../../../../src/components/ErrorBanner';
-import { ConfirmDialog } from '../../../../src/components/ConfirmDialog';
-import { uploadProductPhoto } from '../../../../src/services/products';
-import { spacing, radii, typography, motionDuration, motionEasing } from '../../../../src/theme';
-import type { ColorToken } from '../../../../src/theme/colors';
-import type { ProductCategory } from '../../../../src/types/product';
+} from '../../../src/hooks/useProducts';
+import { productFormSchema } from '../../../src/utils/validation/productSchemas';
+import { getCategoryVisual } from '../../../src/utils/productCategoryIcon';
+import { FormField } from '../../../src/components/FormField';
+import { Screen } from '../../../src/components/Screen';
+import { PrimaryButton } from '../../../src/components/PrimaryButton';
+import { ErrorBanner } from '../../../src/components/ErrorBanner';
+import { ConfirmDialog } from '../../../src/components/ConfirmDialog';
+import { uploadProductPhoto } from '../../../src/services/products';
+import { spacing, radii, typography, motionDuration, motionEasing } from '../../../src/theme';
+import type { ColorToken } from '../../../src/theme/colors';
+import type { ProductCategory } from '../../../src/types/product';
 
 export default function NewProductScreen() {
   useHideFloatingNav();
@@ -109,7 +109,7 @@ export default function NewProductScreen() {
       { ...parsed.data, image_url },
       {
         onSuccess: (product) => {
-          router.replace(`/more/products/${product.id}`);
+          router.replace(`/products/${product.id}`);
         },
       }
     );
@@ -177,7 +177,7 @@ export default function NewProductScreen() {
           ))}
           <Pressable
             onPress={
-              isEditingCategories ? undefined : () => router.push('/more/products/categories/new')
+              isEditingCategories ? undefined : () => router.push('/products/categories/new')
             }
             style={[styles.categoryChipNew, isEditingCategories && styles.categoryChipNewDisabled]}
           >

@@ -21,14 +21,14 @@ export type MoreMenuItem = {
 // on the ones still missing a pathname. One list, two views — nothing
 // to keep in sync by hand as more phases get built.
 export const MORE_MENU_ITEMS: MoreMenuItem[] = [
-  { label: 'Ingredients', icon: 'nutrition-outline', pathname: '/more/ingredients' },
-  { label: 'Products', icon: 'cube-outline', pathname: '/more/products' },
-  { label: 'Recipes', icon: 'book-outline', pathname: '/more/recipes' },
+  { label: 'Ingredients', icon: 'nutrition-outline', pathname: '/ingredients' },
+  { label: 'Products', icon: 'cube-outline', pathname: '/products' },
+  { label: 'Recipes', icon: 'book-outline', pathname: '/recipes' },
   // Interim: only Appearance exists so far under what will become a
   // proper Settings hub (currency, etc. come later). Point Settings
   // straight at it for now — swap this one pathname once a real
   // settings/index hub screen exists.
-  { label: 'Settings', icon: 'settings-outline', pathname: '/more/appearance' },
+  { label: 'Settings', icon: 'settings-outline', pathname: '/appearance' },
   { label: 'Expenses', icon: 'wallet-outline' }, // not built yet
   { label: 'Reports', icon: 'bar-chart-outline' }, // not built yet
   { label: 'Storefront', icon: 'storefront-outline' }, // not built yet

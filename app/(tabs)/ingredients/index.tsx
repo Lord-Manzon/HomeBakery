@@ -3,20 +3,20 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
-import { useHideNavOnScroll } from '../../../../src/hooks/useHideNavOnScroll';
-import { useCreateIngredient, useIngredients, useTodayUsage } from '../../../../src/hooks/useIngredients';
-import { useBakerProfile, useUpdateBakerProfile } from '../../../../src/hooks/useBakerProfile';
-import { usePressScale } from '../../../../src/hooks/usePressScale';
-import { useThemeColors } from '../../../../src/theme/ThemeContext';
-import { isLowStock, INGREDIENT_CATEGORIES, type Ingredient } from '../../../../src/types/ingredient';
-import { ErrorBanner } from '../../../../src/components/ErrorBanner';
-import { PrimaryButton } from '../../../../src/components/PrimaryButton';
-import { IngredientFormSheet } from '../../../../src/components/IngredientFormSheet';
-import { GaugeSensitivitySheet } from '../../../../src/components/GaugeSensitivitySheet';
-import { StockGauge } from '../../../../src/components/StockGauge';
-import { Screen } from '../../../../src/components/Screen';
-import { getIngredientGauge, gaugeSortValue, type GaugeSensitivity } from '../../../../src/services/stockGauge';
-import { getCategoryIcon } from '../../../../src/utils/ingredientCategoryIcon';
+import { useHideNavOnScroll } from '../../../src/hooks/useHideNavOnScroll';
+import { useCreateIngredient, useIngredients, useTodayUsage } from '../../../src/hooks/useIngredients';
+import { useBakerProfile, useUpdateBakerProfile } from '../../../src/hooks/useBakerProfile';
+import { usePressScale } from '../../../src/hooks/usePressScale';
+import { useThemeColors } from '../../../src/theme/ThemeContext';
+import { isLowStock, INGREDIENT_CATEGORIES, type Ingredient } from '../../../src/types/ingredient';
+import { ErrorBanner } from '../../../src/components/ErrorBanner';
+import { PrimaryButton } from '../../../src/components/PrimaryButton';
+import { IngredientFormSheet } from '../../../src/components/IngredientFormSheet';
+import { GaugeSensitivitySheet } from '../../../src/components/GaugeSensitivitySheet';
+import { StockGauge } from '../../../src/components/StockGauge';
+import { Screen } from '../../../src/components/Screen';
+import { getIngredientGauge, gaugeSortValue, type GaugeSensitivity } from '../../../src/services/stockGauge';
+import { getCategoryIcon } from '../../../src/utils/ingredientCategoryIcon';
 import {
   radii,
   spacing,
@@ -24,8 +24,8 @@ import {
   motionDuration,
   motionEasing,
   motionStagger,
-} from '../../../../src/theme';
-import type { ColorToken } from '../../../../src/theme/colors';
+} from '../../../src/theme';
+import type { ColorToken } from '../../../src/theme/colors';
 
 export default function IngredientsListScreen() {
   const router = useRouter();
@@ -37,7 +37,7 @@ export default function IngredientsListScreen() {
   const navigateToIngredient = (ingredientId: string) => {
     if (isNavigatingRef.current) return;
     isNavigatingRef.current = true;
-    router.push(`/more/ingredients/${ingredientId}`);
+    router.push(`/ingredients/${ingredientId}`);
     setTimeout(() => {
       isNavigatingRef.current = false;
     }, 600);

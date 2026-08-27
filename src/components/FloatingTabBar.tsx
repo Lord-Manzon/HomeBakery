@@ -50,42 +50,40 @@ type PanelItem = {
 
 /**
  * What the Add tab's panel shows on the current screen. Only reached for
- * 'index' (Home) and 'more' sub-routes now — 'orders' and 'production'
- * bypass the panel entirely and navigate directly instead, since each
- * has exactly one obvious action and nothing to choose between (see
- * handleAddTabPress below).
+ * 'index' (Home) now — 'orders', 'production', 'ingredients', and
+ * 'products' all bypass the panel entirely and navigate directly
+ * instead, since each has exactly one obvious action and nothing to
+ * choose between (see handleAddTabPress below).
+ *
+ * Keyed on `activeRouteName` alone (the focused top-level tab's route
+ * name) rather than a `/more/...` pathname prefix — Ingredients,
+ * Products, Recipes, and Settings are each their own top-level tab
+ * (see app/(tabs)/_layout.tsx and docs/DECISIONS.md's navigation-
+ * architecture entry), reachable via the More panel but structurally
+ * siblings of Home/Orders/Production/More, not nested inside "more".
+ * That's what makes tab-switching between them never pollute a shared
+ * back stack — this function just needs to know which tab is focused.
  */
-function getAddPanelItems(activeRouteName: string, pathname: string): PanelItem[] {
+function getAddPanelItems(activeRouteName: string): PanelItem[] {
   if (activeRouteName === 'index') {
     return [
       { label: 'Add order', icon: 'receipt-outline', pathname: '/orders/new' },
       {
         label: 'Add ingredient',
         icon: 'nutrition-outline',
-        pathname: '/more/ingredients',
+        pathname: '/ingredients',
         params: { openAdd: '1' },
       },
-      { label: 'Add product', icon: 'cube-outline', pathname: '/more/products/new' },
+      { label: 'Add product', icon: 'cube-outline', pathname: '/products/new' },
       { label: 'Add expense', icon: 'wallet-outline' }, // Phase 9, not built yet
     ];
   }
-  if (activeRouteName === 'more') {
-    if (pathname.startsWith('/more/ingredients')) {
-      return [
-        { label: 'Add ingredient', icon: 'nutrition-outline', pathname: '/more/ingredients', params: { openAdd: '1' } },
-      ];
-    }
-    if (pathname.startsWith('/more/products')) {
-      return [{ label: 'Add product', icon: 'cube-outline', pathname: '/more/products/new' }];
-    }
-    if (pathname.startsWith('/more/recipes')) {
-      return [{ label: 'Add recipe', icon: 'book-outline', pathname: '/more/recipes/new' }];
-    }
-    // TODO: add an Expenses branch once /more/expenses exists.
-    // Settings (appearance), the /more hub itself, and anything else
-    // under More has no obvious add action — empty panel, not hidden.
-    return [];
+  if (activeRouteName === 'recipes') {
+    return [{ label: 'Add recipe', icon: 'book-outline', pathname: '/recipes/new' }];
   }
+  // 'more', 'appearance', and anything else with no single obvious add
+  // action falls through to an empty panel, not a hidden Add tab —
+  // same convention as before.
   return [];
 }
 
@@ -100,29 +98,13 @@ function getAddPanelItems(activeRouteName: string, pathname: string): PanelItem[
  * Subscription, Account, etc.) via the full /more hub screen.
  */
 const MORE_PANEL_ITEMS: PanelItem[] = [
-  { label: 'Ingredients', icon: 'nutrition-outline', pathname: '/more/ingredients' },
-  { label: 'Products', icon: 'cube-outline', pathname: '/more/products' },
-  { label: 'Recipes', icon: 'book-outline', pathname: '/more/recipes' },
+  { label: 'Ingredients', icon: 'nutrition-outline', pathname: '/ingredients' },
+  { label: 'Products', icon: 'cube-outline', pathname: '/products' },
+  { label: 'Recipes', icon: 'book-outline', pathname: '/recipes' },
   { label: 'Expenses', icon: 'wallet-outline' }, // Phase 9, not built yet
   { label: 'Reports', icon: 'bar-chart-outline' }, // Phase 11, not built yet
-  { label: 'Settings', icon: 'settings-outline', pathname: '/more/appearance' },
+  { label: 'Settings', icon: 'settings-outline', pathname: '/appearance' },
 ];
-
-/**
- * The exact route of every top-level screen reachable via the More
- * panel/hub, plus the hub itself. Used to decide push vs replace: a
- * navigation whose TARGET is one of these paths is a switch between
- * peer top-level screens (must not grow the back stack); anything else
- * (a sub-route like /more/products/new or /more/products/[id]) is a
- * normal detail screen and should push. Keep this derived from
- * MORE_PANEL_ITEMS/'/more' rather than hand-listed, so a newly-wired-up
- * destination (Expenses, Reports, ...) picks up the right behavior the
- * moment it gets a real pathname, with nothing else to update.
- */
-const TOP_LEVEL_MORE_PATHS = new Set<string>([
-  '/more',
-  ...MORE_PANEL_ITEMS.map((item) => item.pathname).filter((p): p is string => !!p),
-]);
 
 /**
  * One real navigation tab (Home/Orders/Production/More) OR the
@@ -150,10 +132,12 @@ function TabItem({
    * simply "is its panel currently open". */
   isActive: boolean;
   /** Drives just the background chip, separately from isActive. Lets
-   * More's chip light up while its panel is open WITHOUT also tinting
-   * its label purple when you're not actually on a /more/* screen —
-   * conflating those two was a real bug caught earlier (two tabs
-   * appearing selected at once). Defaults to `isActive` when omitted. */
+   * More's chip light up while its panel is open, or while any of its
+   * promoted sub-tabs (Ingredients/Products/Recipes/Settings) are
+   * focused, WITHOUT also tinting its label purple when you're not
+   * actually in one of those sections — conflating those two was a
+   * real bug caught earlier (two tabs appearing selected at once).
+   * Defaults to `isActive` when omitted. */
   chipActive?: boolean;
   badgeCount?: number;
   onPress: () => void;
@@ -232,6 +216,26 @@ function TabItem({
  * Modal, no full-screen dim) — a spring animates the panel's height
  * from 0 to its measured natural height. Only one panel can be open at
  * a time; opening one closes the other.
+ *
+ * Ingredients/Products/Recipes/Settings live behind the More panel but
+ * are NOT nested inside the "more" route the way they used to be —
+ * each is its own top-level tab in app/(tabs)/_layout.tsx, just hidden
+ * from this bar's visible row. That's a deliberate navigation-
+ * architecture choice, not an accident: tapping between them (or
+ * between them and Home/Orders/Production/More) always resolves to a
+ * TAB SWITCH, which is what lets every top-level destination keep its
+ * own independent back stack without ever polluting another one's —
+ * see docs/DECISIONS.md's navigation-architecture entry. Only genuine
+ * drill-down screens (Ingredient Detail, Product Detail, etc.) push
+ * onto a stack and pop with normal back navigation.
+ *
+ * (An earlier pass at this fix kept Ingredients/Products/Recipes
+ * nested inside "more" and used router.replace instead of push at
+ * every peer-switch point — that worked too, but relied on replace
+ * bubbling up to the nearest common Stack ancestor correctly in every
+ * case, including across a Tabs boundary from Orders/Production. This
+ * version replaces that with real sibling tabs so push already does
+ * the right thing everywhere, with nothing to get subtly wrong.)
  */
 export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   const { colors } = useThemeColors();
@@ -316,7 +320,7 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   }, [activePanel]);
 
   const activeRouteName = state.routes[state.index]?.name ?? 'index';
-  const addItems = getAddPanelItems(activeRouteName, pathname);
+  const addItems = getAddPanelItems(activeRouteName);
 
   function handleAddItemPress(item: PanelItem) {
     closePanel();
@@ -327,26 +331,25 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
       }
       return;
     }
-    // Some Add-panel items (e.g. "Add ingredient") land on a top-level
-    // destination's own route; others (e.g. "Add product" →
-    // /more/products/new) land on a real detail/creation sub-screen.
-    // Only the former should replace — see TOP_LEVEL_MORE_PATHS.
-    const navigate = TOP_LEVEL_MORE_PATHS.has(item.pathname) ? router.replace : router.push;
-    navigateOnce(() => navigate({ pathname: item.pathname, params: item.params } as never));
+    navigateOnce(() => router.push({ pathname: item.pathname, params: item.params } as never));
   }
 
+  // Ingredients/Products/Recipes/Settings are each their own top-level
+  // tab (app/(tabs)/_layout.tsx), not routes nested inside the "more"
+  // tab's own stack — so router.push here resolves to a TAB SWITCH
+  // (Expo Router treats a push to another tab's route as a `navigate`
+  // against the Tabs navigator, same as tapping a real tab button),
+  // never a stack push. That's what guarantees jumping between these
+  // sections from the More panel can't accumulate cross-section back
+  // history — see docs/DECISIONS.md's navigation-architecture entry.
+  // Each section keeps its own internal stack/scroll state exactly the
+  // way Home/Orders/Production/More already do when you switch away
+  // and back.
   function handleMoreItemPress(item: PanelItem) {
     closePanel();
     if (!item.pathname) return;
     if (pathname.startsWith(item.pathname)) return; // already here
-    // replace, not push: Ingredients/Products/Recipes/Settings are
-    // peer top-level screens (same tier as Home/Orders/Production/More)
-    // — switching between them must not grow the back stack, same as
-    // switching tabs doesn't. Only navigation INTO a detail screen
-    // (e.g. a specific product) should push. See the nav-rule note atop
-    // this file's More-panel section and the matching fix in
-    // more/index.tsx.
-    navigateOnce(() => router.replace(item.pathname as never));
+    navigateOnce(() => router.push(item.pathname as never));
   }
 
   function handleRealTabPress(route: { key: string; name: string }, isFocused: boolean) {
@@ -363,11 +366,12 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
    * - Orders: nothing to choose between — jump straight to New Order.
    * - Production: nothing to choose between — jump straight to the
    *   ingredient restock flow.
-   * - Ingredients (any /more/ingredients route): nothing to choose
-   *   between either — jump straight to Add ingredient instead of
-   *   opening a panel with a single row to tap through.
-   * - Anything else (other More sub-routes): falls back to the panel,
-   *   same as before this change.
+   * - Ingredients / Products (each its own top-level tab — see
+   *   app/(tabs)/_layout.tsx): nothing to choose between either — jump
+   *   straight to their one add action instead of opening a panel with
+   *   a single row to tap through.
+   * - Anything else (Recipes, More, Settings): falls back to the
+   *   panel, same as before this change.
    */
   function handleAddTabPress() {
     if (activeRouteName === 'orders') {
@@ -385,30 +389,27 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
       // restock directly, so this shortcuts to the Ingredients list
       // (same destination as the existing "Add ingredient" quick-add
       // item) rather than a specific ingredient's Restock sheet.
-      if (pathname === '/more/ingredients') return;
-      // replace: this jumps straight to the Ingredients top-level screen
-      // from Production (another top-level screen) — same rule as the
-      // More-panel switches, not a detail push.
-      navigateOnce(() => router.replace('/more/ingredients' as never));
+      if (pathname === '/ingredients') return;
+      navigateOnce(() => router.push('/ingredients' as never));
       return;
     }
-    if (activeRouteName === 'more' && pathname.startsWith('/more/ingredients')) {
+    if (activeRouteName === 'ingredients') {
       // Ingredients only ever has one add action — jump straight to it
       // instead of opening a panel with a single row to tap through.
       handleAddItemPress({
         label: 'Add ingredient',
         icon: 'nutrition-outline',
-        pathname: '/more/ingredients',
+        pathname: '/ingredients',
         params: { openAdd: '1' },
       });
       return;
     }
-    if (activeRouteName === 'more' && pathname.startsWith('/more/products')) {
+    if (activeRouteName === 'products') {
       // Same as Ingredients — Products only has one add action.
       handleAddItemPress({
         label: 'Add product',
         icon: 'cube-outline',
-        pathname: '/more/products/new',
+        pathname: '/products/new',
       });
       return;
     }
@@ -426,11 +427,18 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   const indexRoute = state.routes.find((r) => r.name === 'index')!;
   const ordersRoute = state.routes.find((r) => r.name === 'orders')!;
   const productionRoute = state.routes.find((r) => r.name === 'production')!;
-  const moreRoute = state.routes.find((r) => r.name === 'more')!;
   const isIndexFocused = state.routes[state.index]?.key === indexRoute.key;
   const isOrdersFocused = state.routes[state.index]?.key === ordersRoute.key;
   const isProductionFocused = state.routes[state.index]?.key === productionRoute.key;
-  const isMoreFocused = state.routes[state.index]?.key === moreRoute.key;
+  // Ingredients/Products/Recipes/Settings are reachable only from the
+  // More panel/hub, so the More tab button should still read as
+  // "selected" while browsing any of them, even though — as of the
+  // navigation-architecture fix — they're structurally independent
+  // top-level tabs rather than routes nested under "more". Keeps the
+  // same look as before this change; only how "inside More" is
+  // detected has changed (tab name, not a /more/* path prefix).
+  const MORE_GROUP_TAB_NAMES = ['more', 'ingredients', 'products', 'recipes', 'appearance'];
+  const isMoreGroupFocused = MORE_GROUP_TAB_NAMES.includes(activeRouteName);
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -536,10 +544,7 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
                       onPress={() => {
                         closePanel();
                         if (pathname === '/more') return;
-                        // replace: the More hub is a peer top-level screen
-                        // too, not a detail of whichever destination you're
-                        // leaving — same reasoning as handleMoreItemPress.
-                        navigateOnce(() => router.replace('/more' as never));
+                        navigateOnce(() => router.push('/more' as never));
                       }}
                       style={({ pressed }) => [styles.moreOptionsRow, pressed && styles.panelRowPressed]}
                       accessibilityLabel="See all"
@@ -554,7 +559,7 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
 
             {/* Five equal tabs, one row. Add has no route — it's purely
                 a panel trigger (Home) or a direct-navigate shortcut
-                (Orders/Production/Ingredients) — styled identically to
+                (Orders/Production/Ingredients/Products) — styled identically to
                 the real tabs either way. */}
             <View style={styles.tabsRow}>
               <TabItem
@@ -597,8 +602,8 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
                 icon={TAB_META.more.icon}
                 activeIcon={TAB_META.more.activeIcon}
                 label={TAB_META.more.label}
-                isActive={isMoreFocused}
-                chipActive={activePanel === 'more' || isMoreFocused}
+                isActive={isMoreGroupFocused}
+                chipActive={activePanel === 'more' || isMoreGroupFocused}
                 colors={colors}
                 styles={styles}
                 onPress={() => openPanel('more')}

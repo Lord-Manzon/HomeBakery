@@ -10,23 +10,23 @@ import {
   useRemoveRecipeIngredient,
   useUpdateRecipe,
   useUpdateRecipeIngredient,
-} from '../../../../../src/hooks/useRecipes';
-import { useIngredients } from '../../../../../src/hooks/useIngredients';
-import { useBakerProfile } from '../../../../../src/hooks/useBakerProfile';
-import { useNavigateOnce } from '../../../../../src/hooks/useNavigateOnce';
-import { useThemeColors } from '../../../../../src/theme/ThemeContext';
-import { calculateRecipeBatchCost, calculateSuggestedPrice } from '../../../../../src/services/costing';
-import { ErrorBanner } from '../../../../../src/components/ErrorBanner';
-import { InstructionsTimeline } from '../../../../../src/components/InstructionsTimeline';
-import { RecipeIngredientSheet } from '../../../../../src/components/RecipeIngredientSheet';
-import { Screen } from '../../../../../src/components/Screen';
-import { formatCurrency } from '../../../../../src/utils/currency';
-import { getCategoryIcon } from '../../../../../src/utils/ingredientCategoryIcon';
-import { getRecipeVisual } from '../../../../../src/utils/recipeVisual';
-import { recipeFormSchema } from '../../../../../src/utils/validation/recipeSchemas';
-import { spacing, radii, typography } from '../../../../../src/theme';
-import type { ColorToken } from '../../../../../src/theme/colors';
-import type { RecipeIngredientWithDetails } from '../../../../../src/types/recipe';
+} from '../../../../src/hooks/useRecipes';
+import { useIngredients } from '../../../../src/hooks/useIngredients';
+import { useBakerProfile } from '../../../../src/hooks/useBakerProfile';
+import { useNavigateOnce } from '../../../../src/hooks/useNavigateOnce';
+import { useThemeColors } from '../../../../src/theme/ThemeContext';
+import { calculateRecipeBatchCost, calculateSuggestedPrice } from '../../../../src/services/costing';
+import { ErrorBanner } from '../../../../src/components/ErrorBanner';
+import { InstructionsTimeline } from '../../../../src/components/InstructionsTimeline';
+import { RecipeIngredientSheet } from '../../../../src/components/RecipeIngredientSheet';
+import { Screen } from '../../../../src/components/Screen';
+import { formatCurrency } from '../../../../src/utils/currency';
+import { getCategoryIcon } from '../../../../src/utils/ingredientCategoryIcon';
+import { getRecipeVisual } from '../../../../src/utils/recipeVisual';
+import { recipeFormSchema } from '../../../../src/utils/validation/recipeSchemas';
+import { spacing, radii, typography } from '../../../../src/theme';
+import type { ColorToken } from '../../../../src/theme/colors';
+import type { RecipeIngredientWithDetails } from '../../../../src/types/recipe';
 
 export default function RecipeDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -405,7 +405,7 @@ export default function RecipeDetailScreen() {
                   <Pressable
                     key={u.variant_id}
                     style={styles.usageRow}
-                    onPress={() => navigateOnce(`/more/products/${u.product_id}`)}
+                    onPress={() => navigateOnce(`/products/${u.product_id}`)}
                   >
                     <Text style={styles.usageText}>
                       {u.product_name} — {u.variant_name}
@@ -537,7 +537,7 @@ export default function RecipeDetailScreen() {
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionHeader}>Instructions</Text>
               <Pressable
-                onPress={() => navigateOnce(`/more/recipes/${id}/instructions`)}
+                onPress={() => navigateOnce(`/recipes/${id}/instructions`)}
                 style={styles.addLink}
               >
                 <Ionicons
@@ -552,14 +552,14 @@ export default function RecipeDetailScreen() {
             </View>
 
             {!recipe.instructions || recipe.instructions.length === 0 ? (
-              <Pressable onPress={() => navigateOnce(`/more/recipes/${id}/instructions`)}>
+              <Pressable onPress={() => navigateOnce(`/recipes/${id}/instructions`)}>
                 <Text style={styles.emptyIngredients}>
                   No steps yet — add them so they're not just in your head.
                 </Text>
               </Pressable>
             ) : (
               <Pressable
-                onPress={() => navigateOnce(`/more/recipes/${id}/instructions`)}
+                onPress={() => navigateOnce(`/recipes/${id}/instructions`)}
                 style={styles.instructionsPreviewWrap}
               >
                 {/* Fixed-height clipped preview, not its own scroll area — a
