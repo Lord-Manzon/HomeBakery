@@ -137,6 +137,7 @@ export default function RecipeDetailScreen() {
         name: nameResult.data,
         yield_quantity: recipe.yield_quantity,
         yield_unit: recipe.yield_unit,
+        intro: recipe.intro,
         instructions: recipe.instructions,
         margin_percent: recipe.margin_percent,
       },
@@ -189,6 +190,7 @@ export default function RecipeDetailScreen() {
         name: recipe.name,
         yield_quantity: qtyResult.data,
         yield_unit: unitResult.data,
+        intro: recipe.intro,
         instructions: recipe.instructions,
         margin_percent: recipe.margin_percent,
       },
@@ -551,6 +553,8 @@ export default function RecipeDetailScreen() {
               </Pressable>
             </View>
 
+            {recipe.intro ? <Text style={styles.recipeIntroPreview}>{recipe.intro}</Text> : null}
+
             {!recipe.instructions || recipe.instructions.length === 0 ? (
               <Pressable onPress={() => navigateOnce(`/recipes/${id}/instructions`)}>
                 <Text style={styles.emptyIngredients}>
@@ -737,6 +741,12 @@ function makeStyles(colors: Record<ColorToken, string>) {
     addLinkText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     emptyIngredients: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
     instructionsPreviewWrap: { marginBottom: spacing.xl },
+    recipeIntroPreview: {
+      ...typography.bodySm,
+      color: colors.textSecondary,
+      fontStyle: 'italic',
+      marginBottom: spacing.md,
+    },
     instructionsPreviewClip: { maxHeight: 460, overflow: 'hidden' },
     instructionsViewAllRow: {
       flexDirection: 'row',

@@ -74,12 +74,33 @@ export default function RecipeInstructionsScreen() {
   const [formatMode, setFormatMode] = useState<FormatMode>('steps');
   const [stepItems, setStepItems] = useState<StepItem[]>([emptyStepItem()]);
   const [blockText, setBlockText] = useState('');
+  // Context/story text above the steps -- separate field from
+  // `instructions`, see docs/DECISIONS.md's "Instructions note-editor"
+  // entry and migration 0012. Applies regardless of Steps/One-block
+  // format, since it isn't a step itself.
+  const [introDraft, setIntroDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [pendingNav, setPendingNav] = useState<(() => void) | null>(null);
   // Disabled while a row is actively being dragged, so a drag near the
   // top/bottom of the visible list doesn't also try to scroll the page.
   const [isReordering, setIsReordering] = useState(false);
+  // Imperative focus targets for the "continuous typing" feel: pressing
+  // Enter in the intro field jumps into the first step (or the block
+  // textarea); pressing Enter inside a step splits it and jumps into
+  // the new one. React state alone can't move keyboard focus -- these
+  // refs are how updateStep/handleIntroChange below actually do it
+  // once the new row has rendered.
+  const stepInputRefs = useRef<Record<string, TextInput | null>>({});
+  const blockInputRef = useRef<TextInput | null>(null);
+  const focusStep = (stepId: string, cursorPos: number) => {
+    setTimeout(() => {
+      const el = stepInputRefs.current[stepId];
+      if (!el) return;
+      el.focus();
+      el.setNativeProps({ selection: { start: cursorPos, end: cursorPos } });
+    }, 0);
+  };
   // Duration/temperature stay hidden until a step's row is actually
   // being worked on — cleaner default (a recipe with 6 empty timer/temp
   // chips read as clutter), reveals on demand. A row has three separate
@@ -110,6 +131,7 @@ export default function RecipeInstructionsScreen() {
   useEffect(() => {
     if (!recipe || initialized) return;
     const existing = recipe.instructions ?? [];
+    setIntroDraft(recipe.intro ?? '');
     if (existing.length > 1) {
       setFormatMode('steps');
       setStepItems(existing.map(stepFromRecipeStep));
@@ -167,7 +189,10 @@ export default function RecipeInstructionsScreen() {
         ? [{ text: blockText.trim(), duration_minutes: null, temperature_celsius: null }]
         : [];
   const savedInstructions = recipe.instructions ?? [];
-  const isDirty = JSON.stringify(currentInstructions) !== JSON.stringify(savedInstructions);
+  const currentIntro = introDraft.trim() ? introDraft.trim() : null;
+  const isDirty =
+    JSON.stringify(currentInstructions) !== JSON.stringify(savedInstructions) ||
+    currentIntro !== (recipe.intro ?? null);
 
   const switchFormat = (next: FormatMode) => {
     if (next === formatMode) return;
@@ -193,8 +218,73 @@ export default function RecipeInstructionsScreen() {
     setFormatMode(next);
   };
 
+  // React Native has no way to "intercept and cancel" the Enter key the
+  // way web's keydown.preventDefault() does -- on a multiline TextInput,
+  // Enter just inserts a literal "\n" into the text that arrives via
+  // onChangeText. So instead of trying to catch the keypress itself,
+  // this reacts to that "\n" showing up: the line before it becomes
+  // this step's new text, and everything after becomes one new step
+  // per line (so a genuine multi-line paste splits cleanly too, not
+  // just a single Enter press) -- then focus jumps to the last of
+  // those new lines, positioned at its end, which is where a baker's
+  // cursor would land whether they pressed Enter once or pasted a
+  // paragraph.
   const updateStep = (stepId: string, value: string) => {
-    setStepItems((prev) => prev.map((s) => (s.id === stepId ? { ...s, text: value } : s)));
+    if (!value.includes('\n')) {
+      setStepItems((prev) => prev.map((s) => (s.id === stepId ? { ...s, text: value } : s)));
+      return;
+    }
+    const idx = stepItems.findIndex((s) => s.id === stepId);
+    if (idx === -1) return;
+    const lines = value.split('\n');
+    const updated: StepItem = { ...stepItems[idx], text: lines[0] };
+    const inserted: StepItem[] = lines
+      .slice(1)
+      .map((text) => ({ id: makeStepId(), text, durationMinutes: '', temperatureCelsius: '' }));
+    const next = [...stepItems];
+    next.splice(idx, 1, updated, ...inserted);
+    setStepItems(next);
+    const focusTarget = inserted.length > 0 ? inserted[inserted.length - 1] : updated;
+    focusStep(focusTarget.id, focusTarget.text.length);
+  };
+
+  // Backspace at the very start of a step (caret at position 0, nothing
+  // selected) merges it into the step above -- same feel as a notes
+  // app, and the natural undo for the split above. Only step[0] can't
+  // merge (nothing above it); duration/temperature on the step being
+  // merged AWAY are dropped rather than guessing how to combine two
+  // timers into one.
+  const mergeStepUp = (stepId: string) => {
+    const idx = stepItems.findIndex((s) => s.id === stepId);
+    if (idx <= 0) return;
+    const prev = stepItems[idx - 1];
+    const current = stepItems[idx];
+    const mergedText = prev.text + current.text;
+    const next = stepItems.filter((s) => s.id !== stepId);
+    const prevIdxInNext = next.findIndex((s) => s.id === prev.id);
+    next[prevIdxInNext] = { ...prev, text: mergedText };
+    setStepItems(next);
+    focusStep(prev.id, prev.text.length);
+  };
+
+  // Same "\n means Enter was pressed" reasoning as updateStep above.
+  // Anything after the first line break is discarded rather than fed
+  // into the steps below -- turning a multi-line paste into the intro
+  // field into both an intro AND a batch of steps is exactly the kind
+  // of "paste a whole recipe and have it parse itself" behavior that's
+  // explicitly a later, separate feature (recipe import), not part of
+  // this editor's day-to-day typing.
+  const handleIntroChange = (value: string) => {
+    if (!value.includes('\n')) {
+      setIntroDraft(value);
+      return;
+    }
+    setIntroDraft(value.slice(0, value.indexOf('\n')));
+    if (formatMode === 'steps' && stepItems.length > 0) {
+      focusStep(stepItems[0].id, stepItems[0].text.length);
+    } else {
+      setTimeout(() => blockInputRef.current?.focus(), 0);
+    }
   };
 
   const updateStepDuration = (stepId: string, value: string) => {
@@ -236,12 +326,17 @@ export default function RecipeInstructionsScreen() {
   };
 
   const handleSave = () => {
-    // Only validate the field this screen actually edits (instructions).
-    // Re-validating the whole recipe here would fail on any OTHER field
-    // that has old data predating a validation rule -- and show this
-    // screen an error about a field the baker never touched. The rest
-    // of the payload is passed through as-is, since updateRecipe always
-    // expects the full recipe shape.
+    // Only validate the fields this screen actually edits (intro,
+    // instructions). Re-validating the whole recipe here would fail on
+    // any OTHER field that has old data predating a validation rule --
+    // and show this screen an error about a field the baker never
+    // touched. The rest of the payload is passed through as-is, since
+    // updateRecipe always expects the full recipe shape.
+    const introResult = recipeFormSchema.shape.intro.safeParse(introDraft);
+    if (!introResult.success) {
+      setSaveError(introResult.error.issues[0]?.message ?? "Couldn't save. Try again.");
+      return;
+    }
     const instructionsResult = recipeFormSchema.shape.instructions.safeParse(currentInstructions);
 
     if (!instructionsResult.success) {
@@ -255,6 +350,7 @@ export default function RecipeInstructionsScreen() {
         yield_quantity: recipe.yield_quantity,
         yield_unit: recipe.yield_unit,
         margin_percent: recipe.margin_percent,
+        intro: introResult.data,
         instructions: instructionsResult.data,
       },
       {
@@ -307,6 +403,15 @@ export default function RecipeInstructionsScreen() {
         scrollEnabled={!isReordering}
         contentContainerStyle={styles.scrollContent}
       >
+        <TextInput
+          style={styles.introInput}
+          value={introDraft}
+          onChangeText={handleIntroChange}
+          placeholder="What's the story behind this recipe? (optional)"
+          placeholderTextColor={colors.textSecondary}
+          multiline
+        />
+
         {formatMode === 'steps' ? (
           <>
             {stepItems.map((item, index) => (
@@ -325,6 +430,10 @@ export default function RecipeInstructionsScreen() {
                 onChangeDuration={(v) => updateStepDuration(item.id, v)}
                 onChangeTemperature={(v) => updateStepTemperature(item.id, v)}
                 onRemove={() => removeStep(item.id)}
+                onMergeUp={() => mergeStepUp(item.id)}
+                registerInputRef={(el) => {
+                  stepInputRefs.current[item.id] = el;
+                }}
                 onDragStart={() => setIsReordering(true)}
                 onDragEnd={(shift) => {
                   setIsReordering(false);
@@ -341,6 +450,7 @@ export default function RecipeInstructionsScreen() {
           </>
         ) : (
           <TextInput
+            ref={blockInputRef}
             style={styles.blockInput}
             value={blockText}
             onChangeText={setBlockText}
@@ -409,6 +519,8 @@ function DraggableStepRow({
   onChangeDuration,
   onChangeTemperature,
   onRemove,
+  onMergeUp,
+  registerInputRef,
   onDragStart,
   onDragEnd,
   colors,
@@ -427,12 +539,19 @@ function DraggableStepRow({
   onChangeDuration: (value: string) => void;
   onChangeTemperature: (value: string) => void;
   onRemove: () => void;
+  onMergeUp: () => void;
+  registerInputRef: (el: TextInput | null) => void;
   onDragStart: () => void;
   onDragEnd: (shift: number) => void;
   colors: Record<ColorToken, string>;
   styles: ReturnType<typeof makeStyles>;
 }) {
   const isLast = index === total - 1;
+  // Tracked locally, not lifted to parent state -- onSelectionChange
+  // fires on every cursor move/keystroke, and this value is only ever
+  // read once, inside onKeyPress, right when Backspace is pressed. A
+  // ref avoids a re-render on every single cursor movement.
+  const selectionRef = useRef({ start: 0, end: 0 });
   const translateY = useSharedValue(0);
   const isDragging = useSharedValue(false);
   const measuredHeight = useSharedValue(64);
@@ -479,6 +598,7 @@ function DraggableStepRow({
       <View style={styles.stepCard}>
         <View style={styles.stepCardTop}>
           <TextInput
+            ref={registerInputRef}
             style={styles.stepInput}
             value={text}
             onChangeText={onChangeText}
@@ -487,6 +607,23 @@ function DraggableStepRow({
             multiline
             onFocus={onFocusRow}
             onBlur={onBlurRow}
+            onSelectionChange={(e) => {
+              selectionRef.current = e.nativeEvent.selection;
+            }}
+            onKeyPress={(e) => {
+              // Backspace with the caret at position 0 and nothing
+              // selected -- a plain backspace there is already a no-op
+              // (nothing before position 0 to delete), so intercepting
+              // it here to merge with the step above instead doesn't
+              // risk double-deleting anything.
+              if (
+                e.nativeEvent.key === 'Backspace' &&
+                selectionRef.current.start === 0 &&
+                selectionRef.current.end === 0
+              ) {
+                onMergeUp();
+              }
+            }}
           />
           <GestureDetector gesture={pan}>
             <View style={styles.dragHandle} accessibilityLabel="Drag to reorder step">
@@ -571,6 +708,15 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
 
     scrollContent: { paddingBottom: spacing.xxxl },
+
+    introInput: {
+      ...typography.titleSm,
+      color: colors.textPrimary,
+      paddingVertical: spacing.sm,
+      marginBottom: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
 
     // Steps timeline
     stepRow: {

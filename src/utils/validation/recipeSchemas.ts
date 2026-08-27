@@ -35,6 +35,16 @@ export const recipeFormSchema = z.object({
     .refine((v) => Number.isNaN(Number(v)), {
       message: "This looks like a quantity — try 'rolls' or '8-inch cake' instead",
     }),
+  // Context/story text above the steps -- NOT part of `instructions`,
+  // see docs/DATABASE.md and migration 0012. Optional; empty string
+  // and omitted both collapse to null.
+  intro: z
+    .string()
+    .trim()
+    .max(500, 'Keep the intro under 500 characters')
+    .optional()
+    .nullable()
+    .transform((v) => (v && v.length > 0 ? v : null)),
   // Each element is one step in "Steps" mode, or the whole thing in "One
   // block" mode — so a single element's text needs room for a full
   // paragraph, not just a short instruction. The 4000-char total cap

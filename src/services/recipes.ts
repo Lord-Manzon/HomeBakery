@@ -84,6 +84,7 @@ export async function createRecipe(input: RecipeFormInput): Promise<Recipe> {
       name: input.name,
       yield_quantity: input.yield_quantity,
       yield_unit: input.yield_unit,
+      intro: input.intro ?? null,
       instructions: input.instructions ?? null,
       margin_percent: input.margin_percent ?? null,
     })
@@ -100,6 +101,7 @@ export async function updateRecipe(id: string, input: RecipeFormInput): Promise<
       name: input.name,
       yield_quantity: input.yield_quantity,
       yield_unit: input.yield_unit,
+      intro: input.intro ?? null,
       instructions: input.instructions ?? null,
       margin_percent: input.margin_percent ?? null,
     })

@@ -18,6 +18,12 @@ export type Recipe = {
   name: string;
   yield_quantity: number;
   yield_unit: string;
+  /** Context/story text shown above the numbered steps -- separate
+   * from `instructions` on purpose, since it isn't a step itself (no
+   * duration/temperature, not numbered). Null means the baker hasn't
+   * written one. See docs/DECISIONS.md's "Instructions note-editor"
+   * entry and migration 0012. */
+  intro: string | null;
   /** jsonb array of RecipeStep in the DB. A "one block" recipe is just
    * a 1-item array — see docs/DECISIONS.md's 2026-08-21 entry. */
   instructions: RecipeStep[] | null;
