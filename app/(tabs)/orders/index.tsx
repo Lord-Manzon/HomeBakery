@@ -162,6 +162,18 @@ export default function OrdersListScreen() {
               autoCapitalize="none"
               autoFocus
             />
+            <Pressable
+              onPress={() => setIsFilterOpen((v) => !v)}
+              style={styles.iconButton}
+              accessibilityLabel="More filters"
+            >
+              <Ionicons
+                name="options-outline"
+                size={20}
+                color={isRefineActive ? colors.primary : colors.textPrimary}
+              />
+              {isRefineActive ? <View style={styles.filterActiveDot} /> : null}
+            </Pressable>
           </>
         ) : (
           <>
@@ -173,6 +185,18 @@ export default function OrdersListScreen() {
                 accessibilityLabel="Search orders"
               >
                 <Ionicons name="search" size={20} color={colors.textPrimary} />
+              </Pressable>
+              <Pressable
+                onPress={() => setIsFilterOpen((v) => !v)}
+                style={styles.iconButton}
+                accessibilityLabel="More filters"
+              >
+                <Ionicons
+                  name="options-outline"
+                  size={20}
+                  color={isRefineActive ? colors.primary : colors.textPrimary}
+                />
+                {isRefineActive ? <View style={styles.filterActiveDot} /> : null}
               </Pressable>
             </View>
           </>
@@ -195,36 +219,24 @@ export default function OrdersListScreen() {
         </Animated.View>
       ) : (
         <>
-          <View style={styles.filterRowOuter}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.filterRow}
-              contentContainerStyle={styles.filterRowContent}
-            >
-              {PRIMARY_FILTERS.map((f) => (
-                <FilterChip
+          <View style={styles.tabRow}>
+            {PRIMARY_FILTERS.map((f) => {
+              const isSelected = filter === f.value;
+              return (
+                <Pressable
                   key={f.value}
-                  label={f.label}
-                  isSelected={filter === f.value}
-                  styles={styles}
                   onPress={() => setFilter(f.value)}
-                />
-              ))}
-            </ScrollView>
-            <Pressable
-              onPress={() => setIsFilterOpen((v) => !v)}
-              style={styles.iconButton}
-              accessibilityLabel="More filters"
-            >
-              <Ionicons
-                name="options-outline"
-                size={20}
-                color={isRefineActive ? colors.primary : colors.textPrimary}
-              />
-              {isRefineActive ? <View style={styles.filterActiveDot} /> : null}
-            </Pressable>
+                  style={styles.tabItem}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                >
+                  <Text style={[styles.tabText, isSelected && styles.tabTextSelected]}>{f.label}</Text>
+                  <View style={[styles.tabUnderline, isSelected && styles.tabUnderlineSelected]} />
+                </Pressable>
+              );
+            })}
           </View>
+          <View style={styles.tabDivider} />
 
           {isFilterOpen ? (
             <>
@@ -275,32 +287,20 @@ export default function OrdersListScreen() {
                 const count = item.count === 1 ? '1 order' : `${item.count} orders`;
                 return (
                   <View style={styles.dayDivider}>
-                    <View style={styles.dayDividerLine} />
                     <Text style={styles.dayDividerText}>
                       {formatGroupHeaderDate(item.date)} · {count}
                     </Text>
-                    <View style={styles.dayDividerLine} />
                   </View>
                 );
               }
               return (
-                <SwipeableOrderCard
+                <OrderCard
                   order={item.order}
                   index={item.index}
                   currency={baker?.currency}
                   styles={styles}
                   colors={colors}
                   onPress={() => router.push(`/orders/${item.order.id}`)}
-                  onMarkDelivered={() =>
-                    markDelivered.mutate({
-                      id: item.order.id,
-                      status: item.order.status,
-                      payment_status: item.order.payment_status,
-                    })
-                  }
-                  onMarkPaid={() =>
-                    markPaid.mutate({ order: { id: item.order.id, status: item.order.status }, paymentMethod: 'Cash' })
-                  }
                 />
               );
             }}
@@ -308,34 +308,6 @@ export default function OrdersListScreen() {
         </>
       )}
     </Screen>
-  );
-}
-
-function FilterChip({
-  label,
-  isSelected,
-  styles,
-  onPress,
-}: {
-  label: string;
-  isSelected: boolean;
-  styles: ReturnType<typeof makeStyles>;
-  onPress: () => void;
-}) {
-  const press = usePressScale();
-
-  return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={press.onPressIn}
-      onPressOut={press.onPressOut}
-      accessibilityRole="button"
-      accessibilityState={{ selected: isSelected }}
-    >
-      <Animated.View style={[styles.filterChip, isSelected && styles.filterChipSelected, press.style]}>
-        <Text style={[styles.filterChipText, isSelected && styles.filterChipTextSelected]}>{label}</Text>
-      </Animated.View>
-    </Pressable>
   );
 }
 
@@ -591,27 +563,25 @@ function makeStyles(colors: Record<ColorToken, string>) {
       backgroundColor: colors.surfaceMuted,
       marginBottom: spacing.sm,
     },
-    filterRowOuter: {
+    tabRow: {
       flexDirection: 'row',
+      gap: spacing.lg,
+    },
+    tabItem: {
       alignItems: 'center',
-      marginBottom: spacing.md,
+      paddingBottom: spacing.xs,
     },
-    filterRow: { height: 40, maxHeight: 40, flexGrow: 1, flexShrink: 1 },
-    filterRowContent: { flexGrow: 0, alignItems: 'flex-start', paddingRight: spacing.sm },
-    filterChip: {
-      borderWidth: 1,
-      borderColor: colors.border,
-      backgroundColor: colors.surface,
-      borderRadius: radii.full,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.xs,
-      minHeight: 32,
-      justifyContent: 'center',
-      marginRight: spacing.sm,
+    tabText: { ...typography.body, color: colors.textSecondary, fontWeight: '600' },
+    tabTextSelected: { color: colors.primary },
+    tabUnderline: {
+      marginTop: spacing.xxs,
+      width: 20,
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: 'transparent',
     },
-    filterChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
-    filterChipText: { ...typography.bodySm, color: colors.textPrimary },
-    filterChipTextSelected: { color: colors.textInverse },
+    tabUnderlineSelected: { backgroundColor: colors.primary },
+    tabDivider: { height: 1, backgroundColor: colors.border, marginBottom: spacing.md },
     // Compact refine-filter dropdown -- deliberately reuses the exact
     // pattern already shipped for Products' sort/display dropdown
     // (app/(tabs)/more/products/index.tsx) rather than inventing a new
@@ -641,7 +611,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     filterMenu: {
       position: 'absolute',
-      top: 112,
+      top: 56,
       right: spacing.xl,
       backgroundColor: colors.surface,
       borderWidth: 1,
@@ -678,13 +648,10 @@ function makeStyles(colors: Record<ColorToken, string>) {
     // extend from the day label, per the reference request -- makes the
     // day break read clearly without adding another bordered container.
     dayDivider: {
-      flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.sm,
       paddingTop: spacing.md,
       paddingBottom: spacing.sm,
     },
-    dayDividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
     dayDividerText: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
     // Per docs/DECISIONS.md's 2026-08-27 refinement: flatter and tighter
     // than a standard app card -- no border (relies on the
