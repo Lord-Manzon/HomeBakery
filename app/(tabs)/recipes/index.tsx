@@ -231,7 +231,13 @@ function makeStyles(colors: Record<ColorToken, string>) {
       alignItems: 'center',
       marginBottom: spacing.md,
     },
-    title: { ...typography.titleLg, color: colors.textPrimary, fontWeight: '800' },
+    title: {
+  fontSize: 28,           // or typography.titleXl if you have it
+  lineHeight: 34,
+  fontWeight: '800',
+  letterSpacing: -0.3,    // slightly tighter looks more modern
+  color: colors.textPrimary,
+},
     iconButton: {
       width: 44,
       height: 44,
@@ -239,7 +245,12 @@ function makeStyles(colors: Record<ColorToken, string>) {
       alignItems: 'center',
       justifyContent: 'center',
     },
-    helperLine: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
+    helperLine: {
+  ...typography.bodySm,
+  color: colors.textSecondary,
+  marginTop: -2,          // pulls it closer to the title
+  marginBottom: spacing.lg,
+},
     searchInputInline: {
       flex: 1,
       fontSize: typography.body.fontSize,
