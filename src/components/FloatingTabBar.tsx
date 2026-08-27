@@ -245,6 +245,21 @@ export function FloatingTabBar({ state, navigation }: FloatingTabBarProps) {
   const pathname = usePathname();
   const { navHidden, forceHiddenCount } = useScrollNav();
 
+  // navHidden only ever gets set back to 0 by a scroll-up gesture (see
+  // useHideNavOnScroll) — it's a single value shared across every
+  // screen, and nothing was resetting it on navigation. Scroll down on
+  // a long list, then navigate to a screen with nothing to scroll (or
+  // that you haven't scrolled yet — e.g. Home right after switching
+  // tabs), and there's no gesture left that can ever bring the nav
+  // back — it stays hidden for good. Reset it on every screen change
+  // instead: arriving anywhere should show the chrome by default, the
+  // same way scrolling near the top already does. Full-screen forms
+  // are unaffected — those hide via the separate forceHiddenCount
+  // mechanism (useHideFloatingNav), not this one.
+  useEffect(() => {
+    navHidden.value = 0;
+  }, [pathname, navHidden]);
+
   // Guards every navigation triggered from this bar against rapid
   // double-taps — without this, tapping fast enough fires a second
   // press before `pathname` has updated from the first one, so the
