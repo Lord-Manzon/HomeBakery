@@ -16,20 +16,35 @@ import { useBakerProfile } from '../../../src/hooks/useBakerProfile';
 import { usePressScale } from '../../../src/hooks/usePressScale';
 import { useThemeColors } from '../../../src/theme/ThemeContext';
 import { isOrderActive, canMarkDelivered, canMarkPaid } from '../../../src/services/orderLogic';
-import { formatOrderDate, formatOrderTime, todayDateString } from '../../../src/utils/dateFormat';
+import { formatOrderTime, formatGroupHeaderDate, todayDateString } from '../../../src/utils/dateFormat';
 import { formatCurrency } from '../../../src/utils/currency';
 import { Screen } from '../../../src/components/Screen';
 import { ErrorBanner } from '../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../src/components/PrimaryButton';
 import { radii, spacing, typography, motionDuration, motionEasing, motionStagger } from '../../../src/theme';
 import type { ColorToken } from '../../../src/theme/colors';
-import type { OrderListFilter, OrderStatus, OrderWithItems } from '../../../src/types/order';
+import type { OrderListFilter, OrderWithItems } from '../../../src/types/order';
 
-const FILTERS: { value: OrderListFilter; label: string }[] = [
+type ListRow =
+  | { type: 'header'; key: string; date: string; count: number }
+  | { type: 'order'; key: string; order: OrderWithItems; index: number };
+
+const PRIMARY_FILTERS: { value: OrderListFilter; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'upcoming', label: 'Upcoming' },
-  { value: 'unpaid', label: 'Unpaid' },
   { value: 'all', label: 'All' },
+];
+
+// Per docs/DECISIONS.md's 2026-08-27 Orders list redesign: these six live
+// in a compact dropdown behind the filter icon rather than as six more
+// pills next to the three primary ones.
+const REFINE_FILTERS: { value: OrderListFilter; label: string }[] = [
+  { value: 'unpaid', label: 'Unpaid' },
+  { value: 'paid', label: 'Paid' },
+  { value: 'pickup', label: 'Pickup' },
+  { value: 'delivered', label: 'Delivered' },
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
 // Per docs/UI_UX_1.md section E.2's *Empty* state, tailored per filter --
@@ -38,8 +53,13 @@ const FILTERS: { value: OrderListFilter; label: string }[] = [
 const EMPTY_MESSAGE: Record<OrderListFilter, string> = {
   today: 'Nothing scheduled for today.',
   upcoming: 'No upcoming orders.',
-  unpaid: 'No unpaid orders — nice!',
   all: 'No orders yet.',
+  unpaid: 'No unpaid orders — nice!',
+  paid: 'No paid orders yet.',
+  pickup: 'No pickup orders.',
+  delivered: 'No delivered orders yet.',
+  overdue: 'Nothing overdue — nice!',
+  cancelled: 'No cancelled orders.',
 };
 
 export default function OrdersListScreen() {
@@ -49,6 +69,8 @@ export default function OrdersListScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [filter, setFilter] = useState<OrderListFilter>('today');
   const [search, setSearch] = useState('');
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const { data: orders, isLoading, isError, refetch } = useOrders(filter);
   const { data: baker } = useBakerProfile();
   const markDelivered = useMarkOrderDelivered();
@@ -58,10 +80,40 @@ export default function OrdersListScreen() {
     o.customer_name.toLowerCase().includes(search.toLowerCase())
   );
 
+  // Per docs/DECISIONS.md's 2026-08-27 Orders list redesign: groups
+  // orders by scheduled_date into a single flat array of header/order
+  // rows, fed straight into one Animated.FlatList -- keeps the existing
+  // swipe-action and staggered-entrance code paths intact rather than
+  // switching to SectionList. `filtered` is already sorted by
+  // scheduled_date ascending (src/services/orders.ts's getOrders), so a
+  // Map preserves that same chronological group order on iteration.
+  const rows = useMemo(() => {
+    const groups = new Map<string, OrderWithItems[]>();
+    for (const order of filtered) {
+      const list = groups.get(order.scheduled_date) ?? [];
+      list.push(order);
+      groups.set(order.scheduled_date, list);
+    }
+    const result: ListRow[] = [];
+    let orderIndex = 0;
+    for (const [date, group] of groups) {
+      result.push({ type: 'header', key: `header-${date}`, date, count: group.length });
+      for (const order of group) {
+        result.push({ type: 'order', key: order.id, order, index: orderIndex });
+        orderIndex += 1;
+      }
+    }
+    return result;
+  }, [filtered]);
+
+  const isRefineActive = REFINE_FILTERS.some((f) => f.value === filter);
+
   if (isLoading) {
     return (
       <Screen style={styles.container}>
-        <Text style={styles.title}>Orders</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>Orders</Text>
+        </View>
         {[1, 2, 3, 4].map((n) => (
           <View key={n} style={styles.skeletonCard} />
         ))}
@@ -72,7 +124,9 @@ export default function OrdersListScreen() {
   if (isError) {
     return (
       <Screen style={styles.container}>
-        <Text style={styles.title}>Orders</Text>
+        <View style={styles.headerRow}>
+          <Text style={styles.title}>Orders</Text>
+        </View>
         <ErrorBanner message="Couldn't load your orders." />
         <PrimaryButton title="Try again" onPress={() => refetch()} />
       </Screen>
@@ -86,7 +140,44 @@ export default function OrdersListScreen() {
 
   return (
     <Screen style={styles.container}>
-      <Text style={styles.title}>Orders</Text>
+      <View style={styles.headerRow}>
+        {isSearchOpen ? (
+          <>
+            <Pressable
+              onPress={() => {
+                setIsSearchOpen(false);
+                setSearch('');
+              }}
+              style={styles.iconButton}
+              accessibilityLabel="Close search"
+            >
+              <Ionicons name="arrow-back" size={22} color={colors.textPrimary} />
+            </Pressable>
+            <TextInput
+              style={styles.searchInputInline}
+              placeholder="Search by customer"
+              placeholderTextColor={colors.textSecondary}
+              value={search}
+              onChangeText={setSearch}
+              autoCapitalize="none"
+              autoFocus
+            />
+          </>
+        ) : (
+          <>
+            <Text style={styles.title}>Orders</Text>
+            <View style={styles.headerActions}>
+              <Pressable
+                onPress={() => setIsSearchOpen(true)}
+                style={styles.iconButton}
+                accessibilityLabel="Search orders"
+              >
+                <Ionicons name="search" size={20} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+          </>
+        )}
+      </View>
 
       {isTrulyEmpty ? (
         <Animated.View
@@ -104,43 +195,70 @@ export default function OrdersListScreen() {
         </Animated.View>
       ) : (
         <>
-          <View style={styles.searchBar}>
-            <Ionicons name="search-outline" size={18} color={colors.textSecondary} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search by customer"
-              placeholderTextColor={colors.textSecondary}
-              value={search}
-              onChangeText={setSearch}
-              autoCapitalize="none"
-            />
-            {search.length > 0 && (
-              <Pressable onPress={() => setSearch('')} hitSlop={8}>
-                <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
-              </Pressable>
-            )}
+          <View style={styles.filterRowOuter}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.filterRow}
+              contentContainerStyle={styles.filterRowContent}
+            >
+              {PRIMARY_FILTERS.map((f) => (
+                <FilterChip
+                  key={f.value}
+                  label={f.label}
+                  isSelected={filter === f.value}
+                  styles={styles}
+                  onPress={() => setFilter(f.value)}
+                />
+              ))}
+            </ScrollView>
+            <Pressable
+              onPress={() => setIsFilterOpen((v) => !v)}
+              style={styles.iconButton}
+              accessibilityLabel="More filters"
+            >
+              <Ionicons
+                name="options-outline"
+                size={20}
+                color={isRefineActive ? colors.primary : colors.textPrimary}
+              />
+              {isRefineActive ? <View style={styles.filterActiveDot} /> : null}
+            </Pressable>
           </View>
 
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.filterRow}
-            contentContainerStyle={styles.filterRowContent}
-          >
-            {FILTERS.map((f) => (
-              <FilterChip
-                key={f.value}
-                label={f.label}
-                isSelected={filter === f.value}
-                styles={styles}
-                onPress={() => setFilter(f.value)}
-              />
-            ))}
-          </ScrollView>
+          {isFilterOpen ? (
+            <>
+              <Pressable style={styles.filterScrim} onPress={() => setIsFilterOpen(false)} />
+              <Animated.View
+                entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
+                style={styles.filterMenu}
+              >
+                <Text style={styles.filterSectionLabel}>Filter by</Text>
+                {REFINE_FILTERS.map((f) => {
+                  const isSelected = filter === f.value;
+                  return (
+                    <Pressable
+                      key={f.value}
+                      style={styles.filterMenuRow}
+                      onPress={() => {
+                        setFilter(f.value);
+                        setIsFilterOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.filterRowText, isSelected && styles.filterRowTextSelected]}>
+                        {f.label}
+                      </Text>
+                      {isSelected ? <Ionicons name="checkmark" size={16} color={colors.primary} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </Animated.View>
+            </>
+          ) : null}
 
           <Animated.FlatList
-            data={filtered}
-            keyExtractor={(item) => item.id}
+            data={rows}
+            keyExtractor={(row) => row.key}
             showsVerticalScrollIndicator={false}
             onScroll={onScroll}
             scrollEventThrottle={16}
@@ -152,22 +270,40 @@ export default function OrdersListScreen() {
                   : EMPTY_MESSAGE[filter]}
               </Text>
             }
-            renderItem={({ item, index }) => (
-              <SwipeableOrderCard
-                order={item}
-                index={index}
-                currency={baker?.currency}
-                styles={styles}
-                colors={colors}
-                onPress={() => router.push(`/orders/${item.id}`)}
-                onMarkDelivered={() =>
-                  markDelivered.mutate({ id: item.id, status: item.status, payment_status: item.payment_status })
-                }
-                onMarkPaid={() =>
-                  markPaid.mutate({ order: { id: item.id, status: item.status }, paymentMethod: 'Cash' })
-                }
-              />
-            )}
+            renderItem={({ item }) => {
+              if (item.type === 'header') {
+                const count = item.count === 1 ? '1 order' : `${item.count} orders`;
+                return (
+                  <View style={styles.dayDivider}>
+                    <View style={styles.dayDividerLine} />
+                    <Text style={styles.dayDividerText}>
+                      {formatGroupHeaderDate(item.date)} · {count}
+                    </Text>
+                    <View style={styles.dayDividerLine} />
+                  </View>
+                );
+              }
+              return (
+                <SwipeableOrderCard
+                  order={item.order}
+                  index={item.index}
+                  currency={baker?.currency}
+                  styles={styles}
+                  colors={colors}
+                  onPress={() => router.push(`/orders/${item.order.id}`)}
+                  onMarkDelivered={() =>
+                    markDelivered.mutate({
+                      id: item.order.id,
+                      status: item.order.status,
+                      payment_status: item.order.payment_status,
+                    })
+                  }
+                  onMarkPaid={() =>
+                    markPaid.mutate({ order: { id: item.order.id, status: item.order.status }, paymentMethod: 'Cash' })
+                  }
+                />
+              );
+            }}
           />
         </>
       )}
@@ -201,26 +337,6 @@ function FilterChip({
       </Animated.View>
     </Pressable>
   );
-}
-
-const STATUS_LABEL: Record<OrderStatus, string> = {
-  pending: 'Pending',
-  delivered: 'Delivered',
-  completed: 'Completed',
-  cancelled: 'Cancelled',
-};
-
-function statusColor(status: OrderStatus, colors: Record<ColorToken, string>): string {
-  switch (status) {
-    case 'pending':
-      return colors.statusPending;
-    case 'delivered':
-      return colors.statusDelivered;
-    case 'completed':
-      return colors.statusCompleted;
-    case 'cancelled':
-      return colors.statusCancelled;
-  }
 }
 
 // "2× Carrot Cake (Medium) +1 more" -- matches the "+N more" chip pattern
@@ -370,16 +486,41 @@ function OrderCard({
   const press = usePressScale();
   const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
 
-  // Per docs/UI_UX_1.md section E.2's *Overdue* state: a still-active
-  // order whose date has passed gets a distinct (danger) chip instead of
-  // its normal status color, so it doesn't blend into today's orders.
+  // Per docs/DECISIONS.md's 2026-08-27 Orders list redesign: one badge
+  // slot, not two -- collapses the old separate status badge + payment
+  // badge into a single priority-ordered label (Cancelled overrides
+  // Overdue overrides Paid/Unpaid), since payment status is the one
+  // status dimension the redesign's field list actually calls for. A
+  // Cancelled or Overdue order needs to stand out more than its payment
+  // state does; everything else, payment is the practically useful
+  // signal (a Completed order is always paid by definition, so "Paid"
+  // reads correctly for it too, without a separate "Completed" label).
   const isOverdue = isOrderActive(order.status) && order.scheduled_date < todayDateString();
-  const badgeLabel = isOverdue ? 'Overdue' : STATUS_LABEL[order.status];
-  const badgeColor = isOverdue ? colors.danger : statusColor(order.status, colors);
+  const badgeLabel =
+    order.status === 'cancelled'
+      ? 'Cancelled'
+      : isOverdue
+        ? 'Overdue'
+        : order.payment_status === 'paid'
+          ? 'Paid'
+          : 'Unpaid';
+  const badgeColor =
+    order.status === 'cancelled'
+      ? colors.statusCancelled
+      : isOverdue
+        ? colors.danger
+        : order.payment_status === 'paid'
+          ? colors.success
+          : colors.warning;
 
-  const time = formatOrderTime(order.scheduled_time);
-  const dateLabel = formatOrderDate(order.scheduled_date);
-  const whenLabel = time ? `${dateLabel} · ${time}` : dateLabel;
+  // Date is no longer shown per-card -- the day divider header above
+  // already carries it. hasTime distinguishes a real scheduled time from
+  // the "No time set" placeholder so the two can be styled differently
+  // (below) -- otherwise the placeholder reads as convincingly as real
+  // data, per docs/DECISIONS.md's 2026-08-27 refinement entry.
+  const hasTime = Boolean(order.scheduled_time);
+  const timeLabel = formatOrderTime(order.scheduled_time) ?? 'No time set';
+  const fulfillmentLabel = order.fulfillment_type === 'delivery' ? 'Delivery' : 'Pickup';
 
   return (
     <Animated.View
@@ -391,43 +532,24 @@ function OrderCard({
             <Text style={styles.cardName} numberOfLines={1}>
               {order.customer_name}
             </Text>
-            <View style={[styles.badge, { backgroundColor: `${badgeColor}1F` }]}>
-              <Text style={[styles.badgeText, { color: badgeColor }]}>{badgeLabel}</Text>
-            </View>
+            <Text style={styles.cardTotal}>{formatCurrency(order.total, currency)}</Text>
           </View>
 
           <View style={styles.cardMiddleRow}>
             <Text style={styles.cardItems} numberOfLines={1}>
               {formatItemsSummary(order.items)}
             </Text>
-            <Text style={styles.cardTotal}>{formatCurrency(order.total, currency)}</Text>
+            <View style={styles.statusIndicator}>
+              <View style={[styles.statusDot, { backgroundColor: badgeColor }]} />
+              <Text style={[styles.statusText, { color: badgeColor }]}>{badgeLabel}</Text>
+            </View>
           </View>
 
-          <View style={styles.cardBottomRow}>
-            <View style={styles.cardMetaGroup}>
-              <Ionicons
-                name={order.fulfillment_type === 'delivery' ? 'bicycle-outline' : 'bag-handle-outline'}
-                size={14}
-                color={colors.textSecondary}
-              />
-              <Text style={styles.cardMetaText}>{whenLabel}</Text>
-            </View>
-            <View
-              style={[
-                styles.paymentBadge,
-                { backgroundColor: order.payment_status === 'paid' ? colors.successMuted : colors.warningMuted },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.paymentBadgeText,
-                  { color: order.payment_status === 'paid' ? colors.success : colors.warning },
-                ]}
-              >
-                {order.payment_status === 'paid' ? 'Paid' : 'Unpaid'}
-              </Text>
-            </View>
-          </View>
+          <Text style={styles.cardMetaText}>
+            <Text style={!hasTime ? styles.cardMetaTextMuted : undefined}>{timeLabel}</Text>
+            {' · '}
+            {fulfillmentLabel}
+          </Text>
         </Animated.View>
       </Pressable>
     </Animated.View>
@@ -444,28 +566,38 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingHorizontal: spacing.xl,
       paddingBottom: spacing.xl,
     },
-    title: { ...typography.displaySm, color: colors.textPrimary, marginBottom: spacing.lg },
+    // Per docs/DECISIONS.md's 2026-08-27 entry: search moved from an
+    // always-visible full-width bar into a collapsible header icon,
+    // mirroring Products' exact search pattern
+    // (app/(tabs)/more/products/index.tsx) rather than inventing a
+    // second search UI convention in the same app.
+    headerRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: spacing.md,
+    },
+    title: { ...typography.displaySm, color: colors.textPrimary },
+    headerActions: { flexDirection: 'row', gap: spacing.sm },
+    searchInputInline: {
+      flex: 1,
+      fontSize: typography.body.fontSize,
+      color: colors.textPrimary,
+      paddingHorizontal: spacing.sm,
+    },
     skeletonCard: {
       height: 84,
       borderRadius: radii.md,
       backgroundColor: colors.surfaceMuted,
       marginBottom: spacing.sm,
     },
-    searchBar: {
+    filterRowOuter: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: spacing.sm,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.md,
-      paddingHorizontal: spacing.md,
-      height: 44,
       marginBottom: spacing.md,
     },
-    searchInput: { flex: 1, ...typography.body, color: colors.textPrimary, padding: 0 },
-    filterRow: { height: 40, maxHeight: 40, flexGrow: 0, flexShrink: 0, marginBottom: spacing.md },
-    filterRowContent: { flexGrow: 0, alignItems: 'flex-start', paddingRight: spacing.xl },
+    filterRow: { height: 40, maxHeight: 40, flexGrow: 1, flexShrink: 1 },
+    filterRowContent: { flexGrow: 0, alignItems: 'flex-start', paddingRight: spacing.sm },
     filterChip: {
       borderWidth: 1,
       borderColor: colors.border,
@@ -480,10 +612,90 @@ function makeStyles(colors: Record<ColorToken, string>) {
     filterChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     filterChipText: { ...typography.bodySm, color: colors.textPrimary },
     filterChipTextSelected: { color: colors.textInverse },
-    card: {
+    // Compact refine-filter dropdown -- deliberately reuses the exact
+    // pattern already shipped for Products' sort/display dropdown
+    // (app/(tabs)/more/products/index.tsx) rather than inventing a new
+    // one, per this redesign's "consistent with the existing app" goal.
+    iconButton: {
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    filterActiveDot: {
+      position: 'absolute',
+      top: 8,
+      right: 8,
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: colors.primary,
+    },
+    filterScrim: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 5,
+    },
+    filterMenu: {
+      position: 'absolute',
+      top: 112,
+      right: spacing.xl,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
+      borderRadius: radii.md,
+      overflow: 'hidden',
+      zIndex: 10,
+      elevation: 6,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 6,
+      minWidth: 170,
+    },
+    filterSectionLabel: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.xxs,
+    },
+    filterMenuRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: spacing.md,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      minHeight: 44,
+    },
+    filterRowText: { ...typography.bodySm, color: colors.textPrimary },
+    filterRowTextSelected: { color: colors.primary, fontWeight: '600' },
+    // Per docs/DECISIONS.md's 2026-08-27 refinement: flanking lines
+    // extend from the day label, per the reference request -- makes the
+    // day break read clearly without adding another bordered container.
+    dayDivider: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      paddingTop: spacing.md,
+      paddingBottom: spacing.sm,
+    },
+    dayDividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
+    dayDividerText: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
+    // Per docs/DECISIONS.md's 2026-08-27 refinement: flatter and tighter
+    // than a standard app card -- no border (relies on the
+    // surface-vs-background color contrast alone for separation), a
+    // smaller radius, and reduced padding, since this list is meant for
+    // fast scanning, not to read as a set of individual dashboard
+    // widgets. A deliberate, documented exception to the app's usual
+    // "List row card" component, same category of exception as
+    // Products' own Grid card (2026-08-18 entry).
+    card: {
+      backgroundColor: colors.surface,
       // Only the left corners round on the card itself -- the right
       // corners are handled by swipeContainer's own borderRadius +
       // overflow:'hidden' clipping it at rest. Rounding all 4 corners
@@ -491,9 +703,10 @@ function makeStyles(colors: Record<ColorToken, string>) {
       // actions: the card's own top-right/bottom-right curves exposed a
       // sliver of the page background mid-seam instead of sitting flush
       // against the action buttons.
-      borderTopLeftRadius: radii.lg,
-      borderBottomLeftRadius: radii.lg,
-      padding: spacing.md,
+      borderTopLeftRadius: radii.md,
+      borderBottomLeftRadius: radii.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
     },
     cardTopRow: {
       flexDirection: 'row',
@@ -503,44 +716,43 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.xxs,
     },
     cardName: { ...typography.body, color: colors.textPrimary, fontWeight: '600', flex: 1 },
-    badge: {
-      borderRadius: radii.full,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 2,
-    },
-    badgeText: { ...typography.caption, fontWeight: '600' },
-    // Per docs/DECISIONS.md's 2026-08-26 entry: the price moved out of
-    // cardBottomRow (too crowded next to the payment badge at 22px) into
-    // its own row paired with the items summary, matching the reference
-    // design's "price on the right, bigger, easy to spot" request.
+    // Per docs/DECISIONS.md's 2026-08-27 entry: dropped the filled pill
+    // background in favor of a plain colored dot + text -- one more step
+    // toward the "flatter, not another chip" direction this list's been
+    // moving in across the earlier refinement passes.
+    statusIndicator: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
+    statusDot: { width: 6, height: 6, borderRadius: 3 },
+    statusText: { ...typography.caption, fontWeight: '600' },
     cardMiddleRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: spacing.sm,
-      marginBottom: spacing.sm,
+      marginBottom: spacing.xxs,
     },
     cardItems: { ...typography.bodySm, color: colors.textSecondary, flex: 1 },
-    cardTotal: { ...typography.metric, color: colors.textPrimary },
-    cardBottomRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-    },
-    cardMetaGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs, flex: 1 },
+    // Per docs/DECISIONS.md's 2026-08-27 refinement: dialed back from
+    // typography.metric (22/600) to titleLg (16/600) -- still bold and
+    // clearly the price, but no longer visually outweighing the
+    // customer name and the rest of the row. typography.metric stays
+    // defined and available for a context that actually needs that much
+    // weight (e.g. a future Reports summary figure).
+    cardTotal: { ...typography.titleLg, color: colors.textPrimary },
+    // Time + fulfillment merged into one line rather than two stacked
+    // right-column elements (badge, then this) -- per the 2026-08-27
+    // refinement, the original 3-row layout read as a "busy" right
+    // column even though it was only ever pairs of two per row.
     cardMetaText: { ...typography.caption, color: colors.textSecondary },
-    paymentBadge: {
-      borderRadius: radii.full,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 2,
-    },
-    paymentBadgeText: { ...typography.caption, fontWeight: '600' },
+    // Distinguishes the "No time set" placeholder from a real scheduled
+    // time -- otherwise both read with identical weight and the
+    // placeholder can pass for actual data at a glance.
+    cardMetaTextMuted: { fontStyle: 'italic', opacity: 0.7 },
     // Swipe-to-reveal wrapper (Mark Paid / Mark Delivered) -- the card's
     // own marginBottom moved here so the actions row behind it lines up
     // exactly with the card's edges instead of poking out underneath.
     swipeContainer: {
-      marginBottom: spacing.sm,
-      borderRadius: radii.lg,
+      marginBottom: spacing.xs,
+      borderRadius: radii.md,
       overflow: 'hidden',
       position: 'relative',
     },

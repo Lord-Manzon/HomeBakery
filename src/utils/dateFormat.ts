@@ -46,6 +46,30 @@ function isSameDay(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+/**
+ * Formats a "YYYY-MM-DD" date for a grouped-list day divider, e.g.
+ * "Sunday, Aug 24" -- full weekday name, unlike formatOrderDate's
+ * abbreviated "Sun, Aug 24" used per-card. Per docs/DECISIONS.md's
+ * 2026-08-27 Orders list redesign: once orders are grouped by day, the
+ * per-card date becomes redundant (the header already says which day),
+ * so cards show only the time -- the header carries the fuller date,
+ * and gets the fuller, more prominent formatting to match. Still
+ * special-cases Today/Tomorrow, same reasoning as formatOrderDate.
+ */
+export function formatGroupHeaderDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+
+  if (isSameDay(date, today)) return 'Today';
+  if (isSameDay(date, tomorrow)) return 'Tomorrow';
+
+  return date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
 /** "YYYY-MM-DD" for the device's current local date -- matches
  * src/services/orders.ts's todayDateString so a card's "is this
  * overdue?" check uses the exact same notion of "today" the list

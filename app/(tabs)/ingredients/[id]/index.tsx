@@ -11,6 +11,7 @@ import {
   useRecordUseOrWaste,
   useRemoveIngredient,
   useRestockIngredient,
+  useTodayUsage,
   useUpdateIngredient,
 } from '../../../../src/hooks/useIngredients';
 import type { BlockingRecipe } from '../../../../src/services/ingredients';
@@ -49,6 +50,7 @@ export default function IngredientDetailScreen() {
   const { data: history } = useMovementHistory(id);
   const { data: recipesUsing } = useIngredientRecipes(id);
   const { data: baker } = useBakerProfile();
+  const { data: todayUsage } = useTodayUsage();
   const updateIngredient = useUpdateIngredient(id);
   const recordUseOrWaste = useRecordUseOrWaste(id);
   const restockIngredient = useRestockIngredient(id);
@@ -109,6 +111,7 @@ export default function IngredientDetailScreen() {
     gauge.status === 'out' ? 'Out of stock' : gauge.status === 'low' ? 'Low stock' : 'In stock';
   const statusColor =
     gauge.status === 'out' ? colors.danger : gauge.status === 'low' ? colors.warning : colors.success;
+  const usedToday = todayUsage?.[ingredient.id] ?? 0;
 
   // history is already sorted created_at desc (see getMovementHistory), so
   // the first 'restock' row is the most recent one — no extra query
@@ -203,6 +206,19 @@ export default function IngredientDetailScreen() {
           <Text style={styles.heroFootnote}>
             Alert set at {ingredient.low_stock_threshold} {ingredient.unit}
           </Text>
+        ) : null}
+        {usedToday > 0 ? (
+          // Persistent here (unlike the list screen's version, which
+          // fades out after a few seconds if there's no low/out-of-stock
+          // status) — a baker who's drilled into a specific ingredient
+          // is actively looking at it, so there's no "glance and move on"
+          // moment to time a fade against.
+          <View style={styles.usedTodayBadge}>
+            <Ionicons name="arrow-down" size={9} color={colors.textSecondary} />
+            <Text style={styles.usedTodayBadgeText}>
+              Used {usedToday} {ingredient.unit} today
+            </Text>
+          </View>
         ) : null}
       </Animated.View>
 
@@ -573,6 +589,18 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     statusChipText: { ...typography.bodySm, fontWeight: '600' },
     heroFootnote: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
+    usedTodayBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: 3,
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      marginTop: spacing.sm,
+    },
+    usedTodayBadgeText: { ...typography.caption, color: colors.textSecondary },
     statGrid: {
       flexDirection: 'row',
       gap: spacing.sm,

@@ -1151,3 +1151,114 @@ deferred — Home (Phase 10) doesn't exist yet.
 
 **Verified:** `npx tsc --noEmit` — zero errors. `npx jest` — 4 suites, 62
 tests (12 new, covering the revert/mark helpers), all passing.
+
+### 2026-08-27 — Redesigned the Orders list: grouped by day, compact refine filters, simplified card
+
+**Decision:** Reworked `app/(tabs)/orders/index.tsx` around a day-grouped
+layout, using a provided mockup as the primary visual reference for one
+specific element — the day divider ("· Sunday, Aug 24 · 2 orders") — while
+deliberately not adopting the mockup's own colors, radii, or shadows.
+Order Detail, Edit Order, and Add Item are unchanged; this redesign is
+scoped to the list screen only.
+
+**Filters split into two tiers:** `Today` / `Upcoming` / `All` stay as
+always-visible pills. `Unpaid` / `Paid` / `Pickup` / `Delivered` /
+`Overdue` / `Cancelled` moved into a compact dropdown behind an
+`options-outline` icon — reusing the exact dropdown pattern already
+shipped for Products' sort/display menu
+(`app/(tabs)/more/products/index.tsx`), not a new pattern. All nine
+values live in one `OrderListFilter` union in `src/types/order.ts`
+(`today`/`upcoming`/`all`/`unpaid`/`paid`/`pickup`/`delivered`/`overdue`/
+`cancelled`) and stay mutually exclusive, same one-filter-active model as
+before — `Paid`, `Pickup`, `Delivered`, `Overdue`, and `Cancelled` are new
+`src/services/orders.ts` `getOrders()` query cases, not client-side
+filters, so they scale the same way the existing ones already do.
+`Paid` deliberately has no status restriction (a `completed` order is
+always paid, so it belongs in this view); `Delivered` matches `delivered`
+OR `completed` (mirrors `orderLogic.ts`'s `canRevertDelivered` notion of
+"delivery already happened"); `Overdue` reuses the exact predicate the
+per-card Overdue badge already used (still active, date passed).
+
+**Grouped-by-day list:** orders are grouped by `scheduled_date` into a
+single flattened array of header/order rows fed into the existing
+`Animated.FlatList` (not a switch to `SectionList`) — keeps the
+already-verified swipe-action and staggered-entrance code paths intact.
+`src/utils/dateFormat.ts` gained `formatGroupHeaderDate` (full weekday
+name, e.g. "Sunday, Aug 24") alongside the existing `formatOrderDate`
+(abbreviated, e.g. "Sun, Aug 24" — still used by Edit Order's own date
+field, unchanged).
+
+**Card simplified to one badge, not two:** the old separate order-status
+badge (Pending/Delivered/Completed/Cancelled) and payment badge
+(Paid/Unpaid) collapsed into a single priority-ordered badge — Cancelled
+overrides Overdue overrides Paid/Unpaid. Reasoning: this redesign's field
+list calls for payment status, not order status, as the list-level
+signal; a `completed` order is always paid, so "Paid" already reads
+correctly for it without a separate "Completed" label, and a baker who
+wants to see specifically-Delivered or specifically-Cancelled orders now
+has the dropdown filter for that, rather than needing it duplicated on
+every card. Per-card date was dropped too (the day divider header already
+carries it) — cards now show only the time, defaulting to "No time set"
+to match Edit Order's own placeholder wording for an unset time.
+
+**Not changed:** the swipe-to-reveal Mark Paid/Mark Delivered actions and
+the `typography.metric` price sizing from the 2026-08-26 entry carry over
+as-is; the card's total still uses `metric` sizing, just repositioned
+into the new top row per the redesign's layout.
+
+**Verified:** `npx tsc --noEmit` — zero errors. `npx jest` — 4 suites, 62
+tests, all passing (no service-layer logic changed by this entry beyond
+the new `getOrders` query cases, which don't need new unit tests --
+they're direct Supabase query construction, not computed business logic).
+
+### 2026-08-27 — Refined the Orders list redesign: flatter cards, smaller total, merged time/fulfillment line, flanking day-divider lines
+
+**Decision:** Follow-up pass on the same day's Orders list redesign,
+based on feedback that the first pass still read as "AI-generated
+dashboard" and had a crowded right side.
+
+- **Card flattened:** border removed entirely (relies on
+  `colors.surface` vs `colors.background`'s existing contrast for
+  separation, no outline needed), corner radius dropped from `radii.lg`
+  (16) to `radii.md` (10), padding tightened
+  (`paddingVertical: spacing.sm` instead of the uniform `spacing.md`),
+  and the gap between cards in the list tightened (`swipeContainer`'s
+  `marginBottom` from `spacing.sm` to `spacing.xs`). Documented as a
+  deliberate exception to the app's standard "List row card" component,
+  same category of exception as Products' own Grid card
+  (2026-08-18 entry) — Orders is a fast-scan list, not a
+  dashboard-widget list.
+- **Total de-emphasized:** `cardTotal` moved from `typography.metric`
+  (22/600, added just the day before for this exact card) down to
+  `typography.titleLg` (16/600) — still bold and clearly the price, but
+  no longer visually outweighing the customer name. `typography.metric`
+  itself stays defined and available; it just isn't the right fit for
+  this specific row-in-a-list context after all.
+- **Time + fulfillment merged into one line:** the old 3-row layout
+  (name+total / items+badge / time+fulfillment) put three separate
+  elements in a stacked right column even though each row only ever
+  paired two things — that stacking read as "crowded" even though no
+  single row was overloaded. Merging time+fulfillment into one
+  left-aligned text line ("11:00 AM · Pickup") drops the right column to
+  two items (total, badge) without removing any information. The
+  fulfillment icon was also dropped here — the text alone reads clearly
+  in a merged line, and re-added icon+text would have undercut the
+  "flatter, fewer icons" goal.
+- **"No time set" visually distinguished:** styled in italic at reduced
+  opacity (a new `cardMetaTextMuted` style) via a nested `<Text>`
+  segment, so a placeholder can't be mistaken for a real scheduled time
+  at a glance. A real time keeps the plain `cardMetaText` styling.
+- **Day divider gained flanking lines:** `── · Sunday, Aug 24 · 2 orders
+  · ──`, per the reference request -- two `flex: 1` 1px `View`s
+  (`colors.border`) on either side of the centered label. Kept as the
+  one visual element carried over from the original mockup, unchanged
+  in spirit from the first redesign pass, just visually strengthened.
+
+**Not changed:** swipe-to-reveal Mark Paid/Mark Delivered, the filter
+dropdown, the grouped-by-day data structure, and the single
+Cancelled/Overdue/Paid/Unpaid badge all carry over unchanged from the
+same day's earlier entry — this pass is visual refinement only, no
+behavior changed.
+
+**Verified:** `npx tsc --noEmit` — zero errors. `npx jest` — 4 suites, 62
+tests, all passing (no service-layer code touched by this entry).

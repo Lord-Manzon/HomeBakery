@@ -78,4 +78,22 @@ export type OrderWithItems = Order & {
  * order history stays reachable without adding new chips beyond what
  * docs/UI_UX_1.md section E.2 already specifies.
  */
-export type OrderListFilter = 'today' | 'upcoming' | 'unpaid' | 'all';
+/**
+ * 'today'/'upcoming'/'all' are the three primary, always-visible scope
+ * filters. The rest (unpaid/paid/pickup/delivered/overdue/cancelled) are
+ * secondary "refine" filters tucked into a compact dropdown per
+ * docs/DECISIONS.md's 2026-08-27 Orders list redesign -- mutually
+ * exclusive with the primary three and with each other, same one-filter-
+ * active-at-a-time model as before, just split across two levels of
+ * visual prominence based on how often each is actually needed.
+ */
+export type OrderListFilter =
+  | 'today'
+  | 'upcoming'
+  | 'all'
+  | 'unpaid'
+  | 'paid'
+  | 'pickup'
+  | 'delivered'
+  | 'overdue'
+  | 'cancelled';

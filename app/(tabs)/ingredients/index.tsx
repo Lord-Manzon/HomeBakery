@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
 import { useHideNavOnScroll } from '../../../src/hooks/useHideNavOnScroll';
 import { useCreateIngredient, useIngredients, useTodayUsage } from '../../../src/hooks/useIngredients';
 import { useBakerProfile, useUpdateBakerProfile } from '../../../src/hooks/useBakerProfile';
@@ -55,6 +55,20 @@ export default function IngredientsListScreen() {
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isSensitivityOpen, setIsSensitivityOpen] = useState(false);
+  // The "Used Xkg today" card badge is meant as a brief glanceable
+  // confirmation right after opening the list ("yep, that use I logged
+  // is reflected"), not a permanent fixture competing for attention
+  // with actual low/out-of-stock alerts — so it fades out a few seconds
+  // after the screen mounts. Low/out-of-stock status badges are
+  // unaffected: they already take priority over the usage badge
+  // instantly (see IngredientCard below), with no fade needed.
+  // ASSUMPTION: 4s "for a bit" — easy to retune, just this one constant.
+  const USAGE_BADGE_VISIBLE_MS = 4000;
+  const [usageBadgesVisible, setUsageBadgesVisible] = useState(true);
+  useEffect(() => {
+    const t = setTimeout(() => setUsageBadgesVisible(false), USAGE_BADGE_VISIBLE_MS);
+    return () => clearTimeout(t);
+  }, []);
   const createIngredient = useCreateIngredient();
   const headerIconPress = usePressScale();
 
@@ -205,6 +219,7 @@ export default function IngredientsListScreen() {
                 ingredient={item}
                 sensitivity={sensitivity}
                 usedToday={todayUsage?.[item.id] ?? 0}
+                usageBadgeVisible={usageBadgesVisible}
                 index={index}
                 styles={styles}
                 colors={colors}
@@ -270,6 +285,7 @@ function IngredientCard({
   ingredient,
   sensitivity,
   usedToday,
+  usageBadgeVisible,
   index,
   styles,
   colors,
@@ -278,6 +294,7 @@ function IngredientCard({
   ingredient: Ingredient;
   sensitivity: GaugeSensitivity;
   usedToday: number;
+  usageBadgeVisible: boolean;
   index: number;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
@@ -324,13 +341,16 @@ function IngredientCard({
                     {gauge.status === 'out' ? 'Out of stock' : 'Low stock'}
                   </Text>
                 </View>
-              ) : usedToday > 0 ? (
-                <View style={styles.usedTodayBadge}>
+              ) : usedToday > 0 && usageBadgeVisible ? (
+                <Animated.View
+                  exiting={FadeOut.duration(motionDuration.medium).easing(motionEasing.standard)}
+                  style={styles.usedTodayBadge}
+                >
                   <Ionicons name="arrow-down" size={9} color={colors.textSecondary} />
                   <Text style={styles.usedTodayBadgeText}>
                     Used {usedToday} {ingredient.unit} today
                   </Text>
-                </View>
+                </Animated.View>
               ) : null}
             </View>
           </View>

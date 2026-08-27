@@ -70,7 +70,34 @@ export async function getOrders(filter: OrderListFilter = 'today'): Promise<Orde
       query = query.gt('scheduled_date', today).in('status', ['pending', 'delivered']);
       break;
     case 'unpaid':
+      // Orders still needing payment follow-up -- excludes cancelled
+      // (nothing left to chase) same as before this filter moved into
+      // the compact refine dropdown.
       query = query.eq('payment_status', 'unpaid').in('status', ['pending', 'delivered']);
+      break;
+    case 'paid':
+      // No status restriction -- includes 'completed' (which is always
+      // paid by definition) alongside pending/delivered orders paid up
+      // front, so a baker reviewing payments sees the full picture.
+      query = query.eq('payment_status', 'paid');
+      break;
+    case 'pickup':
+      query = query.eq('fulfillment_type', 'pickup').in('status', ['pending', 'delivered']);
+      break;
+    case 'delivered':
+      // "Has been delivered/picked up" -- matches canRevertDelivered's
+      // notion in orderLogic.ts (delivered OR completed both mean
+      // delivery already happened).
+      query = query.in('status', ['delivered', 'completed']);
+      break;
+    case 'overdue':
+      // Same predicate as the per-card Overdue badge in
+      // app/(tabs)/orders/index.tsx: still active, and its date has
+      // passed.
+      query = query.lt('scheduled_date', today).in('status', ['pending', 'delivered']);
+      break;
+    case 'cancelled':
+      query = query.eq('status', 'cancelled');
       break;
     case 'all':
       break;
