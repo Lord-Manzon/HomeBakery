@@ -10,7 +10,6 @@ import { useThemeColors } from '../../../src/theme/ThemeContext';
 import { ErrorBanner } from '../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../src/components/PrimaryButton';
 import { Screen } from '../../../src/components/Screen';
-import { getRecipeVisual } from '../../../src/utils/recipeVisual';
 import {
   spacing,
   radii,
@@ -31,6 +30,14 @@ import type { Recipe } from '../../../src/types/recipe';
  * which products currently use them — the Product -> "Recipe & costing"
  * shortcut on a specific variant still exists separately and is NOT
  * replaced by this screen (see UI_UX_1.md section 6).
+ *
+ * VISUAL REDESIGN (2026-08-27): dropped the boxed-per-row-card look
+ * (individual bordered/shadowed cards, colored initials tile) for ONE
+ * grouped, rounded/bordered container with hairline dividers between
+ * rows. The group is now an outer View so the container hugs its actual
+ * row count instead of stretching to fill the screen when there are
+ * only a couple recipes, while still scrolling normally once content
+ * overflows.
  */
 export default function RecipesListScreen() {
   const router = useRouter();
@@ -87,7 +94,7 @@ export default function RecipesListScreen() {
       </View>
 
       {!isSearchOpen && !isEmptyCatalog ? (
-        <Text style={styles.helperLine}>Tap a recipe to see its ingredients and cost.</Text>
+        <Text style={styles.helperLine}>Your bakery recipes and production costs.</Text>
       ) : null}
 
       {isError ? (
@@ -96,9 +103,9 @@ export default function RecipesListScreen() {
           <PrimaryButton title="Retry" onPress={() => refetch()} />
         </View>
       ) : isLoading ? (
-        <View style={styles.list}>
-          {[1, 2, 3].map((i) => (
-            <View key={i} style={[styles.card, styles.skeletonCard]} />
+        <View style={styles.group}>
+          {[1, 2, 3].map((i, idx) => (
+            <View key={i} style={[styles.skeletonRow, idx !== 2 && styles.rowDivider]} />
           ))}
         </View>
       ) : isEmptyCatalog ? (
@@ -119,57 +126,95 @@ export default function RecipesListScreen() {
           </Pressable>
         </View>
       ) : (
-        <FlatList
-          data={filtered}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
-          renderItem={({ item, index }) => (
-            <RecipeCard recipe={item} index={index} styles={styles} colors={colors} />
-          )}
-        />
+        <View style={styles.group}>
+          <FlatList
+            data={filtered}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            renderItem={({ item, index }) => (
+              <RecipeRow
+                recipe={item}
+                index={index}
+                isLast={index === filtered.length - 1}
+                styles={styles}
+                colors={colors}
+              />
+            )}
+          />
+        </View>
       )}
     </Screen>
   );
 }
 
-function RecipeCard({
+function pluralizeUnit(quantity: number, unit: string) {
+  // Lowercased for display only — recipe.yield_unit is left exactly
+  // as stored; NAIVE pluralization otherwise (fine for "roll",
+  // "slice", "batch"; flag if an irregular unit needs handling).
+  const lower = unit.toLowerCase();
+  return quantity === 1 ? lower : `${lower}s`;
+}
+
+function RecipeRow({
   recipe,
   index,
+  isLast,
   styles,
   colors,
 }: {
   recipe: Recipe;
   index: number;
+  isLast: boolean;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
 }) {
   const navigateOnce = useNavigateOnce();
   const press = usePressScale();
-  const visual = getRecipeVisual(recipe.name);
-  // Staggered entrance per motion.ts's motionStagger — capped so a long
-  // list doesn't make the last rows look sluggishly late (same pattern
-  // as the Ingredients list).
   const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
+
+  // Cost still not available on the list query — leave null for now
+  const costLine: string | null = null;
+
+  // Real used-in count from getRecipes()
+  const usedInCount = (recipe as Recipe & { used_in_count: number }).used_in_count ?? 0;
+  const usedInLine =
+    usedInCount === 0
+      ? 'Not linked to any product'
+      : usedInCount === 1
+        ? 'Used in 1 product'
+        : `Used in ${usedInCount} products`;
 
   return (
     <Animated.View
-      entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
+      entering={FadeInDown.duration(motionDuration.medium)
+        .delay(delay)
+        .easing(motionEasing.decelerate)}
     >
       <Pressable
         onPress={() => navigateOnce(`/recipes/${recipe.id}`)}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
       >
-        <Animated.View style={[styles.card, press.style]}>
-          <View style={[styles.cardIconTile, { backgroundColor: `${visual.color}1F` }]}>
-            <Text style={[styles.cardIconTileText, { color: visual.color }]}>{visual.initials}</Text>
-          </View>
-          <View style={styles.cardBody}>
-            <Text style={styles.cardName}>{recipe.name}</Text>
-            <Text style={styles.cardMeta}>
-              Yields {recipe.yield_quantity} {recipe.yield_unit}
+        <Animated.View style={[styles.row, !isLast && styles.rowDivider, press.style]}>
+          <View style={styles.rowBody}>
+            <Text style={styles.rowName}>{recipe.name}</Text>
+
+            <Text style={styles.rowMeta}>
+              Yield: {recipe.yield_quantity}{' '}
+              {pluralizeUnit(recipe.yield_quantity, recipe.yield_unit)}
+              {costLine ? ` · ${costLine}` : null}
+            </Text>
+
+            <Text
+              style={[
+                styles.rowUsedIn,
+                usedInCount === 0 && styles.rowUsedInMuted,
+              ]}
+            >
+              {usedInLine}
             </Text>
           </View>
+
           <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
         </Animated.View>
       </Pressable>
@@ -186,7 +231,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       alignItems: 'center',
       marginBottom: spacing.md,
     },
-    title: { ...typography.titleLg, color: colors.textPrimary },
+    title: { ...typography.titleLg, color: colors.textPrimary, fontWeight: '800' },
     iconButton: {
       width: 44,
       height: 44,
@@ -201,30 +246,48 @@ function makeStyles(colors: Record<ColorToken, string>) {
       color: colors.textPrimary,
       paddingHorizontal: spacing.sm,
     },
-    list: { paddingBottom: spacing.xxxl },
-    card: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.md,
+    group: {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: radii.lg,
-      padding: spacing.md,
-      marginBottom: spacing.sm,
+      overflow: 'hidden',
+      // No flex / flexGrow — this lets the container hug its content
+      alignSelf: 'stretch',
     },
-    skeletonCard: { height: 64, backgroundColor: colors.surfaceMuted, borderWidth: 0 },
-    cardIconTile: {
-      width: 36,
-      height: 36,
-      borderRadius: radii.sm,
+    listContent: {
+      // Explicitly prevent the content from growing to fill the screen
+      flexGrow: 0,
+    },
+    row: {
+      flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'center',
+      gap: spacing.md,
+      // Slightly more breathing room than the original spacing.md,
+      // still compact enough for scanning a working ingredient/recipe
+      // list quickly.
+      paddingVertical: spacing.md + spacing.xxs,
+      paddingHorizontal: spacing.md,
     },
-    cardIconTileText: { ...typography.bodySm, fontWeight: '700' },
-    cardBody: { flex: 1 },
-    cardName: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
-    cardMeta: { ...typography.bodySm, color: colors.textSecondary, marginTop: spacing.xxs },
+    rowDivider: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+    },
+    rowBody: { flex: 1 },
+    rowName: { ...typography.body, color: colors.textPrimary, fontWeight: '700' },
+    rowMeta: { ...typography.bodySm, color: colors.textSecondary, marginTop: spacing.xxs },
+    rowCost: { ...typography.bodySm, color: colors.primary, fontWeight: '600', marginTop: spacing.xxs },
+    rowUsedIn: {
+      ...typography.bodySm,
+      color: colors.textSecondary,
+      marginTop: spacing.xxs,
+    },
+    rowUsedInMuted: {
+      color: colors.textSecondary,
+      fontStyle: 'italic',
+      opacity: 0.7,
+    },
+    skeletonRow: { height: 60, backgroundColor: colors.surfaceMuted },
     centerBlock: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, paddingVertical: spacing.xxxl },
     emptyTitle: { ...typography.titleLg, color: colors.textPrimary },
     emptyBody: { ...typography.bodySm, color: colors.textSecondary, textAlign: 'center', maxWidth: 280 },

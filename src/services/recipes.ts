@@ -15,15 +15,24 @@ async function getCurrentBakerId(): Promise<string> {
   return id;
 }
 
-export async function getRecipes(): Promise<Recipe[]> {
+export async function getRecipes(): Promise<(Recipe & { used_in_count: number })[]> {
   const bakerId = await getCurrentBakerId();
   const { data, error } = await supabase
     .from('recipes')
-    .select('*')
+    .select(`
+      *,
+      used_in_count:product_variants(count)
+    `)
     .eq('baker_id', bakerId)
+    .eq('product_variants.is_active', true)
     .order('name', { ascending: true });
+
   if (error) throw error;
-  return data as Recipe[];
+
+  return (data as any[]).map((r) => ({
+    ...r,
+    used_in_count: r.used_in_count?.[0]?.count ?? 0,
+  }));
 }
 
 /**
