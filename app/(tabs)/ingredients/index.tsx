@@ -42,7 +42,7 @@ export default function IngredientsListScreen() {
       isNavigatingRef.current = false;
     }, 600);
   };
-  const { openAdd } = useLocalSearchParams<{ openAdd?: string }>();
+  const { openAdd, lowStockOnly } = useLocalSearchParams<{ openAdd?: string; lowStockOnly?: string }>();
   const onScroll = useHideNavOnScroll();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -81,6 +81,17 @@ export default function IngredientsListScreen() {
       router.setParams({ openAdd: undefined });
     }
   }, [openAdd]);
+
+  // Same convention as openAdd above — lets other screens (e.g.
+  // Production's restock banner and per-row "N ingredients low" chip)
+  // deep-link straight into the existing attentionBanner filter instead
+  // of each building its own filtered list.
+  useEffect(() => {
+    if (lowStockOnly === '1') {
+      setShowLowStockOnly(true);
+      router.setParams({ lowStockOnly: undefined });
+    }
+  }, [lowStockOnly]);
 
   // Defaults to 'balanced' while the baker profile is still loading, so
   // the gauge has a sensible reading immediately rather than waiting.

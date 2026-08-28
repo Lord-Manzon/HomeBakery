@@ -135,6 +135,13 @@ export default function ProductionScreen() {
   const activeQuery = tab === 'today' ? todayQuery : tab === 'tomorrow' ? tomorrowQuery : upcomingQuery;
   const dateForTab = tab === 'today' ? today : tab === 'tomorrow' ? tomorrow : null;
 
+  // The Ingredients tab already has its own "needs attention" filter
+  // (the attentionBanner + showLowStockOnly toggle in
+  // app/(tabs)/ingredients/index.tsx) -- reuse that instead of building
+  // a second filtered view here. `lowStockOnly=1` mirrors the existing
+  // `openAdd=1` param convention that screen already reads.
+  const goToLowStock = () => router.push({ pathname: '/ingredients', params: { lowStockOnly: '1' } });
+
   return (
     <Screen style={styles.container}>
       <View style={styles.headerRow}>
@@ -170,7 +177,7 @@ export default function ProductionScreen() {
                   count={blockingCount}
                   styles={styles}
                   colors={colors}
-                  onPress={() => setIngredientsView('needed')}
+                  onPress={goToLowStock}
                 />
               ) : null}
 
@@ -191,6 +198,7 @@ export default function ProductionScreen() {
                   isPending={pendingRowKey === row.key && toggleRow.isPending}
                   lowCount={countLowIngredientsForRow(row, statusByIngredientId)}
                   onToggle={() => handleToggleRow(row, dateForTab as string)}
+                  onLowPress={goToLowStock}
                 />
               ))}
             </>
@@ -222,6 +230,7 @@ export default function ProductionScreen() {
                     isPending={pendingRowKey === row.key && toggleRow.isPending}
                     lowCount={countLowIngredientsForRow(row, statusByIngredientId)}
                     onToggle={() => handleToggleRow(row, group.date)}
+                    onLowPress={goToLowStock}
                   />
                 ))}
               </View>
@@ -237,11 +246,11 @@ export default function ProductionScreen() {
             </Pressable>
           </View>
 
-          <SegmentedControl
+          <UnderlineTabs
             options={INGREDIENTS_VIEWS}
             value={ingredientsView}
             onChange={setIngredientsView}
-            colors={colors}
+            styles={styles}
           />
 
           {ingredientsView === 'needed' ? (
@@ -402,6 +411,49 @@ function SegmentedControl<T extends string>({
   );
 }
 
+/**
+ * Second-level tab style, deliberately different from the top pill
+ * SegmentedControl -- this picks between two views of the same
+ * "Ingredients" section rather than switching the whole screen's
+ * content, so it reads as nested/subordinate rather than a sibling of
+ * Today/Tomorrow/Upcoming.
+ */
+function UnderlineTabs<T extends string>({
+  options,
+  value,
+  onChange,
+  styles,
+}: {
+  options: { label: string; value: T }[];
+  value: T;
+  onChange: (value: T) => void;
+  styles: ReturnType<typeof makeStyles>;
+}) {
+  return (
+    <View style={styles.underlineTabs}>
+      {options.map((opt) => {
+        const isSelected = opt.value === value;
+        return (
+          <Pressable
+            key={opt.value}
+            onPress={() => onChange(opt.value)}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: isSelected }}
+            style={[styles.underlineTab, isSelected && styles.underlineTabActive]}
+          >
+            <Text
+              numberOfLines={1}
+              style={[styles.underlineTabText, isSelected && styles.underlineTabTextActive]}
+            >
+              {opt.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
 function ProgressBar({
   progress,
   styles,
@@ -465,6 +517,7 @@ function ProductionRowCard({
   isPending,
   lowCount,
   onToggle,
+  onLowPress,
 }: {
   row: ProductionRow;
   index: number;
@@ -473,6 +526,7 @@ function ProductionRowCard({
   isPending: boolean;
   lowCount: number;
   onToggle: () => void;
+  onLowPress: () => void;
 }) {
   const press = usePressScale();
   // Same capped-stagger idea as Ingredients/Orders' list entrances, just
@@ -512,12 +566,22 @@ function ProductionRowCard({
               </Text>
             ) : null}
             {lowCount > 0 ? (
-              <View style={styles.rowWarningChip}>
+              // Nested inside the row's own Pressable (which toggles
+              // done/not-done) -- RN gives the innermost Pressable the
+              // touch, so tapping the chip opens the filtered ingredient
+              // list instead of also toggling the row.
+              <Pressable
+                onPress={onLowPress}
+                hitSlop={6}
+                accessibilityRole="button"
+                accessibilityLabel={`${lowCount} ingredient${lowCount === 1 ? '' : 's'} running low, view list`}
+                style={styles.rowWarningChip}
+              >
                 <Ionicons name="alert-circle-outline" size={11} color={colors.warning} />
                 <Text style={styles.rowWarningText}>
                   {lowCount} ingredient{lowCount === 1 ? '' : 's'} low
                 </Text>
-              </View>
+              </Pressable>
             ) : null}
           </View>
           <Text style={styles.rowQty}>×{formatQty(row.totalQuantity)}</Text>
@@ -664,7 +728,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       flexDirection: 'row',
       alignItems: 'flex-start',
       gap: spacing.sm,
-      backgroundColor: `${colors.danger}1A`,
+      backgroundColor: colors.dangerMuted,
       borderRadius: radii.md,
       padding: spacing.sm,
       marginBottom: spacing.lg,
@@ -703,7 +767,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       alignItems: 'center',
       gap: 3,
       alignSelf: 'flex-start',
-      backgroundColor: `${colors.warning}1A`,
+      backgroundColor: colors.warningMuted,
       borderRadius: radii.sm,
       paddingHorizontal: spacing.xs,
       paddingVertical: 2,
@@ -728,6 +792,21 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.sm,
     },
     viewAllLink: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
+    underlineTabs: {
+      flexDirection: 'row',
+      gap: spacing.lg,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: colors.border,
+      marginBottom: spacing.md,
+    },
+    underlineTab: {
+      paddingBottom: spacing.sm,
+      borderBottomWidth: 2,
+      borderBottomColor: 'transparent',
+    },
+    underlineTabActive: { borderBottomColor: colors.primary },
+    underlineTabText: { ...typography.bodySm, color: colors.textSecondary },
+    underlineTabTextActive: { color: colors.textPrimary, fontWeight: '600' },
     statusGroup: { marginTop: spacing.md },
     statusGroupTitle: {
       ...typography.caption,
