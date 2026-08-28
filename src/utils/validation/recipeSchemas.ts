@@ -45,6 +45,22 @@ export const recipeFormSchema = z.object({
     .optional()
     .nullable()
     .transform((v) => (v && v.length > 0 ? v : null)),
+  // Manual override for total time -- null means "fall back to the sum
+  // of each step's duration_minutes," computed client-side, not stored.
+  // preprocess (not just .optional().nullable()) is needed because
+  // z.coerce.number() turns an empty string into 0, not null -- and 0
+  // would get SAVED as a real override instead of clearing back to the
+  // auto-calculated default, which is exactly the "revert" gesture a
+  // baker clearing this field expects. See migration 0013.
+  total_time_minutes: z.preprocess(
+    (v) => (v === '' || v === null || v === undefined ? null : v),
+    z.coerce
+      .number()
+      .int('Whole minutes only')
+      .nonnegative('Enter 0 or more')
+      .max(10080, "That's more than a week \u2014 double check this")
+      .nullable()
+  ),
   // Each element is one step in "Steps" mode, or the whole thing in "One
   // block" mode — so a single element's text needs room for a full
   // paragraph, not just a short instruction. The 4000-char total cap

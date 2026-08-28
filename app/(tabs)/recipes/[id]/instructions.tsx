@@ -16,8 +16,6 @@ import { spacing, radii, typography } from '../../../../src/theme';
 import type { ColorToken } from '../../../../src/theme/colors';
 import type { RecipeStep } from '../../../../src/types/recipe';
 
-type FormatMode = 'steps' | 'block';
-
 // Steps carry a stable id separate from their position in the list. A
 // drag gesture needs to keep following the SAME step's text as it moves
 // -- keying rows by array index would swap which text a mid-drag gesture
@@ -68,16 +66,16 @@ export default function RecipeInstructionsScreen() {
   const { data: recipe, isLoading, isError } = useRecipe(id);
   const updateRecipe = useUpdateRecipe(id);
 
-  // Steps and block text are both kept in state at once (not derived from
-  // one another on every render) so toggling back and forth doesn't lose
-  // anything the baker typed in the format they're not currently viewing.
-  const [formatMode, setFormatMode] = useState<FormatMode>('steps');
+  // Steps-only from now on -- the Steps/One-block toggle was removed
+  // (docs/DECISIONS.md's "Instructions: steps-only" entry). Instructions
+  // are always RecipeStep[] in the DB regardless, so this was purely a
+  // UI simplification; a legacy "one block" recipe (a single-item array
+  // holding one long paragraph) just opens as a single Step 1 now,
+  // rather than a special free-text mode.
   const [stepItems, setStepItems] = useState<StepItem[]>([emptyStepItem()]);
-  const [blockText, setBlockText] = useState('');
   // Context/story text above the steps -- separate field from
   // `instructions`, see docs/DECISIONS.md's "Instructions note-editor"
-  // entry and migration 0012. Applies regardless of Steps/One-block
-  // format, since it isn't a step itself.
+  // entry and migration 0012.
   const [introDraft, setIntroDraft] = useState('');
   const [initialized, setInitialized] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -86,13 +84,12 @@ export default function RecipeInstructionsScreen() {
   // top/bottom of the visible list doesn't also try to scroll the page.
   const [isReordering, setIsReordering] = useState(false);
   // Imperative focus targets for the "continuous typing" feel: pressing
-  // Enter in the intro field jumps into the first step (or the block
-  // textarea); pressing Enter inside a step splits it and jumps into
-  // the new one. React state alone can't move keyboard focus -- these
-  // refs are how updateStep/handleIntroChange below actually do it
-  // once the new row has rendered.
+  // Enter in the intro field jumps into the first step; pressing Enter
+  // inside a step splits it and jumps into the new one. React state
+  // alone can't move keyboard focus -- this ref is how updateStep/
+  // handleIntroChange below actually do it once the new row has
+  // rendered.
   const stepInputRefs = useRef<Record<string, TextInput | null>>({});
-  const blockInputRef = useRef<TextInput | null>(null);
   const focusStep = (stepId: string, cursorPos: number) => {
     setTimeout(() => {
       const el = stepInputRefs.current[stepId];
@@ -124,23 +121,13 @@ export default function RecipeInstructionsScreen() {
     stepBlurTimeout.current = setTimeout(() => setActiveStepId(null), 80);
   };
 
-  // Seed local state once the recipe loads. Existing multi-step data
-  // opens in Steps format; a single legacy block (or no instructions
-  // yet) opens in One block format -- see docs/DECISIONS.md's 2026-08-21
-  // entry.
+  // Seed local state once the recipe loads. Every existing step becomes
+  // a row; an empty recipe starts with one blank row ready to type into.
   useEffect(() => {
     if (!recipe || initialized) return;
     const existing = recipe.instructions ?? [];
     setIntroDraft(recipe.intro ?? '');
-    if (existing.length > 1) {
-      setFormatMode('steps');
-      setStepItems(existing.map(stepFromRecipeStep));
-      setBlockText(existing.map((s) => s.text).join('\n'));
-    } else {
-      setFormatMode('block');
-      setBlockText(existing[0]?.text ?? '');
-      setStepItems(existing.length === 1 ? [stepFromRecipeStep(existing[0])] : [emptyStepItem()]);
-    }
+    setStepItems(existing.length > 0 ? existing.map(stepFromRecipeStep) : [emptyStepItem()]);
     setInitialized(true);
   }, [recipe, initialized]);
 
@@ -172,51 +159,22 @@ export default function RecipeInstructionsScreen() {
     return Number.isFinite(n) ? n : null;
   };
 
-  // The steps as currently typed, regardless of which format they're in
-  // -- the single source of truth for both what's rendered and whether
-  // there are unsaved edits. Key order matches the DB's jsonb_build_object
-  // order (migration 0010) so the JSON.stringify dirty-check is reliable.
-  const currentInstructions: RecipeStep[] =
-    formatMode === 'steps'
-      ? stepItems
-          .filter((s) => s.text.trim().length > 0)
-          .map((s) => ({
-            text: s.text.trim(),
-            duration_minutes: parseOptionalNumber(s.durationMinutes),
-            temperature_celsius: parseOptionalNumber(s.temperatureCelsius),
-          }))
-      : blockText.trim()
-        ? [{ text: blockText.trim(), duration_minutes: null, temperature_celsius: null }]
-        : [];
+  // The steps as currently typed -- the single source of truth for both
+  // what's rendered and whether there are unsaved edits. Key order
+  // matches the DB's jsonb_build_object order (migration 0010) so the
+  // JSON.stringify dirty-check is reliable.
+  const currentInstructions: RecipeStep[] = stepItems
+    .filter((s) => s.text.trim().length > 0)
+    .map((s) => ({
+      text: s.text.trim(),
+      duration_minutes: parseOptionalNumber(s.durationMinutes),
+      temperature_celsius: parseOptionalNumber(s.temperatureCelsius),
+    }));
   const savedInstructions = recipe.instructions ?? [];
   const currentIntro = introDraft.trim() ? introDraft.trim() : null;
   const isDirty =
     JSON.stringify(currentInstructions) !== JSON.stringify(savedInstructions) ||
     currentIntro !== (recipe.intro ?? null);
-
-  const switchFormat = (next: FormatMode) => {
-    if (next === formatMode) return;
-    if (next === 'block') {
-      // Steps -> Block: join whatever's been typed so far into one
-      // paragraph, one step per line. Duration/temperature don't carry
-      // over -- a free-text block has nowhere to hold them.
-      setBlockText(stepItems.map((s) => s.text.trim()).filter(Boolean).join('\n'));
-    } else {
-      // Block -> Steps: split on line breaks, each non-empty line
-      // becomes its own step row with a fresh stable id and no
-      // duration/temperature yet.
-      const split = blockText
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      setStepItems(
-        split.length > 0
-          ? split.map((text) => ({ id: makeStepId(), text, durationMinutes: '', temperatureCelsius: '' }))
-          : [emptyStepItem()]
-      );
-    }
-    setFormatMode(next);
-  };
 
   // React Native has no way to "intercept and cancel" the Enter key the
   // way web's keydown.preventDefault() does -- on a multiline TextInput,
@@ -280,10 +238,8 @@ export default function RecipeInstructionsScreen() {
       return;
     }
     setIntroDraft(value.slice(0, value.indexOf('\n')));
-    if (formatMode === 'steps' && stepItems.length > 0) {
+    if (stepItems.length > 0) {
       focusStep(stepItems[0].id, stepItems[0].text.length);
-    } else {
-      setTimeout(() => blockInputRef.current?.focus(), 0);
     }
   };
 
@@ -357,7 +313,7 @@ export default function RecipeInstructionsScreen() {
         // No explicit "back to view" step needed -- once the mutation
         // succeeds, the recipe query refetches, currentInstructions
         // matches it again, isDirty goes false on its own, and Save
-        // quietly gives way back to the format-toggle icon.
+        // quietly disappears from the header.
         onError: () => setSaveError("Couldn't save. Try again."),
       }
     );
@@ -385,17 +341,8 @@ export default function RecipeInstructionsScreen() {
               )}
             </Pressable>
           ) : null}
-          <Pressable
-            onPress={() => switchFormat(formatMode === 'steps' ? 'block' : 'steps')}
-            style={styles.iconButton}
-            accessibilityLabel={formatMode === 'steps' ? 'Switch to one block' : 'Switch to steps'}
-          >
-            <Ionicons name="swap-horizontal-outline" size={20} color={colors.textPrimary} />
-          </Pressable>
         </View>
       </View>
-
-      <Text style={styles.formatLabel}>{formatMode === 'steps' ? 'Steps' : 'One block'}</Text>
 
       <ScrollView
         keyboardShouldPersistTaps="handled"
@@ -412,54 +359,39 @@ export default function RecipeInstructionsScreen() {
           multiline
         />
 
-        {formatMode === 'steps' ? (
-          <>
-            {stepItems.map((item, index) => (
-              <DraggableStepRow
-                key={item.id}
-                index={index}
-                total={stepItems.length}
-                text={item.text}
-                durationMinutes={item.durationMinutes}
-                temperatureCelsius={item.temperatureCelsius}
-                accentColor={visual.color}
-                isActive={activeStepId === item.id}
-                onFocusRow={() => focusStepRow(item.id)}
-                onBlurRow={blurStepRow}
-                onChangeText={(v) => updateStep(item.id, v)}
-                onChangeDuration={(v) => updateStepDuration(item.id, v)}
-                onChangeTemperature={(v) => updateStepTemperature(item.id, v)}
-                onRemove={() => removeStep(item.id)}
-                onMergeUp={() => mergeStepUp(item.id)}
-                registerInputRef={(el) => {
-                  stepInputRefs.current[item.id] = el;
-                }}
-                onDragStart={() => setIsReordering(true)}
-                onDragEnd={(shift) => {
-                  setIsReordering(false);
-                  if (shift !== 0) moveStep(index, shift);
-                }}
-                colors={colors}
-                styles={styles}
-              />
-            ))}
-            <Pressable onPress={addStep} style={styles.addStepButton}>
-              <Ionicons name="add" size={18} color={colors.primary} />
-              <Text style={styles.addStepText}>Add step</Text>
-            </Pressable>
-          </>
-        ) : (
-          <TextInput
-            ref={blockInputRef}
-            style={styles.blockInput}
-            value={blockText}
-            onChangeText={setBlockText}
-            placeholder="Write out the full recipe -- oven temp, method, timing, notes..."
-            placeholderTextColor={colors.textSecondary}
-            multiline
-            textAlignVertical="top"
+        {stepItems.map((item, index) => (
+          <DraggableStepRow
+            key={item.id}
+            index={index}
+            total={stepItems.length}
+            text={item.text}
+            durationMinutes={item.durationMinutes}
+            temperatureCelsius={item.temperatureCelsius}
+            accentColor={visual.color}
+            isActive={activeStepId === item.id}
+            onFocusRow={() => focusStepRow(item.id)}
+            onBlurRow={blurStepRow}
+            onChangeText={(v) => updateStep(item.id, v)}
+            onChangeDuration={(v) => updateStepDuration(item.id, v)}
+            onChangeTemperature={(v) => updateStepTemperature(item.id, v)}
+            onRemove={() => removeStep(item.id)}
+            onMergeUp={() => mergeStepUp(item.id)}
+            registerInputRef={(el) => {
+              stepInputRefs.current[item.id] = el;
+            }}
+            onDragStart={() => setIsReordering(true)}
+            onDragEnd={(shift) => {
+              setIsReordering(false);
+              if (shift !== 0) moveStep(index, shift);
+            }}
+            colors={colors}
+            styles={styles}
           />
-        )}
+        ))}
+        <Pressable onPress={addStep} style={styles.addStepButton}>
+          <Ionicons name="add" size={18} color={colors.primary} />
+          <Text style={styles.addStepText}>Add step</Text>
+        </Pressable>
 
         {saveError ? <ErrorBanner message={saveError} /> : null}
       </ScrollView>
@@ -698,15 +630,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     saveHeaderButtonText: { ...typography.body, color: colors.primary, fontWeight: '700' },
 
-    formatLabel: {
-      ...typography.caption,
-      color: colors.textSecondary,
-      fontWeight: '600',
-      textTransform: 'uppercase',
-      letterSpacing: 0.4,
-      marginBottom: spacing.md,
-    },
-
     scrollContent: { paddingBottom: spacing.xxxl },
 
     introInput: {
@@ -786,19 +709,5 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.xxxl,
     },
     addStepText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
-
-    // One block
-    blockInput: {
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.md,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm + 2,
-      fontSize: typography.body.fontSize,
-      color: colors.textPrimary,
-      backgroundColor: colors.surface,
-      minHeight: 240,
-      marginBottom: spacing.xxxl,
-    },
   });
 }

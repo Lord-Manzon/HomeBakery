@@ -17,12 +17,9 @@ import { useNavigateOnce } from '../../../../src/hooks/useNavigateOnce';
 import { useThemeColors } from '../../../../src/theme/ThemeContext';
 import { calculateRecipeBatchCost, calculateSuggestedPrice } from '../../../../src/services/costing';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
-import { InstructionsTimeline } from '../../../../src/components/InstructionsTimeline';
 import { RecipeIngredientSheet } from '../../../../src/components/RecipeIngredientSheet';
 import { Screen } from '../../../../src/components/Screen';
 import { formatCurrency } from '../../../../src/utils/currency';
-import { getCategoryIcon } from '../../../../src/utils/ingredientCategoryIcon';
-import { getRecipeVisual } from '../../../../src/utils/recipeVisual';
 import { recipeFormSchema } from '../../../../src/utils/validation/recipeSchemas';
 import { spacing, radii, typography } from '../../../../src/theme';
 import type { ColorToken } from '../../../../src/theme/colors';
@@ -35,7 +32,7 @@ export default function RecipeDetailScreen() {
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const { data: recipe, isLoading, isError, refetch } = useRecipe(id);
+  const { data: recipe, isLoading, isError } = useRecipe(id);
   const { data: usage } = useRecipeUsage(id);
   const { data: ingredients } = useIngredients();
   const { data: baker } = useBakerProfile();
@@ -60,6 +57,11 @@ export default function RecipeDetailScreen() {
   // the commit slightly and canceling it if the sibling field gets
   // focus in that window fixes it.
   const yieldBlurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Total time: a single field, so no sibling-focus race like yield's
+  // two inputs — a plain onBlur commit is enough.
+  const [isEditingTime, setIsEditingTime] = useState(false);
+  const [timeDraft, setTimeDraft] = useState('');
+  const [timeError, setTimeError] = useState<string | null>(null);
   const [isCostExpanded, setIsCostExpanded] = useState(false);
   const [isUsageExpanded, setIsUsageExpanded] = useState(false);
   const [isDeleteConfirming, setIsDeleteConfirming] = useState(false);
@@ -74,9 +76,6 @@ export default function RecipeDetailScreen() {
   const [selectedIngredientIds, setSelectedIngredientIds] = useState<Set<string>>(new Set());
   const [isRemoveConfirming, setIsRemoveConfirming] = useState(false);
   const isSelectingIngredients = selectedIngredientIds.size > 0;
-  // Ingredients and Instructions used to be stacked in one long scroll —
-  // split into tabs so each is its own scrollable area instead of one
-  // giant page, per the on-device feedback that it read as too long.
   const [activeTab, setActiveTab] = useState<'ingredients' | 'instructions'>('ingredients');
 
   if (isError) {
@@ -106,7 +105,19 @@ export default function RecipeDetailScreen() {
   // ingredient — see docs/DECISIONS.md.
   const usedIngredientIds = new Set(recipe.ingredients.map((ri) => ri.ingredient_id));
   const pickableIngredients = (ingredients ?? []).filter((i) => !usedIngredientIds.has(i.id));
-  const visual = getRecipeVisual(recipe.name);
+
+  // Total time: recipe.total_time_minutes is a manual override (see
+  // migration 0013) that, once set, always wins. Until a baker sets
+  // one, this falls back to summing whatever duration_minutes each
+  // step happens to have -- and if NO step has a duration set either,
+  // there's nothing honest to show, so the whole row stays hidden
+  // rather than displaying a fabricated "0 min".
+  const stepsWithDuration = (recipe.instructions ?? []).filter((s) => s.duration_minutes != null);
+  const computedTimeFromSteps =
+    stepsWithDuration.length > 0
+      ? stepsWithDuration.reduce((sum, s) => sum + (s.duration_minutes ?? 0), 0)
+      : null;
+  const effectiveTimeMinutes = recipe.total_time_minutes ?? computedTimeFromSteps;
 
   const startEditingName = () => {
     setNameDraft(recipe.name);
@@ -139,6 +150,7 @@ export default function RecipeDetailScreen() {
         yield_unit: recipe.yield_unit,
         intro: recipe.intro,
         instructions: recipe.instructions,
+        total_time_minutes: recipe.total_time_minutes,
         margin_percent: recipe.margin_percent,
       },
       { onError: () => setNameError("Couldn't save. Try again.") }
@@ -192,17 +204,51 @@ export default function RecipeDetailScreen() {
         yield_unit: unitResult.data,
         intro: recipe.intro,
         instructions: recipe.instructions,
+        total_time_minutes: recipe.total_time_minutes,
         margin_percent: recipe.margin_percent,
       },
       { onError: () => setYieldError("Couldn't save. Try again.") }
     );
   };
 
-  const toggleIngredientSelection = (id: string) => {
+  const startEditingTime = () => {
+    setTimeDraft(effectiveTimeMinutes != null ? String(effectiveTimeMinutes) : '');
+    setTimeError(null);
+    setIsEditingTime(true);
+  };
+
+  const commitTimeEdit = () => {
+    setIsEditingTime(false);
+    const trimmed = timeDraft.trim();
+    const currentDisplay = effectiveTimeMinutes != null ? String(effectiveTimeMinutes) : '';
+    if (trimmed === currentDisplay) return;
+    // Empty input means "clear the override, go back to auto-calculated
+    // from steps" -- schema's preprocess turns '' into null for us.
+    const timeResult = recipeFormSchema.shape.total_time_minutes.safeParse(trimmed);
+    if (!timeResult.success) {
+      setTimeError(timeResult.error.issues[0]?.message ?? 'Enter a valid number of minutes.');
+      return;
+    }
+    setTimeError(null);
+    updateRecipe.mutate(
+      {
+        name: recipe.name,
+        yield_quantity: recipe.yield_quantity,
+        yield_unit: recipe.yield_unit,
+        intro: recipe.intro,
+        instructions: recipe.instructions,
+        total_time_minutes: timeResult.data,
+        margin_percent: recipe.margin_percent,
+      },
+      { onError: () => setTimeError("Couldn't save. Try again.") }
+    );
+  };
+
+  const toggleIngredientSelection = (ingredientRowId: string) => {
     setSelectedIngredientIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(ingredientRowId)) next.delete(ingredientRowId);
+      else next.add(ingredientRowId);
       return next;
     });
   };
@@ -285,313 +331,337 @@ export default function RecipeDetailScreen() {
         </View>
       ) : null}
 
-      <View style={{ paddingBottom: spacing.sm }}>
-        {isEditingYield ? (
-          <View style={styles.yieldEditRow}>
-            <Text style={styles.yieldEditLabel}>Yields</Text>
-            <TextInput
-              style={styles.yieldQtyInput}
-              value={yieldQtyDraft}
-              onChangeText={setYieldQtyDraft}
-              onBlur={scheduleYieldCommit}
-              onFocus={cancelScheduledYieldCommit}
-              onSubmitEditing={commitYieldEdit}
-              keyboardType="decimal-pad"
-              autoFocus
-              selectTextOnFocus
-              returnKeyType="next"
-            />
-            <TextInput
-              style={styles.yieldUnitInput}
-              value={yieldUnitDraft}
-              onChangeText={setYieldUnitDraft}
-              onBlur={scheduleYieldCommit}
-              onFocus={cancelScheduledYieldCommit}
-              onSubmitEditing={commitYieldEdit}
-              returnKeyType="done"
-              maxLength={30}
-            />
-          </View>
-        ) : (
-          <Pressable onPress={startEditingYield}>
-            <Text style={styles.yieldLine}>
-              Yields {recipe.yield_quantity} {recipe.yield_unit}
-            </Text>
-          </Pressable>
-        )}
-        {yieldError ? <Text style={styles.yieldErrorText}>{yieldError}</Text> : null}
-
-        {/* Collapsed cost summary card — per docs/UI_UX_1.md section 6:
-            most days a baker just wants to glance at "am I still
-            profitable," not re-derive the math. */}
-        <Pressable
-          style={styles.costCard}
-          onPress={() => setIsCostExpanded((v) => !v)}
-          accessibilityLabel="Toggle cost breakdown"
-        >
-          <View style={styles.costCardTopRow}>
-            <View>
-              <Text style={styles.costLabel}>Cost per {recipe.yield_unit}</Text>
-              <Text style={styles.costValue}>
-                {formatCurrency(costPerUnit, baker?.currency)}
-              </Text>
-            </View>
-            <Ionicons
-              name={isCostExpanded ? 'chevron-up' : 'chevron-down'}
-              size={20}
-              color={colors.textSecondary}
-            />
-          </View>
-
-          {isCostExpanded ? (
-            <View style={styles.costBreakdown}>
-              {recipe.ingredients.length > 0 ? (
-                <>
-                  <Text style={styles.costBreakdownSectionLabel}>Ingredients cost breakdown</Text>
-                  {recipe.ingredients.map((ri) => (
-                    <CostRow
-                      key={ri.id}
-                      label={`${ri.ingredient.name} (${ri.quantity} ${ri.unit})`}
-                      value={formatCurrency(ri.quantity * ri.ingredient.cost_per_unit, baker?.currency)}
-                      colors={colors}
-                    />
-                  ))}
-                  <View style={styles.costBreakdownDivider} />
-                </>
-              ) : null}
-              <CostRow label="Ingredient cost (full batch)" value={formatCurrency(batchCost, baker?.currency)} colors={colors} />
-              <CostRow
-                label={`Cost per ${recipe.yield_unit}`}
-                value={formatCurrency(costPerUnit, baker?.currency)}
-                colors={colors}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {/* Card 1: yield, time, cost (expandable), used-in (expandable) —
+            all one card now, rather than a separate cost card plus a
+            loose "used in" section floating below it. */}
+        <View style={styles.overviewCard}>
+          {isEditingYield ? (
+            <View style={styles.yieldEditRow}>
+              <Text style={styles.overviewLabel}>Yield</Text>
+              <TextInput
+                style={styles.yieldQtyInput}
+                value={yieldQtyDraft}
+                onChangeText={setYieldQtyDraft}
+                onBlur={scheduleYieldCommit}
+                onFocus={cancelScheduledYieldCommit}
+                onSubmitEditing={commitYieldEdit}
+                keyboardType="decimal-pad"
+                autoFocus
+                selectTextOnFocus
+                returnKeyType="next"
               />
-              {resolvedMargin != null ? (
-                <CostRow label="Margin used" value={`${resolvedMargin}%`} colors={colors} />
-              ) : null}
-              {suggestedPricePerUnit != null ? (
-                <CostRow
-                  label={`Suggested price per ${recipe.yield_unit}`}
-                  value={formatCurrency(suggestedPricePerUnit, baker?.currency)}
-                  colors={colors}
-                  emphasize
-                />
-              ) : null}
-              <Text style={styles.costNote}>
-                This is a per-batch reference only — a linked product variant's actual suggested
-                price also factors in its own portion of the batch and packaging cost. See that
-                variant's "Recipe & costing" screen for the real number.
-              </Text>
+              <TextInput
+                style={styles.yieldUnitInput}
+                value={yieldUnitDraft}
+                onChangeText={setYieldUnitDraft}
+                onBlur={scheduleYieldCommit}
+                onFocus={cancelScheduledYieldCommit}
+                onSubmitEditing={commitYieldEdit}
+                returnKeyType="done"
+                maxLength={30}
+              />
             </View>
-          ) : null}
-        </Pressable>
-
-        {usage && usage.length > 0 ? (
-          <>
-            <Pressable
-              style={styles.sectionHeaderRow}
-              onPress={() => setIsUsageExpanded((v) => !v)}
-              accessibilityLabel="Toggle used-in list"
-            >
-              <Text style={styles.sectionHeader}>
-                Used in {usage.length} product{usage.length === 1 ? '' : 's'}
+          ) : (
+            <Pressable style={styles.overviewRow} onPress={startEditingYield}>
+              <Text style={styles.overviewLabel}>Yield</Text>
+              <Text style={styles.overviewValue}>
+                {recipe.yield_quantity} {recipe.yield_unit}
               </Text>
+            </Pressable>
+          )}
+          {yieldError ? <Text style={styles.overviewErrorText}>{yieldError}</Text> : null}
+
+          {isEditingTime ? (
+            <View style={styles.yieldEditRow}>
+              <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
+              <TextInput
+                style={styles.timeInput}
+                value={timeDraft}
+                onChangeText={setTimeDraft}
+                onBlur={commitTimeEdit}
+                onSubmitEditing={commitTimeEdit}
+                keyboardType="number-pad"
+                autoFocus
+                selectTextOnFocus
+                returnKeyType="done"
+                placeholder="min"
+                placeholderTextColor={colors.textSecondary}
+              />
+            </View>
+          ) : effectiveTimeMinutes != null ? (
+            <Pressable style={styles.overviewRow} onPress={startEditingTime}>
+              <View style={styles.overviewLabelWithIcon}>
+                <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
+              </View>
+              <Text style={styles.overviewValue}>{effectiveTimeMinutes} min</Text>
+            </Pressable>
+          ) : (
+            // No step has a duration set and there's no manual override
+            // yet — still tappable, so a baker can set a total time by
+            // hand even before any step has one, per the "even after
+            // it's calculated, user should still be able to edit it"
+            // requirement extending to "there's nothing to calculate
+            // yet either."
+            <Pressable style={styles.overviewRow} onPress={startEditingTime}>
+              <View style={styles.overviewLabelWithIcon}>
+                <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
+              </View>
+              <Text style={styles.overviewValueMuted}>Add time</Text>
+            </Pressable>
+          )}
+          {timeError ? <Text style={styles.overviewErrorText}>{timeError}</Text> : null}
+
+          <View style={styles.overviewDivider} />
+
+          <Pressable
+            style={styles.costSection}
+            onPress={() => setIsCostExpanded((v) => !v)}
+            accessibilityLabel="Toggle cost breakdown"
+          >
+            <View style={styles.overviewRow}>
+              <View>
+                <Text style={styles.overviewLabel}>Cost per {recipe.yield_unit}</Text>
+                <Text style={styles.costValue}>{formatCurrency(costPerUnit, baker?.currency)}</Text>
+              </View>
               <Ionicons
-                name={isUsageExpanded ? 'chevron-up' : 'chevron-down'}
-                size={18}
+                name={isCostExpanded ? 'chevron-up' : 'chevron-down'}
+                size={20}
                 color={colors.textSecondary}
               />
-            </Pressable>
-
-            {isUsageExpanded
-              ? usage.map((u) => (
-                  <Pressable
-                    key={u.variant_id}
-                    style={styles.usageRow}
-                    onPress={() => navigateOnce(`/products/${u.product_id}`)}
-                  >
-                    <Text style={styles.usageText}>
-                      {u.product_name} — {u.variant_name}
-                    </Text>
-                    <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
-                  </Pressable>
-                ))
-              : null}
-          </>
-        ) : null}
-      </View>
-
-      <View style={styles.tabBar}>
-        <Pressable
-          style={[styles.tabButton, activeTab === 'ingredients' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('ingredients')}
-        >
-          <Text style={[styles.tabButtonText, activeTab === 'ingredients' && styles.tabButtonTextActive]}>
-            Ingredients
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.tabButton, activeTab === 'instructions' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('instructions')}
-        >
-          <Text style={[styles.tabButtonText, activeTab === 'instructions' && styles.tabButtonTextActive]}>
-            Instructions
-          </Text>
-        </Pressable>
-      </View>
-
-      <ScrollView
-        style={styles.tabContent}
-        showsVerticalScrollIndicator={false}
-        // Ingredients can run long and needs to scroll; Instructions is
-        // capped to a fixed-height clipped preview ("View all N steps"
-        // takes you to the full screen for anything longer), so there's
-        // nothing on this tab that ever needs scrolling — locking it
-        // avoids the odd feeling of "swipe over static content and the
-        // page nudges by a few px" for a short recipe.
-        scrollEnabled={activeTab !== 'instructions'}
-        contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
-      >
-        {activeTab === 'ingredients' ? (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              {isSelectingIngredients ? (
-                <>
-                  <Pressable onPress={clearIngredientSelection} style={styles.addLink}>
-                    <Text style={styles.addLinkText}>Cancel</Text>
-                  </Pressable>
-                  <Text style={styles.sectionHeader}>{selectedIngredientIds.size} selected</Text>
-                  <Pressable
-                    onPress={() => setIsRemoveConfirming(true)}
-                    style={styles.iconButton}
-                    accessibilityLabel="Remove selected ingredients"
-                  >
-                    <Ionicons name="trash-outline" size={18} color={colors.danger} />
-                  </Pressable>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.sectionHeader}>Ingredients</Text>
-                  <Pressable onPress={() => setIngredientSheet({ mode: 'add' })} style={styles.addLink}>
-                    <Ionicons name="add" size={16} color={colors.primary} />
-                    <Text style={styles.addLinkText}>Add</Text>
-                  </Pressable>
-                </>
-              )}
             </View>
 
-            {isRemoveConfirming ? (
-              <View style={styles.inlineConfirmRow}>
-                <Text style={styles.inlineConfirmText}>
-                  Remove {selectedIngredientIds.size} ingredient
-                  {selectedIngredientIds.size === 1 ? '' : 's'} from this recipe?
+            {isCostExpanded ? (
+              <View style={styles.costBreakdown}>
+                {recipe.ingredients.length > 0 ? (
+                  <>
+                    <Text style={styles.costBreakdownSectionLabel}>Ingredients cost breakdown</Text>
+                    {recipe.ingredients.map((ri) => (
+                      <CostRow
+                        key={ri.id}
+                        label={`${ri.ingredient.name} (${ri.quantity} ${ri.unit})`}
+                        value={formatCurrency(ri.quantity * ri.ingredient.cost_per_unit, baker?.currency)}
+                        colors={colors}
+                      />
+                    ))}
+                    <View style={styles.costBreakdownDivider} />
+                  </>
+                ) : null}
+                <CostRow
+                  label="Ingredient cost (full batch)"
+                  value={formatCurrency(batchCost, baker?.currency)}
+                  colors={colors}
+                />
+                <CostRow
+                  label={`Cost per ${recipe.yield_unit}`}
+                  value={formatCurrency(costPerUnit, baker?.currency)}
+                  colors={colors}
+                />
+                {resolvedMargin != null ? (
+                  <CostRow label="Margin used" value={`${resolvedMargin}%`} colors={colors} />
+                ) : null}
+                {suggestedPricePerUnit != null ? (
+                  <CostRow
+                    label={`Suggested price per ${recipe.yield_unit}`}
+                    value={formatCurrency(suggestedPricePerUnit, baker?.currency)}
+                    colors={colors}
+                    emphasize
+                  />
+                ) : null}
+                <Text style={styles.costNote}>
+                  This is a per-batch reference only — a linked product variant's actual suggested
+                  price also factors in its own portion of the batch and packaging cost. See that
+                  variant's "Recipe & costing" screen for the real number.
                 </Text>
-                <View style={styles.inlineConfirmActions}>
-                  <Pressable onPress={() => setIsRemoveConfirming(false)} style={styles.inlineConfirmCancel}>
-                    <Text style={styles.inlineConfirmCancelText}>Cancel</Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={confirmRemoveSelectedIngredients}
-                    style={styles.inlineConfirmDelete}
-                    disabled={removeIngredient.isPending}
-                  >
-                    <Text style={styles.inlineConfirmDeleteText}>
-                      {removeIngredient.isPending ? 'Removing…' : 'Confirm remove'}
-                    </Text>
-                  </Pressable>
-                </View>
               </View>
             ) : null}
+          </Pressable>
 
-            {recipe.ingredients.length === 0 ? (
-              <Text style={styles.emptyIngredients}>
-                Add ingredients to see your cost per {recipe.yield_unit}.
-              </Text>
-            ) : (
-              recipe.ingredients.map((ri) => {
-                const isSelected = selectedIngredientIds.has(ri.id);
-                return (
-                  <Pressable
-                    key={ri.id}
-                    style={[styles.ingredientRow, isSelected && styles.ingredientRowSelected]}
-                    onPress={() => handleIngredientRowPress(ri)}
-                    onLongPress={() => toggleIngredientSelection(ri.id)}
-                  >
-                    <View style={styles.ingredientRowLeft}>
-                      <View style={styles.ingredientIconTile}>
-                        <Ionicons
-                          name={isSelected ? 'checkmark-circle' : getCategoryIcon(ri.ingredient.category)}
-                          size={16}
-                          color={isSelected ? colors.primary : colors.textSecondary}
-                        />
-                      </View>
-                      <Text style={styles.ingredientName}>{ri.ingredient.name}</Text>
-                    </View>
-                    <Text style={styles.ingredientQty}>
-                      {ri.quantity} {ri.unit}
-                    </Text>
-                  </Pressable>
-                );
-              })
-            )}
-          </>
-        ) : (
-          <>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionHeader}>Instructions</Text>
+          {usage && usage.length > 0 ? (
+            <>
+              <View style={styles.overviewDivider} />
               <Pressable
-                onPress={() => navigateOnce(`/recipes/${id}/instructions`)}
-                style={styles.addLink}
+                style={styles.usageSection}
+                onPress={() => setIsUsageExpanded((v) => !v)}
+                accessibilityLabel="Toggle used-in list"
               >
-                <Ionicons
-                  name={recipe.instructions && recipe.instructions.length > 0 ? 'create-outline' : 'add'}
-                  size={16}
-                  color={colors.primary}
-                />
-                <Text style={styles.addLinkText}>
-                  {recipe.instructions && recipe.instructions.length > 0 ? 'Edit' : 'Add'}
-                </Text>
-              </Pressable>
-            </View>
-
-            {recipe.intro ? <Text style={styles.recipeIntroPreview}>{recipe.intro}</Text> : null}
-
-            {!recipe.instructions || recipe.instructions.length === 0 ? (
-              <Pressable onPress={() => navigateOnce(`/recipes/${id}/instructions`)}>
-                <Text style={styles.emptyIngredients}>
-                  No steps yet — add them so they're not just in your head.
-                </Text>
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={() => navigateOnce(`/recipes/${id}/instructions`)}
-                style={styles.instructionsPreviewWrap}
-              >
-                {/* Fixed-height clipped preview, not its own scroll area — a
-                    long recipe used to grow this timeline to full height
-                    inside the tab's outer ScrollView, which is what was
-                    getting visually cut off by the bottom nav. Clipping to
-                    a couple of steps and sending the rest to the full
-                    screen (below) fixes that and matches "tap to see it
-                    properly" rather than fighting for scroll space here. */}
-                <View style={styles.instructionsPreviewClip} pointerEvents="none">
-                  <InstructionsTimeline
-                    steps={recipe.instructions.slice(0, 5)}
-                    accentColor={visual.color}
-                    colors={colors}
+                <View style={styles.overviewRow}>
+                  <Text style={styles.overviewLabel}>
+                    Used in {usage.length} product{usage.length === 1 ? '' : 's'}
+                  </Text>
+                  <Ionicons
+                    name={isUsageExpanded ? 'chevron-up' : 'chevron-down'}
+                    size={18}
+                    color={colors.textSecondary}
                   />
                 </View>
-                <View style={styles.instructionsViewAllRow}>
-                  <Text style={styles.instructionsViewAllText}>
-                    {recipe.instructions.length > 5
-                      ? `View all ${recipe.instructions.length} steps`
-                      : 'View full instructions'}
-                  </Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.primary} />
-                </View>
               </Pressable>
-            )}
-          </>
-        )}
+
+              {isUsageExpanded
+                ? usage.map((u) => (
+                    <Pressable
+                      key={u.variant_id}
+                      style={styles.usageRow}
+                      onPress={() => navigateOnce(`/products/${u.product_id}`)}
+                    >
+                      <Text style={styles.usageText}>
+                        {u.product_name} — {u.variant_name}
+                      </Text>
+                      <Ionicons name="chevron-forward" size={16} color={colors.textSecondary} />
+                    </Pressable>
+                  ))
+                : null}
+            </>
+          ) : null}
+        </View>
+
+        {/* Card 2: Ingredients / Instructions, both flat lists rendered
+            directly in this card — no per-item borders/cards, no icons
+            on ingredient rows, and instructions show in full here (no
+            clipped preview, no separate screen just to look at them).
+            "Edit" still opens the real editor for actual changes —
+            reordering, splitting/merging steps, the intro field. */}
+        <View style={styles.tabsCard}>
+          <View style={styles.tabBarUnderline}>
+            <Pressable onPress={() => setActiveTab('ingredients')} style={styles.tabUnderlineButton}>
+              <Text
+                style={[
+                  styles.tabUnderlineText,
+                  activeTab === 'ingredients' && styles.tabUnderlineTextActive,
+                ]}
+              >
+                Ingredients
+              </Text>
+              {activeTab === 'ingredients' ? <View style={styles.tabUnderlineIndicator} /> : null}
+            </Pressable>
+            <Pressable onPress={() => setActiveTab('instructions')} style={styles.tabUnderlineButton}>
+              <Text
+                style={[
+                  styles.tabUnderlineText,
+                  activeTab === 'instructions' && styles.tabUnderlineTextActive,
+                ]}
+              >
+                Instructions
+              </Text>
+              {activeTab === 'instructions' ? <View style={styles.tabUnderlineIndicator} /> : null}
+            </Pressable>
+          </View>
+
+          {activeTab === 'ingredients' ? (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                {isSelectingIngredients ? (
+                  <>
+                    <Pressable onPress={clearIngredientSelection} style={styles.addLink}>
+                      <Text style={styles.addLinkText}>Cancel</Text>
+                    </Pressable>
+                    <Text style={styles.sectionHeader}>{selectedIngredientIds.size} selected</Text>
+                    <Pressable
+                      onPress={() => setIsRemoveConfirming(true)}
+                      style={styles.iconButton}
+                      accessibilityLabel="Remove selected ingredients"
+                    >
+                      <Ionicons name="trash-outline" size={18} color={colors.danger} />
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.sectionHeader}>Ingredients</Text>
+                    <Pressable onPress={() => setIngredientSheet({ mode: 'add' })} style={styles.addLink}>
+                      <Ionicons name="add" size={16} color={colors.primary} />
+                      <Text style={styles.addLinkText}>Add</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
+
+              {isRemoveConfirming ? (
+                <View style={styles.inlineConfirmRow}>
+                  <Text style={styles.inlineConfirmText}>
+                    Remove {selectedIngredientIds.size} ingredient
+                    {selectedIngredientIds.size === 1 ? '' : 's'} from this recipe?
+                  </Text>
+                  <View style={styles.inlineConfirmActions}>
+                    <Pressable onPress={() => setIsRemoveConfirming(false)} style={styles.inlineConfirmCancel}>
+                      <Text style={styles.inlineConfirmCancelText}>Cancel</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={confirmRemoveSelectedIngredients}
+                      style={styles.inlineConfirmDelete}
+                      disabled={removeIngredient.isPending}
+                    >
+                      <Text style={styles.inlineConfirmDeleteText}>
+                        {removeIngredient.isPending ? 'Removing…' : 'Confirm remove'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+
+              {recipe.ingredients.length === 0 ? (
+                <Text style={styles.emptyState}>Add ingredients to see your cost per {recipe.yield_unit}.</Text>
+              ) : (
+                recipe.ingredients.map((ri, idx) => {
+                  const isSelected = selectedIngredientIds.has(ri.id);
+                  const isLast = idx === recipe.ingredients.length - 1;
+                  return (
+                    <Pressable
+                      key={ri.id}
+                      style={[
+                        styles.flatRow,
+                        isLast && styles.flatRowLast,
+                        isSelected && styles.flatRowSelected,
+                      ]}
+                      onPress={() => handleIngredientRowPress(ri)}
+                      onLongPress={() => toggleIngredientSelection(ri.id)}
+                    >
+                      <Text style={styles.flatRowText}>{ri.ingredient.name}</Text>
+                      <Text style={styles.flatRowValue}>
+                        {ri.quantity} {ri.unit}
+                      </Text>
+                    </Pressable>
+                  );
+                })
+              )}
+            </>
+          ) : (
+            <>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeader}>Instructions</Text>
+                <Pressable onPress={() => navigateOnce(`/recipes/${id}/instructions`)} style={styles.addLink}>
+                  <Ionicons
+                    name={recipe.instructions && recipe.instructions.length > 0 ? 'create-outline' : 'add'}
+                    size={16}
+                    color={colors.primary}
+                  />
+                  <Text style={styles.addLinkText}>
+                    {recipe.instructions && recipe.instructions.length > 0 ? 'Edit' : 'Add'}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {recipe.intro ? <Text style={styles.recipeIntroPreview}>{recipe.intro}</Text> : null}
+
+              {!recipe.instructions || recipe.instructions.length === 0 ? (
+                <Pressable onPress={() => navigateOnce(`/recipes/${id}/instructions`)}>
+                  <Text style={styles.emptyState}>No steps yet — add them so they're not just in your head.</Text>
+                </Pressable>
+              ) : (
+                recipe.instructions.map((step, idx) => {
+                  const isLast = idx === (recipe.instructions?.length ?? 0) - 1;
+                  return (
+                    <View key={idx} style={[styles.stepFlatRow, isLast && styles.flatRowLast]}>
+                      <View style={styles.stepFlatDot}>
+                        <Text style={styles.stepFlatDotText}>{idx + 1}</Text>
+                      </View>
+                      <Text style={styles.stepFlatText}>{step.text}</Text>
+                    </View>
+                  );
+                })
+              )}
+            </>
+          )}
+        </View>
       </ScrollView>
 
       <RecipeIngredientSheet
@@ -680,29 +750,14 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.sm,
     },
     iconButton: { width: 44, height: 44, borderRadius: radii.full, alignItems: 'center', justifyContent: 'center' },
-    yieldLine: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
-    yieldEditRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.sm, marginBottom: spacing.lg },
-    yieldEditLabel: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.xxs + 2 },
-    yieldQtyInput: {
-      ...typography.bodySm,
-      color: colors.textPrimary,
-      width: 48,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.primary,
-      paddingBottom: spacing.xxs,
-    },
-    yieldUnitInput: {
-      ...typography.bodySm,
-      color: colors.textPrimary,
-      flex: 1,
-      borderBottomWidth: 1,
-      borderBottomColor: colors.primary,
-      paddingBottom: spacing.xxs,
-    },
-    yieldErrorText: { ...typography.caption, color: colors.danger, marginTop: -spacing.md, marginBottom: spacing.lg },
     card: { backgroundColor: colors.surface, borderRadius: radii.lg, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.md },
     skeleton: { height: 80, backgroundColor: colors.surfaceMuted, borderWidth: 0 },
-    costCard: {
+
+    scrollContent: { paddingBottom: spacing.xxxl + 96 },
+
+    // Card 1: overview (yield, time, cost, used-in) -- one shared card
+    // instead of a separate cost card plus a loose section below it.
+    overviewCard: {
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
@@ -710,8 +765,42 @@ function makeStyles(colors: Record<ColorToken, string>) {
       padding: spacing.lg,
       marginBottom: spacing.xl,
     },
-    costCardTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-    costLabel: { ...typography.bodySm, color: colors.textSecondary },
+    overviewRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    overviewLabel: { ...typography.bodySm, color: colors.textSecondary },
+    overviewLabelWithIcon: { flexDirection: 'row', alignItems: 'center' },
+    overviewValue: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
+    overviewValueMuted: { ...typography.bodySm, color: colors.textSecondary, fontStyle: 'italic' },
+    overviewErrorText: { ...typography.caption, color: colors.danger, marginTop: spacing.xxs },
+    overviewDivider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.md },
+    yieldEditRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    yieldQtyInput: {
+      ...typography.body,
+      color: colors.textPrimary,
+      width: 48,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.primary,
+      paddingBottom: spacing.xxs,
+    },
+    yieldUnitInput: {
+      ...typography.body,
+      color: colors.textPrimary,
+      flex: 1,
+      textAlign: 'right',
+      borderBottomWidth: 1,
+      borderBottomColor: colors.primary,
+      paddingBottom: spacing.xxs,
+    },
+    timeInput: {
+      ...typography.body,
+      color: colors.textPrimary,
+      flex: 1,
+      textAlign: 'right',
+      borderBottomWidth: 1,
+      borderBottomColor: colors.primary,
+      paddingBottom: spacing.xxs,
+    },
+
+    costSection: {},
     costValue: { ...typography.titleLg, color: colors.textPrimary, marginTop: spacing.xxs },
     costBreakdown: { marginTop: spacing.lg, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border },
     costBreakdownSectionLabel: {
@@ -723,69 +812,8 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     costBreakdownDivider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.md },
     costNote: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
-    tabBar: {
-      flexDirection: 'row',
-      backgroundColor: colors.surfaceMuted,
-      borderRadius: radii.md,
-      padding: spacing.xxs,
-      marginBottom: spacing.md,
-    },
-    tabButton: { flex: 1, paddingVertical: spacing.sm, alignItems: 'center', borderRadius: radii.sm },
-    tabButtonActive: { backgroundColor: colors.primary },
-    tabButtonText: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
-    tabButtonTextActive: { color: colors.textInverse },
-    tabContent: { flex: 1 },
-    sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
-    sectionHeader: { ...typography.titleSm, color: colors.textPrimary, marginTop: spacing.lg, marginBottom: spacing.sm },
-    addLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
-    addLinkText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
-    emptyIngredients: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.lg },
-    instructionsPreviewWrap: { marginBottom: spacing.xl },
-    recipeIntroPreview: {
-      ...typography.bodySm,
-      color: colors.textSecondary,
-      fontStyle: 'italic',
-      marginBottom: spacing.md,
-    },
-    instructionsPreviewClip: { maxHeight: 460, overflow: 'hidden' },
-    instructionsViewAllRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      gap: spacing.xxs,
-      paddingTop: spacing.sm,
-      marginTop: spacing.xxs,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
-    },
-    instructionsViewAllText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
-    ingredientRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.md,
-      paddingVertical: spacing.sm + 2,
-      paddingHorizontal: spacing.md,
-      marginBottom: spacing.xs,
-    },
-    ingredientRowSelected: {
-      backgroundColor: colors.surfaceMuted,
-      borderColor: colors.primary,
-    },
-    ingredientRowLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexShrink: 1 },
-    ingredientIconTile: {
-      width: 28,
-      height: 28,
-      borderRadius: radii.sm,
-      backgroundColor: colors.surfaceMuted,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    ingredientName: { ...typography.body, color: colors.textPrimary },
-    ingredientQty: { ...typography.bodySm, color: colors.textSecondary },
+
+    usageSection: {},
     usageRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -793,6 +821,83 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.sm,
     },
     usageText: { ...typography.bodySm, color: colors.textPrimary },
+
+    // Card 2: Ingredients / Instructions
+    tabsCard: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.lg,
+      padding: spacing.lg,
+      marginBottom: spacing.xl,
+    },
+    tabBarUnderline: {
+      flexDirection: 'row',
+      gap: spacing.lg,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      marginBottom: spacing.md,
+    },
+    tabUnderlineButton: { paddingBottom: spacing.sm },
+    tabUnderlineText: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
+    tabUnderlineTextActive: { color: colors.primary },
+    tabUnderlineIndicator: {
+      position: 'absolute',
+      bottom: -1,
+      left: 0,
+      right: 0,
+      height: 2,
+      backgroundColor: colors.primary,
+    },
+
+    sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
+    sectionHeader: { ...typography.titleSm, color: colors.textPrimary },
+    addLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
+    addLinkText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
+    emptyState: { ...typography.bodySm, color: colors.textSecondary, paddingVertical: spacing.sm },
+    recipeIntroPreview: {
+      ...typography.bodySm,
+      color: colors.textSecondary,
+      fontStyle: 'italic',
+      marginBottom: spacing.md,
+    },
+
+    // Flat rows -- no per-item card/border, no icon slot. A thin
+    // bottom-border divider between rows is the only separation, per
+    // "flat lists, not individual cards."
+    flatRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: spacing.sm + 2,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    flatRowLast: { borderBottomWidth: 0 },
+    flatRowSelected: { backgroundColor: colors.surfaceMuted },
+    flatRowText: { ...typography.body, color: colors.textPrimary },
+    flatRowValue: { ...typography.bodySm, color: colors.textSecondary },
+
+    stepFlatRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      paddingVertical: spacing.sm + 2,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    stepFlatDot: {
+      width: 22,
+      height: 22,
+      borderRadius: radii.full,
+      backgroundColor: colors.primary,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 1,
+    },
+    stepFlatDotText: { ...typography.caption, color: colors.textInverse, fontWeight: '700' },
+    stepFlatText: { ...typography.body, color: colors.textPrimary, flex: 1 },
+
     inlineConfirmRow: {
       backgroundColor: colors.dangerMuted,
       borderRadius: radii.md,

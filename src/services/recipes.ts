@@ -95,6 +95,7 @@ export async function createRecipe(input: RecipeFormInput): Promise<Recipe> {
       yield_unit: input.yield_unit,
       intro: input.intro ?? null,
       instructions: input.instructions ?? null,
+      total_time_minutes: input.total_time_minutes ?? null,
       margin_percent: input.margin_percent ?? null,
     })
     .select()
@@ -112,6 +113,7 @@ export async function updateRecipe(id: string, input: RecipeFormInput): Promise<
       yield_unit: input.yield_unit,
       intro: input.intro ?? null,
       instructions: input.instructions ?? null,
+      total_time_minutes: input.total_time_minutes ?? null,
       margin_percent: input.margin_percent ?? null,
     })
     .eq('id', id)

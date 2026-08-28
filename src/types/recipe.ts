@@ -27,6 +27,13 @@ export type Recipe = {
   /** jsonb array of RecipeStep in the DB. A "one block" recipe is just
    * a 1-item array — see docs/DECISIONS.md's 2026-08-21 entry. */
   instructions: RecipeStep[] | null;
+  /** Manual override for total time, shown with a clock icon next to
+   * Yield. Null means "no override -- fall back to the sum of each
+   * step's duration_minutes." Same pattern as suggested_price vs.
+   * selling_price on variants: a default is computed, but once the
+   * baker sets their own number it sticks instead of silently
+   * recalculating out from under them. See migration 0013. */
+  total_time_minutes: number | null;
   margin_percent: number | null;
   created_at: string;
   updated_at: string;
