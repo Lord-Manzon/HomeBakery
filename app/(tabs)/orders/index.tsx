@@ -19,44 +19,65 @@ import { ErrorBanner } from '../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../src/components/PrimaryButton';
 import { radii, spacing, typography, motionDuration, motionEasing, motionStagger } from '../../../src/theme';
 import type { ColorToken } from '../../../src/theme/colors';
-import type { OrderListFilter, OrderWithItems } from '../../../src/types/order';
+import type {
+  OrderTab,
+  OrderRefineFilters,
+  PaymentRefineFilter,
+  FulfillmentRefineFilter,
+  StatusRefineFilter,
+  OrderWithItems,
+} from '../../../src/types/order';
 
 type ListRow =
   | { type: 'header'; key: string; date: string; count: number }
   | { type: 'order'; key: string; order: OrderWithItems; index: number };
 
-const PRIMARY_FILTERS: { value: OrderListFilter; label: string }[] = [
+const TABS: { value: OrderTab; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'upcoming', label: 'Upcoming' },
   { value: 'all', label: 'All' },
-];
-
-// Per docs/DECISIONS.md's 2026-08-27 Orders list redesign: these six live
-// in a compact dropdown behind the filter icon rather than as six more
-// pills next to the three primary ones.
-const REFINE_FILTERS: { value: OrderListFilter; label: string }[] = [
-  { value: 'unpaid', label: 'Unpaid' },
-  { value: 'paid', label: 'Paid' },
-  { value: 'pickup', label: 'Pickup' },
-  { value: 'delivered', label: 'Delivered' },
-  { value: 'overdue', label: 'Overdue' },
-  { value: 'cancelled', label: 'Cancelled' },
   { value: 'history', label: 'History' },
 ];
 
-// Per docs/UI_UX_1.md section E.2's *Empty* state, tailored per filter --
+// Per docs/DECISIONS.md's 2026-08-28 entry: three independent groups
+// instead of one long flat list. Each group is single-select-or-clear;
+// more than one group can be active at once and combines with AND on
+// top of whichever tab is currently open.
+const PAYMENT_FILTERS: { value: PaymentRefineFilter; label: string }[] = [
+  { value: 'unpaid', label: 'Unpaid' },
+  { value: 'paid', label: 'Paid' },
+];
+
+const FULFILLMENT_FILTERS: { value: FulfillmentRefineFilter; label: string }[] = [
+  { value: 'pickup', label: 'Pickup' },
+  { value: 'delivery', label: 'Delivery' },
+];
+
+const STATUS_FILTERS: { value: StatusRefineFilter; label: string }[] = [
+  { value: 'overdue', label: 'Overdue' },
+  { value: 'delivered', label: 'Delivered' },
+  { value: 'cancelled', label: 'Cancelled' },
+];
+
+// Per docs/DECISIONS.md's 2026-08-28 entry: Overdue and Cancelled are
+// structurally incompatible with certain tabs -- Today/Upcoming force an
+// active-only, date-restricted scope that can never contain an overdue
+// or cancelled order; History's scope excludes active orders entirely,
+// which Overdue specifically requires. Disabled rather than tappable-
+// but-silently-empty ("Option A").
+function isStatusFilterAvailable(tab: OrderTab, value: StatusRefineFilter): boolean {
+  if (value === 'overdue') return tab === 'all';
+  if (value === 'cancelled') return tab === 'all';
+  return true; // 'delivered' is valid on every tab
+}
+
+// Per docs/UI_UX_1.md section E.2's *Empty* state, tailored per tab --
 // "no orders scheduled today" reads very differently from "you have zero
 // orders ever" (the true first-run case, which only "All" can show).
-const EMPTY_MESSAGE: Record<OrderListFilter, string> = {
+const EMPTY_MESSAGE: Record<OrderTab, string> = {
   today: 'Nothing scheduled for today.',
   upcoming: 'No upcoming orders.',
   all: 'No orders yet.',
-  unpaid: 'No unpaid orders — nice!',
-  paid: 'No paid orders yet.',
-  pickup: 'No pickup orders.',
-  delivered: 'No delivered orders yet.',
-  overdue: 'Nothing overdue — nice!',
-  cancelled: 'No cancelled orders.',
   history: 'No completed or cancelled orders yet.',
 };
 
@@ -65,33 +86,41 @@ export default function OrdersListScreen() {
   const onScroll = useHideNavOnScroll();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [filter, setFilter] = useState<OrderListFilter>('today');
+  const [tab, setTab] = useState<OrderTab>('today');
+  const [refine, setRefine] = useState<OrderRefineFilters>({});
   const [search, setSearch] = useState('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const { data: orders, isLoading, isError, refetch } = useOrders(filter);
+  const { data: orders, isLoading, isError, refetch } = useOrders(tab, refine);
   const { data: baker } = useBakerProfile();
   const queryClient = useQueryClient();
 
-  // Prefetches the other two primary tabs as soon as this screen opens,
-  // so swiping/tapping between Today/Upcoming/All feels instant even the
-  // FIRST time a baker visits a given tab in this session -- without
-  // this, only the currently-open tab has cached data, and switching to
-  // a never-visited one always shows the loading skeleton once.
+  // Prefetches the other three tabs (base scope, no refine) as soon as
+  // this screen opens, so swiping/tapping between them feels instant
+  // even the FIRST time a baker visits a given tab this session.
   useEffect(() => {
-    for (const f of PRIMARY_FILTERS) {
-      if (f.value === filter) continue;
+    for (const t of TABS) {
+      if (t.value === tab) continue;
       queryClient.prefetchQuery({
-        queryKey: ['orders', 'list', f.value],
-        queryFn: () => getOrders(f.value),
+        queryKey: ['orders', 'list', t.value, {}],
+        queryFn: () => getOrders(t.value),
         staleTime: 60 * 1000,
       });
     }
-    // Intentionally NOT re-running this every time `filter` changes --
-    // that would prefetch on every tab switch too, tripling Supabase
-    // calls for no benefit. Runs once per screen visit.
+    // Intentionally NOT re-running on every `tab` change -- see original
+    // comment on this effect from Step 17.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // If the active Status refine becomes unavailable for the tab just
+  // switched to (e.g. "Cancelled" was selected on All, then the baker
+  // swiped to Today), clear it rather than leaving a selected-but-inert
+  // filter silently active.
+  useEffect(() => {
+    if (refine.status && !isStatusFilterAvailable(tab, refine.status)) {
+      setRefine((prev) => ({ ...prev, status: undefined }));
+    }
+  }, [tab, refine.status]);
   const markDelivered = useMarkOrderDelivered();
   const markPaid = useMarkOrderPaid();
 
@@ -125,24 +154,21 @@ export default function OrdersListScreen() {
     return result;
   }, [filtered]);
 
-  const isRefineActive = REFINE_FILTERS.some((f) => f.value === filter);
+  const isRefineActive = Boolean(refine.payment || refine.fulfillment || refine.status);
 
-  // Per docs/DECISIONS.md's 2026-08-28 entry: swiping anywhere on the
-  // screen pages between the three primary tabs. Only active when the
-  // current filter IS one of those three -- if a refine filter (Unpaid,
-  // Overdue, etc.) is active, swiping is disabled rather than guessing
-  // which primary tab to land on.
-  const currentPrimaryIndex = PRIMARY_FILTERS.findIndex((f) => f.value === filter);
+  // Tab and refine are now independent state, so the swipe gesture no
+  // longer needs to be conditionally disabled -- `tab` is always exactly
+  // one of TABS, unlike the old model where a refine filter could occupy
+  // the same slot.
+  const currentTabIndex = TABS.findIndex((t) => t.value === tab);
   const tabSwipeGesture = Gesture.Pan()
-    .enabled(currentPrimaryIndex !== -1)
     .activeOffsetX([-20, 20])
     .failOffsetY([-15, 15])
     .onEnd((e) => {
-      if (currentPrimaryIndex === -1) return;
-      if (e.translationX < -50 && currentPrimaryIndex < PRIMARY_FILTERS.length - 1) {
-        runOnJS(setFilter)(PRIMARY_FILTERS[currentPrimaryIndex + 1].value);
-      } else if (e.translationX > 50 && currentPrimaryIndex > 0) {
-        runOnJS(setFilter)(PRIMARY_FILTERS[currentPrimaryIndex - 1].value);
+      if (e.translationX < -50 && currentTabIndex < TABS.length - 1) {
+        runOnJS(setTab)(TABS[currentTabIndex + 1].value);
+      } else if (e.translationX > 50 && currentTabIndex > 0) {
+        runOnJS(setTab)(TABS[currentTabIndex - 1].value);
       }
     });
 
@@ -174,7 +200,7 @@ export default function OrdersListScreen() {
   // True first-run emptiness (zero orders ever, not just zero in this
   // filter) only really applies to "All" -- every other filter can
   // legitimately be empty while orders still exist elsewhere.
-  const isTrulyEmpty = filter === 'all' && orders && orders.length === 0;
+  const isTrulyEmpty = tab === 'all' && !isRefineActive && orders && orders.length === 0;
 
   return (
     <Screen style={styles.container}>
@@ -258,17 +284,17 @@ export default function OrdersListScreen() {
       ) : (
         <>
           <View style={styles.tabRow}>
-            {PRIMARY_FILTERS.map((f) => {
-              const isSelected = filter === f.value;
+            {TABS.map((t) => {
+              const isSelected = tab === t.value;
               return (
                 <Pressable
-                  key={f.value}
-                  onPress={() => setFilter(f.value)}
+                  key={t.value}
+                  onPress={() => setTab(t.value)}
                   style={styles.tabItem}
                   accessibilityRole="button"
                   accessibilityState={{ selected: isSelected }}
                 >
-                  <Text style={[styles.tabText, isSelected && styles.tabTextSelected]}>{f.label}</Text>
+                  <Text style={[styles.tabText, isSelected && styles.tabTextSelected]}>{t.label}</Text>
                   <View style={[styles.tabUnderline, isSelected && styles.tabUnderlineSelected]} />
                 </Pressable>
               );
@@ -283,19 +309,80 @@ export default function OrdersListScreen() {
                 entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
                 style={styles.filterMenu}
               >
-                <Text style={styles.filterSectionLabel}>Filter by</Text>
-                {REFINE_FILTERS.map((f) => {
-                  const isSelected = filter === f.value;
+                <Text style={styles.filterSectionLabel}>Payment</Text>
+                {PAYMENT_FILTERS.map((f) => {
+                  const isSelected = refine.payment === f.value;
                   return (
                     <Pressable
                       key={f.value}
                       style={styles.filterMenuRow}
                       onPress={() => {
-                        setFilter(f.value);
+                        setRefine((prev) => ({
+                          ...prev,
+                          payment: prev.payment === f.value ? undefined : f.value,
+                        }));
                         setIsFilterOpen(false);
                       }}
                     >
                       <Text style={[styles.filterRowText, isSelected && styles.filterRowTextSelected]}>
+                        {f.label}
+                      </Text>
+                      {isSelected ? <Ionicons name="checkmark" size={16} color={colors.primary} /> : null}
+                    </Pressable>
+                  );
+                })}
+
+                <View style={styles.filterDivider} />
+
+                <Text style={styles.filterSectionLabel}>Fulfillment</Text>
+                {FULFILLMENT_FILTERS.map((f) => {
+                  const isSelected = refine.fulfillment === f.value;
+                  return (
+                    <Pressable
+                      key={f.value}
+                      style={styles.filterMenuRow}
+                      onPress={() => {
+                        setRefine((prev) => ({
+                          ...prev,
+                          fulfillment: prev.fulfillment === f.value ? undefined : f.value,
+                        }));
+                        setIsFilterOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.filterRowText, isSelected && styles.filterRowTextSelected]}>
+                        {f.label}
+                      </Text>
+                      {isSelected ? <Ionicons name="checkmark" size={16} color={colors.primary} /> : null}
+                    </Pressable>
+                  );
+                })}
+
+                <View style={styles.filterDivider} />
+
+                <Text style={styles.filterSectionLabel}>Status</Text>
+                {STATUS_FILTERS.map((f) => {
+                  const isSelected = refine.status === f.value;
+                  const isAvailable = isStatusFilterAvailable(tab, f.value);
+                  return (
+                    <Pressable
+                      key={f.value}
+                      style={styles.filterMenuRow}
+                      disabled={!isAvailable}
+                      onPress={() => {
+                        setRefine((prev) => ({
+                          ...prev,
+                          status: prev.status === f.value ? undefined : f.value,
+                        }));
+                        setIsFilterOpen(false);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.filterRowText,
+                          isSelected && styles.filterRowTextSelected,
+                          !isAvailable && styles.filterRowTextDisabled,
+                        ]}
+                      >
                         {f.label}
                       </Text>
                       {isSelected ? <Ionicons name="checkmark" size={16} color={colors.primary} /> : null}
@@ -318,7 +405,9 @@ export default function OrdersListScreen() {
               <Text style={styles.emptyFilterText}>
                 {search.length > 0
                   ? `No orders match "${search}"`
-                  : EMPTY_MESSAGE[filter]}
+                  : isRefineActive
+                    ? 'No orders match these filters.'
+                    : EMPTY_MESSAGE[tab]}
               </Text>
             }
             renderItem={({ item }) => {
@@ -686,6 +775,12 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     filterRowText: { ...typography.bodySm, color: colors.textPrimary },
     filterRowTextSelected: { color: colors.primary, fontWeight: '600' },
+    filterRowTextDisabled: { color: colors.textSecondary, opacity: 0.4 },
+    filterDivider: {
+      height: 1,
+      backgroundColor: colors.border,
+      marginVertical: spacing.xs,
+    },
     // Per docs/DECISIONS.md's 2026-08-27 refinement: flanking lines
     // extend from the day label, per the reference request -- makes the
     // day break read clearly without adding another bordered container.

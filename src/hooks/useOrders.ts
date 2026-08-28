@@ -11,25 +11,20 @@ import {
   revertOrderPaid,
   updateOrder,
 } from '../services/orders';
-import type { Order, OrderListFilter } from '../types/order';
+import type { Order, OrderRefineFilters, OrderTab } from '../types/order';
 import type { OrderFormInput } from '../utils/validation/orderSchemas';
 
 const ordersBaseKey = ['orders'] as const;
-const ordersListKey = (filter: OrderListFilter) => ['orders', 'list', filter] as const;
+const ordersListKey = (tab: OrderTab, refine: OrderRefineFilters = {}) =>
+  ['orders', 'list', tab, refine] as const;
 const orderDetailKey = (id: string) => ['orders', 'detail', id] as const;
 
-// 60s staleTime -- cached list data is trusted for a minute before
-// TanStack Query considers it worth silently refetching. This is safe
-// (not "stale-looking data risk") because every order mutation
-// (create/update/delete/mark paid/mark delivered/cancel) already calls
-// invalidateQueries({ queryKey: ordersBaseKey }) below -- so a real
-// change to the data is reflected immediately regardless of staleTime;
-// this setting only controls "how eager is a routine tab-switch to
-// re-ask Supabase for the same data it already has."
-export function useOrders(filter: OrderListFilter) {
+// staleTime carried over from the earlier prefetch/caching fix (Step 16)
+// -- unchanged in spirit, just living alongside the new tab+refine args.
+export function useOrders(tab: OrderTab, refine: OrderRefineFilters = {}) {
   return useQuery({
-    queryKey: ordersListKey(filter),
-    queryFn: () => getOrders(filter),
+    queryKey: ordersListKey(tab, refine),
+    queryFn: () => getOrders(tab, refine),
     staleTime: 60 * 1000,
   });
 }

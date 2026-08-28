@@ -72,29 +72,26 @@ export type OrderWithItems = Order & {
 };
 
 /**
- * Per docs/DECISIONS.md's 2026-08-22 entry: "Today"/"Upcoming"/"Unpaid"
- * are scoped to Active orders (pending/delivered) only -- "All" is the
- * one filter that also surfaces Completed and Cancelled history, so
- * order history stays reachable without adding new chips beyond what
- * docs/UI_UX_1.md section E.2 already specifies.
+ * Per docs/DECISIONS.md's 2026-08-28 entry: replaces the old flat
+ * OrderListFilter enum. A tab (base scope -- exactly one active at a
+ * time) plus an optional set of refine filters (each an independent
+ * extra condition layered on top of the tab) replaces the old model
+ * where History competed with Unpaid/Paid/etc. for the same single slot.
+ * 'today'/'upcoming'/'all' keep their existing meaning; 'history' is now
+ * its own tab instead of a refine option.
  */
-/**
- * 'today'/'upcoming'/'all' are the three primary, always-visible scope
- * filters. The rest (unpaid/paid/pickup/delivered/overdue/cancelled) are
- * secondary "refine" filters tucked into a compact dropdown per
- * docs/DECISIONS.md's 2026-08-27 Orders list redesign -- mutually
- * exclusive with the primary three and with each other, same one-filter-
- * active-at-a-time model as before, just split across two levels of
- * visual prominence based on how often each is actually needed.
- */
-export type OrderListFilter =
-  | 'today'
-  | 'upcoming'
-  | 'all'
-  | 'unpaid'
-  | 'paid'
-  | 'pickup'
-  | 'delivered'
-  | 'overdue'
-  | 'cancelled'
-  | 'history';
+export type OrderTab = 'today' | 'upcoming' | 'all' | 'history';
+
+export type PaymentRefineFilter = 'unpaid' | 'paid';
+export type FulfillmentRefineFilter = 'pickup' | 'delivery';
+export type StatusRefineFilter = 'overdue' | 'delivered' | 'cancelled';
+
+/** Each field is independently optional. Payment/Fulfillment/Status
+ * combine with AND when more than one is set, but within a single group
+ * only one value can be active (can't be both Unpaid and Paid). */
+export type OrderRefineFilters = {
+  payment?: PaymentRefineFilter;
+  fulfillment?: FulfillmentRefineFilter;
+  status?: StatusRefineFilter;
+};
+  

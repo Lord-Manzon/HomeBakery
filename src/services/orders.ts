@@ -8,7 +8,7 @@ import {
   resolveStatusAfterReverting,
 } from './orderLogic';
 import { todayDateString } from '../utils/dateFormat';
-import type { Order, OrderItem, OrderItemWithNames, OrderListFilter, OrderWithItems } from '../types/order';
+import type { Order, OrderItem, OrderItemWithNames, OrderRefineFilters, OrderTab, OrderWithItems } from '../types/order';
 import type { OrderFormInput } from '../utils/validation/orderSchemas';
 
 async function getCurrentBakerId(): Promise<string> {
@@ -49,66 +49,61 @@ function mapOrderWithItems(row: Order & { order_items: OrderItemRow[] }): OrderW
 }
 
 /**
- * Per docs/DECISIONS.md's 2026-08-22 entry: Today/Upcoming/Unpaid are
- * scoped to Active orders only (status pending or delivered) -- "All" is
- * the one filter that also surfaces Completed/Cancelled history, so
- * order history stays reachable without adding chips beyond what
- * docs/UI_UX_1.md section E.2 specifies. "Today" uses the device's local
- * date -- bakers.timezone exists in the schema but isn't used for any
- * date bucketing anywhere in the app yet, so this matches current app
- * behavior rather than introducing timezone-awareness just for Orders.
+ * Per docs/DECISIONS.md's 2026-08-28 entry: `tab` is the base scope
+ * (exactly what today/upcoming/all/history already did); `refine` is an
+ * optional set of additional AND conditions layered on top. Supabase/
+ * PostgREST naturally ANDs repeated .eq()/.in()/.lt() calls on a query
+ * builder, so no special-casing is needed for how a refine condition
+ * combines with the tab's own restriction -- e.g. Today's built-in
+ * status in [pending, delivered] plus refine.status='delivered' narrows
+ * correctly to just delivered orders scheduled today. Combinations that
+ * are structurally always-empty (e.g. Today + Cancelled) aren't
+ * special-cased here -- the UI prevents selecting them (see
+ * isStatusFilterAvailable in the Orders screen) rather than the service
+ * layer needing to know which combinations don't make sense.
  */
-export async function getOrders(filter: OrderListFilter = 'today'): Promise<OrderWithItems[]> {
+export async function getOrders(
+  tab: OrderTab = 'today',
+  refine: OrderRefineFilters = {}
+): Promise<OrderWithItems[]> {
   const today = todayDateString();
   let query = supabase.from('orders').select(ORDER_WITH_ITEMS_SELECT);
 
-  switch (filter) {
+  switch (tab) {
     case 'today':
       query = query.eq('scheduled_date', today).in('status', ['pending', 'delivered']);
       break;
     case 'upcoming':
       query = query.gt('scheduled_date', today).in('status', ['pending', 'delivered']);
       break;
-    case 'unpaid':
-      // Orders still needing payment follow-up -- excludes cancelled
-      // (nothing left to chase) same as before this filter moved into
-      // the compact refine dropdown.
-      query = query.eq('payment_status', 'unpaid').in('status', ['pending', 'delivered']);
-      break;
-    case 'paid':
-      // No status restriction -- includes 'completed' (which is always
-      // paid by definition) alongside pending/delivered orders paid up
-      // front, so a baker reviewing payments sees the full picture.
-      query = query.eq('payment_status', 'paid');
-      break;
-    case 'pickup':
-      query = query.eq('fulfillment_type', 'pickup').in('status', ['pending', 'delivered']);
-      break;
-    case 'delivered':
-      // "Has been delivered/picked up" -- matches canRevertDelivered's
-      // notion in orderLogic.ts (delivered OR completed both mean
-      // delivery already happened).
-      query = query.in('status', ['delivered', 'completed']);
-      break;
-    case 'overdue':
-      // Same predicate as the per-card Overdue badge in
-      // app/(tabs)/orders/index.tsx: still active, and its date has
-      // passed.
-      query = query.lt('scheduled_date', today).in('status', ['pending', 'delivered']);
-      break;
-    case 'cancelled':
-      query = query.eq('status', 'cancelled');
-      break;
     case 'history':
-      // Per docs/DECISIONS.md's 2026-08-28 entry: "no longer active" --
-      // everything that's finished one way or another. Distinct from
-      // 'delivered' (which is "has been delivered," including orders
-      // still awaiting payment) and from 'cancelled' alone -- History
-      // is the union of both terminal states.
+      // "No longer active" -- everything that's finished one way or
+      // another (completed OR cancelled).
       query = query.in('status', ['completed', 'cancelled']);
       break;
     case 'all':
       break;
+  }
+
+  if (refine.payment) {
+    query = query.eq('payment_status', refine.payment);
+  }
+
+  if (refine.fulfillment) {
+    query = query.eq('fulfillment_type', refine.fulfillment);
+  }
+
+  if (refine.status === 'delivered') {
+    // Matches canRevertDelivered's notion in orderLogic.ts (delivered OR
+    // completed both mean delivery already happened).
+    query = query.in('status', ['delivered', 'completed']);
+  } else if (refine.status === 'cancelled') {
+    query = query.eq('status', 'cancelled');
+  } else if (refine.status === 'overdue') {
+    // Same predicate as the per-card Overdue badge in
+    // app/(tabs)/orders/index.tsx: still active, and its date has
+    // passed.
+    query = query.lt('scheduled_date', today).in('status', ['pending', 'delivered']);
   }
 
   const { data, error } = await query
