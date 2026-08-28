@@ -29,6 +29,10 @@ type IngredientFormSheetProps = {
   errorMessage?: string | null;
   /** Pass the existing ingredient to pre-fill for Edit; omit for Add. */
   initialValue?: Ingredient;
+  /** Pre-fills just the name field when adding a NEW ingredient (e.g.
+   * from a search term that didn't match anything) — ignored if
+   * initialValue is set, since edit mode's name comes from there. */
+  initialName?: string;
 };
 
 /**
@@ -68,6 +72,7 @@ export function IngredientFormSheet({
   isSaving,
   errorMessage,
   initialValue,
+  initialName,
 }: IngredientFormSheetProps) {
   const isEdit = !!initialValue;
   const { data: baker } = useBakerProfile();
@@ -84,7 +89,7 @@ export function IngredientFormSheet({
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [name, setName] = useState(initialValue?.name ?? '');
+  const [name, setName] = useState(initialValue?.name ?? initialName ?? '');
   const [category, setCategory] = useState<string | null>(initialValue?.category ?? null);
   const [quantity, setQuantity] = useState(initialValue ? String(initialValue.current_stock) : '');
   const [unit, setUnit] = useState<string>(initialValue?.unit ?? '');
@@ -102,7 +107,7 @@ export function IngredientFormSheet({
   // instead of the ingredient's actual current value.
   useEffect(() => {
     if (visible) {
-      setName(initialValue?.name ?? '');
+      setName(initialValue?.name ?? initialName ?? '');
       setCategory(initialValue?.category ?? null);
       setQuantity(initialValue ? String(initialValue.current_stock) : '');
       setUnit(initialValue?.unit ?? '');
@@ -111,7 +116,7 @@ export function IngredientFormSheet({
       );
       setFieldErrors({});
     }
-  }, [visible, initialValue]);
+  }, [visible, initialValue, initialName]);
 
   const handleSave = () => {
     const parsed = ingredientFormSchema(existingNames).safeParse({

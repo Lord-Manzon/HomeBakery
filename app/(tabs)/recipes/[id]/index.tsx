@@ -17,6 +17,7 @@ import { useNavigateOnce } from '../../../../src/hooks/useNavigateOnce';
 import { useThemeColors } from '../../../../src/theme/ThemeContext';
 import { calculateRecipeBatchCost, calculateSuggestedPrice } from '../../../../src/services/costing';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
+import { DurationPickerSheet } from '../../../../src/components/DurationPickerSheet';
 import { RecipeIngredientSheet } from '../../../../src/components/RecipeIngredientSheet';
 import { Screen } from '../../../../src/components/Screen';
 import { formatCurrency } from '../../../../src/utils/currency';
@@ -57,10 +58,9 @@ export default function RecipeDetailScreen() {
   // the commit slightly and canceling it if the sibling field gets
   // focus in that window fixes it.
   const yieldBlurTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Total time: a single field, so no sibling-focus race like yield's
-  // two inputs — a plain onBlur commit is enough.
-  const [isEditingTime, setIsEditingTime] = useState(false);
-  const [timeDraft, setTimeDraft] = useState('');
+  // Total time now opens a picker sheet (presets + custom) instead of
+  // typing digits inline — see DurationPickerSheet.
+  const [isDurationSheetOpen, setIsDurationSheetOpen] = useState(false);
   const [timeError, setTimeError] = useState<string | null>(null);
   const [isCostExpanded, setIsCostExpanded] = useState(false);
   const [isUsageExpanded, setIsUsageExpanded] = useState(false);
@@ -211,20 +211,13 @@ export default function RecipeDetailScreen() {
     );
   };
 
-  const startEditingTime = () => {
-    setTimeDraft(effectiveTimeMinutes != null ? String(effectiveTimeMinutes) : '');
-    setTimeError(null);
-    setIsEditingTime(true);
-  };
-
-  const commitTimeEdit = () => {
-    setIsEditingTime(false);
-    const trimmed = timeDraft.trim();
-    const currentDisplay = effectiveTimeMinutes != null ? String(effectiveTimeMinutes) : '';
-    if (trimmed === currentDisplay) return;
-    // Empty input means "clear the override, go back to auto-calculated
-    // from steps" -- schema's preprocess turns '' into null for us.
-    const timeResult = recipeFormSchema.shape.total_time_minutes.safeParse(trimmed);
+  // Called directly by DurationPickerSheet's onSubmit — the sheet
+  // already validated its own custom-input field before calling this,
+  // so there's no separate draft/commit dance the way Yield's inline
+  // text fields need. `minutes: null` means "clear the override, fall
+  // back to auto-calculated from steps."
+  const handleTimeSubmit = (minutes: number | null) => {
+    const timeResult = recipeFormSchema.shape.total_time_minutes.safeParse(minutes);
     if (!timeResult.success) {
       setTimeError(timeResult.error.issues[0]?.message ?? 'Enter a valid number of minutes.');
       return;
@@ -363,53 +356,32 @@ export default function RecipeDetailScreen() {
               />
             </View>
           ) : (
-            <Pressable style={styles.overviewRow} onPress={startEditingYield}>
-              <Text style={styles.overviewLabel}>Yield</Text>
-              <Text style={styles.overviewValue}>
-                {recipe.yield_quantity} {recipe.yield_unit}
-              </Text>
-            </Pressable>
+            // Yield and Time sit close together as one row now, rather
+            // than each stretching edge-to-edge with a big empty gap in
+            // between -- "gap" keeps the two groups tight instead of
+            // justify-content:space-between pushing them to opposite
+            // ends of a wide card.
+            <View style={styles.metaRow}>
+              <Pressable style={styles.metaGroup} onPress={startEditingYield}>
+                <Text style={styles.overviewLabel}>Yield</Text>
+                <Text style={styles.overviewValue}>
+                  {recipe.yield_quantity} {recipe.yield_unit}
+                </Text>
+              </Pressable>
+
+              <Pressable style={styles.metaGroup} onPress={() => setIsDurationSheetOpen(true)}>
+                <View style={styles.clockIconTile}>
+                  <Ionicons name="time-outline" size={13} color={colors.primary} />
+                </View>
+                {effectiveTimeMinutes != null ? (
+                  <Text style={styles.overviewValue}>{effectiveTimeMinutes} min</Text>
+                ) : (
+                  <Text style={styles.overviewValueMuted}>Add time</Text>
+                )}
+              </Pressable>
+            </View>
           )}
           {yieldError ? <Text style={styles.overviewErrorText}>{yieldError}</Text> : null}
-
-          {isEditingTime ? (
-            <View style={styles.yieldEditRow}>
-              <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
-              <TextInput
-                style={styles.timeInput}
-                value={timeDraft}
-                onChangeText={setTimeDraft}
-                onBlur={commitTimeEdit}
-                onSubmitEditing={commitTimeEdit}
-                keyboardType="number-pad"
-                autoFocus
-                selectTextOnFocus
-                returnKeyType="done"
-                placeholder="min"
-                placeholderTextColor={colors.textSecondary}
-              />
-            </View>
-          ) : effectiveTimeMinutes != null ? (
-            <Pressable style={styles.overviewRow} onPress={startEditingTime}>
-              <View style={styles.overviewLabelWithIcon}>
-                <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
-              </View>
-              <Text style={styles.overviewValue}>{effectiveTimeMinutes} min</Text>
-            </Pressable>
-          ) : (
-            // No step has a duration set and there's no manual override
-            // yet — still tappable, so a baker can set a total time by
-            // hand even before any step has one, per the "even after
-            // it's calculated, user should still be able to edit it"
-            // requirement extending to "there's nothing to calculate
-            // yet either."
-            <Pressable style={styles.overviewRow} onPress={startEditingTime}>
-              <View style={styles.overviewLabelWithIcon}>
-                <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
-              </View>
-              <Text style={styles.overviewValueMuted}>Add time</Text>
-            </Pressable>
-          )}
           {timeError ? <Text style={styles.overviewErrorText}>{timeError}</Text> : null}
 
           <View style={styles.overviewDivider} />
@@ -565,8 +537,14 @@ export default function RecipeDetailScreen() {
                     </Pressable>
                   </>
                 ) : (
+                  // No "Ingredients" label here — the active tab right
+                  // above this row already says that. A count fills
+                  // the space that label used to take instead of
+                  // leaving it blank.
                   <>
-                    <Text style={styles.sectionHeader}>Ingredients</Text>
+                    <Text style={styles.sectionCount}>
+                      {recipe.ingredients.length} ingredient{recipe.ingredients.length === 1 ? '' : 's'}
+                    </Text>
                     <Pressable onPress={() => setIngredientSheet({ mode: 'add' })} style={styles.addLink}>
                       <Ionicons name="add" size={16} color={colors.primary} />
                       <Text style={styles.addLinkText}>Add</Text>
@@ -627,7 +605,10 @@ export default function RecipeDetailScreen() {
           ) : (
             <>
               <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionHeader}>Instructions</Text>
+                <Text style={styles.sectionCount}>
+                  {(recipe.instructions?.length ?? 0)} step{(recipe.instructions?.length ?? 0) === 1 ? '' : 's'}
+                  {effectiveTimeMinutes != null ? ` · ~${effectiveTimeMinutes} min` : ''}
+                </Text>
                 <Pressable onPress={() => navigateOnce(`/recipes/${id}/instructions`)} style={styles.addLink}>
                   <Ionicons
                     name={recipe.instructions && recipe.instructions.length > 0 ? 'create-outline' : 'add'}
@@ -663,6 +644,14 @@ export default function RecipeDetailScreen() {
           )}
         </View>
       </ScrollView>
+
+      <DurationPickerSheet
+        visible={isDurationSheetOpen}
+        onDismiss={() => setIsDurationSheetOpen(false)}
+        currentMinutes={effectiveTimeMinutes}
+        calculatedMinutes={computedTimeFromSteps}
+        onSubmit={handleTimeSubmit}
+      />
 
       <RecipeIngredientSheet
         visible={!!ingredientSheet}
@@ -767,11 +756,25 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     overviewRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
     overviewLabel: { ...typography.bodySm, color: colors.textSecondary },
-    overviewLabelWithIcon: { flexDirection: 'row', alignItems: 'center' },
     overviewValue: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
     overviewValueMuted: { ...typography.bodySm, color: colors.textSecondary, fontStyle: 'italic' },
     overviewErrorText: { ...typography.caption, color: colors.danger, marginTop: spacing.xxs },
     overviewDivider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.md },
+    // Yield + Time sit together as one tight row -- "gap" keeps the two
+    // groups close instead of each stretching to opposite card edges.
+    metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xl },
+    metaGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+    // Small tinted circle behind the clock icon -- a bare line icon on
+    // its own read as too plain; this matches the tile treatment
+    // ingredient category icons already use elsewhere in the app.
+    clockIconTile: {
+      width: 22,
+      height: 22,
+      borderRadius: radii.full,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
     yieldEditRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     yieldQtyInput: {
       ...typography.body,
@@ -782,15 +785,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingBottom: spacing.xxs,
     },
     yieldUnitInput: {
-      ...typography.body,
-      color: colors.textPrimary,
-      flex: 1,
-      textAlign: 'right',
-      borderBottomWidth: 1,
-      borderBottomColor: colors.primary,
-      paddingBottom: spacing.xxs,
-    },
-    timeInput: {
       ...typography.body,
       color: colors.textPrimary,
       flex: 1,
@@ -852,6 +846,10 @@ function makeStyles(colors: Record<ColorToken, string>) {
 
     sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm },
     sectionHeader: { ...typography.titleSm, color: colors.textPrimary },
+    // Fills the space the removed duplicate "Ingredients"/"Instructions"
+    // label used to take, with something actually useful instead of
+    // leaving it blank.
+    sectionCount: { ...typography.bodySm, color: colors.textSecondary },
     addLink: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
     addLinkText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     emptyState: { ...typography.bodySm, color: colors.textSecondary, paddingVertical: spacing.sm },
