@@ -34,6 +34,15 @@ export type GaugeSensitivityInput = {
   gauge_sensitivity: 'aggressive' | 'tight' | 'balanced' | 'relaxed';
 };
 
+/**
+ * Added 2026-08-27 for the Production screen (Phase 8). See
+ * supabase/migrations/0013_production_auto_deduct.sql and
+ * docs/DECISIONS.md.
+ */
+export type ProductionPreferenceInput = {
+  auto_deduct_inventory: boolean;
+};
+
 export async function completeOnboarding(input: OnboardingInput): Promise<Baker> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError) throw userError;
@@ -51,7 +60,9 @@ export async function completeOnboarding(input: OnboardingInput): Promise<Baker>
 }
 
 export async function updateBakerProfile(
-  input: Partial<OnboardingInput & ThemePreferenceInput & GaugeSensitivityInput>
+  input: Partial<
+    OnboardingInput & ThemePreferenceInput & GaugeSensitivityInput & ProductionPreferenceInput
+  >
 ): Promise<Baker> {
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError) throw userError;
