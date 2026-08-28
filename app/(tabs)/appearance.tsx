@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, ScrollView, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useThemeColors } from '../../src/theme/ThemeContext';
 import { useBakerProfile, useUpdateBakerProfile } from '../../src/hooks/useBakerProfile';
 import { spacing, radii } from '../../src/theme';
@@ -21,6 +22,13 @@ export default function AppearanceScreen() {
 
   const [selectedAccent, setSelectedAccent] = useState<string>(colors.primary);
   const [selectedMode, setSelectedMode] = useState<ThemeModePreference>(mode);
+  // Same pattern (and same "baker profile is already warm in the query
+  // cache by the time this screen mounts" assumption) as selectedAccent/
+  // selectedMode above -- an editable draft, not an instant-apply toggle,
+  // so it's saved together with the other two preferences via one Save.
+  const [autoDeductInventory, setAutoDeductInventory] = useState<boolean>(
+    baker?.auto_deduct_inventory ?? true
+  );
 
   if (isLoadingBaker || !baker) {
     return (
@@ -33,12 +41,15 @@ export default function AppearanceScreen() {
   }
 
   const hasChanges =
-    selectedAccent !== colors.primary || selectedMode !== mode;
+    selectedAccent !== colors.primary ||
+    selectedMode !== mode ||
+    autoDeductInventory !== baker.auto_deduct_inventory;
 
   const handleSave = () => {
     updateProfile.mutate({
       theme_accent: selectedAccent,
       theme_mode: selectedMode,
+      auto_deduct_inventory: autoDeductInventory,
     });
   };
 
@@ -122,6 +133,44 @@ export default function AppearanceScreen() {
           );
         })}
       </View>
+
+      <Text style={{ fontSize: 15, fontWeight: '600', color: colors.textPrimary, marginBottom: spacing.md }}>
+        Production
+      </Text>
+      <Pressable
+        onPress={() => setAutoDeductInventory((v) => !v)}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: autoDeductInventory }}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: spacing.sm,
+          paddingVertical: spacing.md,
+          paddingHorizontal: spacing.lg,
+          minHeight: 44,
+          backgroundColor: colors.surface,
+          borderWidth: 1,
+          borderColor: colors.border,
+          borderRadius: radii.md,
+          marginBottom: spacing.xxl,
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={{ fontSize: 14, color: colors.textPrimary, fontWeight: '600' }}>
+            Automatically deduct ingredients
+          </Text>
+          <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
+            When on, checking off a product in Production subtracts its recipe's ingredients from
+            stock once that day's checklist is fully done. When off, checking items off only
+            updates the checklist.
+          </Text>
+        </View>
+        <Ionicons
+          name={autoDeductInventory ? 'checkmark-circle' : 'ellipse-outline'}
+          size={22}
+          color={autoDeductInventory ? colors.primary : colors.textSecondary}
+        />
+      </Pressable>
 
       {updateProfile.isError && (
         <Text style={{ color: colors.danger, fontSize: 13, marginBottom: spacing.md }}>

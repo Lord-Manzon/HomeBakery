@@ -1262,3 +1262,191 @@ behavior changed.
 
 **Verified:** `npx tsc --noEmit` — zero errors. `npx jest` — 4 suites, 62
 tests, all passing (no service-layer code touched by this entry).
+### 2026-08-28 — Built the Production screen (Phase 8)
+
+**Decision:** Production is exactly what the 2026-08-12 entry designed —
+no new table, derived entirely from `order_items` (grouped by
+`scheduled_date`) joined through `product_variants` → `recipes` →
+`recipe_ingredients` → `ingredients`. One checklist row = every
+`order_item` sharing the same `product_id` + `variant_id` on the same
+date, collapsed into a single checkable line with a combined quantity.
+New pure logic lives in `src/services/productionLogic.ts` (grouping,
+ingredient math, status rules — 20 unit tests), the Supabase-backed fetch
+and mutation orchestration in `src/services/production.ts`, hooks in
+`src/hooks/useProduction.ts`, and the screen itself replaces the
+`app/(tabs)/production.tsx` placeholder.
+
+**Ingredient status rule** (`getProductionIngredientStatus`): a batch is
+"insufficient" (danger) if on-hand can't cover what THIS batch needs,
+full stop — otherwise it falls back to the same low-stock-threshold rule
+the Ingredients tab already uses ("low"/"enough"). This reuses
+`stockGauge.ts`'s `getStockGaugeStatus` rather than inventing a second
+threshold rule, and was verified line-by-line against the approved
+mockup's ingredient rows (flour/sugar/cocoa/butter/eggs/ube halaya) before
+being written as tests.
+
+**Two ingredient vocabularies, deliberately kept separate:** the "Needed
+for production" list uses "Enough / Low / Need restock" (a
+production-batch-specific question — do I have enough for what I'm baking
+right now). The "Low stock" toggle reuses the Ingredients tab's own
+existing "Low stock" / "Out of stock" language unchanged, since it's
+surfacing the exact same general fact that screen already shows, not a
+new one.
+
+**Circular status indicators, not the mockup's rectangular pills:** both
+the checklist checkboxes and every ingredient status use the
+`checkmark-circle` / `ellipse-outline` / `alert-circle` Ionicons pattern
+already established by `DuplicateProductSheet.tsx`'s toggle rows, per the
+product brief's explicit instruction not to copy the mockup's square
+checkboxes or rectangular status badges.
+
+### 2026-08-28 — Ingredient deduction is gated on the WHOLE day's checklist reaching 100%, not fired per checkbox
+
+**Decision:** Checking one product off does NOT immediately deduct its
+ingredients. `setProductionRowStatus` (`production.ts`) updates the
+checklist, then checks whether every `order_item` for that
+`scheduled_date` is now `done`; only once the whole day is complete does
+it deduct. Unchecking a row that breaks a previously-complete day
+reverses just that row's own already-deducted ingredients.
+
+**Why:** explicit product decision (2026-08-27) — a baker mid-way through
+a day's bake list hasn't necessarily used an ingredient just because one
+item happens to be checked first; gating on full-day completion avoids
+partial/inconsistent stock reads while the list is still in progress.
+
+**Made idempotent without a new "already deducted" flag or table:**
+`getNetDeductionByOrderItem` (`ingredients.ts`) sums each `order_item`'s
+existing `inventory_movements` (`reference_type='order_item'`,
+`movement_type='usage'`). Net negative = currently deducted; net ≥ 0 =
+not currently deducted. Every time the day-complete check passes, only
+`order_items` that are net-≥-0 get deducted — so re-completing a day
+after a partial uncheck/recheck cycle only deducts the gap, never
+double-deducts, and reversal only touches items that were actually net-
+deducted. This was chosen over a `production_batches`-style "was this day
+already processed" flag specifically to avoid a new table, per the
+2026-08-12 "Production is a view, not its own table" decision.
+
+**Setting:** `bakers.auto_deduct_inventory` (migration
+`0013_production_auto_deduct.sql`, default `true`). When off,
+`setProductionRowStatus` updates the checklist and returns immediately —
+no stock reads, no movements.
+
+### 2026-08-28 — Fixed `updateOrder`'s delete-and-recreate order_items (flagged 2026-08-22, resolved now that Production exists)
+
+**Decision:** `updateOrder` now diffs incoming items against what's
+already saved by `id` (added as an optional field on `orderItemFormSchema`
+/ `CartItem`, carried through `OrderItemSheet.tsx` → `OrderForm.tsx` →
+`orders/[id]/edit.tsx`): items with a matching `id` are `UPDATE`d in
+place, existing items whose `id` is no longer present are `DELETE`d, and
+items with no `id` are freshly `INSERT`ed. Three explicit sequential
+calls rather than one `upsert()`, since mixing "has id" and "has no id"
+row shapes in one Postgrest batch risks an inconsistent column set.
+
+**Why now, specifically:** the 2026-08-22 entry flagged this as
+acceptable only because nothing yet depended on `order_items.id` staying
+stable across an edit. Production now does, on both counts —
+`production_status` lives on that row, and `inventory_movements.
+reference_id` points at it. Editing an order that had already been baked
+against would otherwise have silently orphaned both.
+
+**Known limitation, flagged rather than solved here:** if a baker edits
+the quantity/variant of a line item that was already checked off (and, if
+auto-deduction fired, already deducted), `production_status` and the
+deducted amount are NOT recalculated to match the edit. Reconciling an
+already-baked line against a post-hoc edit is a real edge case that
+deserves its own product decision, not a guess folded into this fix.
+
+### 2026-08-28 — "Upcoming" tab is grouped by date, no single combined progress bar
+
+**Decision:** Unlike Today/Tomorrow (one date, one "X of Y completed"
+progress bar), Upcoming groups rows under a date-section header per day
+(`formatOrderDate`, same short-weekday format used everywhere else),
+each showing its own small "X/Y done" count, with no overall bar across
+the whole range.
+
+**Why:** explicit product decision (2026-08-27) — a combined percentage
+across unrelated future days isn't a meaningful single number the way a
+single day's completion is. The "Needed for production" ingredients list
+still sums across the WHOLE upcoming range when this tab is active, since
+that's a genuinely useful "what do I need to buy for the days ahead"
+view, distinct from the per-day checklist progress question.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide. `npx jest` —
+5 suites, 70 tests, all passing (20 new in `productionLogic.test.ts`,
+covering the grouping rule, both ingredient vocabularies' status math,
+progress calculation, deduction-line building, and the day-complete
+check; the other 50 are the pre-existing suites, unaffected).
+
+### 2026-08-28 — Rebased the Production screen onto `product-screen`'s current tip (Orders redesign, recipe intro)
+
+**Decision:** The four entries above were built against an earlier
+snapshot of `product-screen`; the branch had since moved forward with the
+Orders list redesign work (day grouping, revert actions, tap-to-expand
+cards, PHP currency formatting) and a new `recipes.intro` column. Rebased
+via `git cherry-pick` rather than a manual re-diff, so git's own 3-way
+merge — not eyeballing — is what confirms each file's changes are
+actually independent.
+
+**One real numbering collision, fixed:** both branches independently
+added a migration numbered `0012` (`0012_recipe_intro.sql` upstream,
+`0012_production_auto_deduct.sql` here). Renumbered this feature's
+migration to `0013_production_auto_deduct.sql` and updated its two
+in-code references (`src/types/baker.ts`, `src/services/bakers.ts`).
+
+**One deliberate small alignment, not just a mechanical merge:** the
+Orders redesign introduced `formatGroupHeaderDate` (full weekday name,
+e.g. "Sunday, Aug 24") specifically for day-divider list headers,
+replacing `formatOrderDate`'s abbreviated form in that one context. The
+Production screen's "Upcoming" tab has the exact same kind of
+day-divider header (one section per future date), so it's switched to
+`formatGroupHeaderDate` too, rather than shipping two different date
+formats for what's visually the same UI element across two screens.
+Today/Tomorrow's single-line subtitle keeps `formatOrderDate` (still a
+plain caption under a screen title, not a list divider).
+
+**Everything else merged with zero conflicts** — `orders.ts` (new filter
+cases + revert functions alongside the diff-based `updateOrder` fix),
+`ingredients.ts` (the today-usage badge alongside the new deduction
+functions), and the ingredient detail screen (the today-usage badge
+alongside the `?openRestock=1` deep link) all layered cleanly, confirmed
+by reading each merged diff against the true original base rather than
+trusting the absence of a conflict marker alone.
+
+**Verified:** `npx tsc --noEmit` — zero errors, project-wide, on the
+fully rebased tree. `npx jest` — 5 suites, 82 tests, all passing (the 70
+from this feature's own entries above, plus 12 pre-existing
+`orderLogic.test.ts` cases from the Orders redesign work this was rebased
+onto).
+
+### 2026-08-28 — Fixed an on-device crash: Production used a plain `ScrollView`, not `Animated.ScrollView`
+
+**Decision:** `app/(tabs)/production.tsx`'s outer scroll container changed
+from `ScrollView` (`react-native`) to `Animated.ScrollView`
+(`react-native-reanimated`).
+
+**Why this crashed:** `useHideNavOnScroll()` is built on Reanimated's
+`useAnimatedScrollHandler`, which returns a worklet-based scroll-handler
+object meant to be attached to a Reanimated-wrapped scroll component
+(`Animated.ScrollView`/`Animated.FlatList`) — not a plain RN component.
+Plain `ScrollView` calls `onScroll` as an ordinary JS function
+(`this.props.onScroll(e)`); handed the Reanimated handler object instead,
+that call throws `TypeError: Object is not a function`, surfacing on
+every scroll event. Every other screen using this hook
+(`ingredients/index.tsx`, `orders/index.tsx`, `products/index.tsx`)
+already attaches it to `Animated.FlatList`, never a plain `ScrollView` —
+Production was building on a single natural `ScrollView` (per this
+feature's own "avoid nested scrolling" design goal, not a virtualized
+list), and that combination was the one gap the existing precedent didn't
+cover, missed because `onScroll`'s TypeScript type is loose enough to
+accept the Reanimated handler without a compile error — this was only
+catchable at runtime, on-device.
+
+**Fix, not a workaround:** swapping in `Animated.ScrollView` is a
+drop-in replacement (same props, same layout behavior) — no change to
+`useHideNavOnScroll` itself, and no special-casing added to keep a plain
+`ScrollView` limping along.
+
+**Verified:** `npx tsc --noEmit` — zero errors (this class of bug isn't
+visible to the type checker either way, confirming it needed on-device
+testing to catch — noted for future screens using this hook). `npx jest`
+— 5 suites, 82 tests, all passing, unaffected (no business logic touched).

@@ -136,11 +136,15 @@ cost breakdown auto-calculate using the resolved margin — variant → product
 → recipe → baker default, per docs/DATABASE.md).
 
 **Production**
-Orders (aggregated automatically by day) → Production screen groups by
-product → variant → quantity → ingredient checklist compares required vs.
-in-stock → missing ingredient flagged red → tap → Ingredient detail,
-pre-filled to restock → cost per unit updates → returns to an unblocked bake
-list.
+Orders (aggregated automatically by product + variant + day) → Production
+screen's Today/Tomorrow/Upcoming tabs group by product → variant →
+combined quantity → each row's ingredients compared against current stock
+→ a row missing enough for its own batch, or drawing on something already
+low, is flagged and its "Restock →" link lands directly on that
+ingredient's detail screen, pre-filled to restock → checking a row off
+updates the checklist immediately; ingredient deduction itself only fires
+once the whole day's list is fully checked off (see docs/DECISIONS.md's
+2026-08-28 entries for why), and can be turned off entirely in Settings.
 
 ---
 
@@ -177,21 +181,39 @@ date has passed and is still unpaid/undelivered gets a distinct chip color
 so it doesn't blend into "today's" orders.
 
 ### 3. Production
-**Visible:** day selector (Today/Tomorrow/date), a bake list grouped by
-product → variant → aggregated quantity, and an ingredient checklist
-comparing required vs. available.
+**Visible:** a Today / Tomorrow / Upcoming segmented switcher, a progress
+bar ("N of M completed"), a bake list grouped by product → variant →
+combined quantity across every order sharing that date, and below it an
+Ingredients section toggling between "Needed for production" (this
+date's — or for Upcoming, the whole range's — combined requirement per
+ingredient) and "Low stock" (every ingredient currently low or out,
+baker-wide, same underlying data as the Ingredients tab's own low-stock
+view).
 **Why aggregation matters:** the whole value of this screen is turning "4
-single rolls + 3 boxes of 2 + 2 boxes of 4" into "18 rolls, here's what that
-costs in flour" — a baker shouldn't have to do that math by hand.
-**Taps:** a missing ingredient row is red and tappable, landing directly on
-that ingredient's restock screen. Checking off a bake-list item marks it
-done for the day (visual only — doesn't touch inventory until the baker
-actually restocks or logs usage; the actual inventory deduction happens per
-docs/DATABASE.md's `order_items.production_status` flow, not here).
-**States:** *Nothing to bake* — "No orders need production today." *All
-ingredients available* — checklist can collapse to a single "You have
-everything you need" line instead of listing every ingredient as green, to
-avoid clutter on a good day.
+single rolls + 3 boxes of 2 + 2 boxes of 4" into "18 rolls" — a baker
+shouldn't have to do that math by hand.
+**Two ingredient vocabularies, on purpose:** "Needed for production" rows
+read Enough / Low / Need restock — a production-batch-specific question
+(do I have enough for what I'm baking right now), using circular
+checkmark-circle/alert-circle indicators, never the rectangular pills
+from early mockups. "Low stock" rows reuse the Ingredients tab's own
+existing "Low stock"/"Out of stock" wording unchanged, since that toggle
+is surfacing the same general fact that screen already shows.
+**Taps:** a Restock link on any non-"Enough" ingredient row lands directly
+on that ingredient's detail screen, pre-filled to restock. "View all"
+opens the Ingredients tab.
+**Checking off a row:** always updates the checklist immediately.
+Whether it also deducts inventory depends on the `bakers.
+auto_deduct_inventory` setting (Settings, on by default) — see
+docs/DECISIONS.md's 2026-08-28 entries for the exact deduction-timing
+rule (gated on the whole day's list reaching 100%, not fired per
+checkbox) and how it stays idempotent across repeated check/uncheck.
+**States:** *Nothing to bake* — "Nothing to bake today"/"Nothing
+scheduled for tomorrow yet"/"Nothing scheduled beyond tomorrow yet",
+depending on the active tab. *Upcoming* spans many future dates, so it's
+laid out as one date-header section per day (each with its own small
+"X/Y done" count) rather than a single combined progress bar, which
+wouldn't be a meaningful number across unrelated days.
 
 ### 4. Ingredients
 **List:** ingredient name, current quantity + unit, low-stock badge where

@@ -82,6 +82,18 @@ export function todayDateString(): string {
   return `${y}-${m}-${d}`;
 }
 
+/** "YYYY-MM-DD" for the device's current local date, plus one day -- same
+ * local-calendar reasoning as todayDateString. Powers the Production
+ * screen's "Tomorrow" tab and the start of its "Upcoming" range. */
+export function tomorrowDateString(): string {
+  const now = new Date();
+  now.setDate(now.getDate() + 1);
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 /**
  * Converts a JS Date to "YYYY-MM-DD" for the order form's scheduled_date
  * field, produced by @react-native-community/datetimepicker. Uses the

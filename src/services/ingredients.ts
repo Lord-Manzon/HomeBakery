@@ -286,6 +286,103 @@ export async function restockIngredient(
   return data as Ingredient;
 }
 
+/**
+ * Net quantity_change (usage movements only, tagged reference_type
+ * 'order_item') already recorded per order_item, for the given ids.
+ * Negative = currently deducted; zero or missing = not currently
+ * deducted (either never deducted, or deducted then fully reversed).
+ *
+ * This is how production.ts's setProductionRowStatus stays idempotent
+ * across repeated check/uncheck cycles WITHOUT a separate "already
+ * deducted" flag anywhere: deduction inserts a negative movement,
+ * reversal inserts the exact positive opposite, and this net sum is
+ * always the true current state either way.
+ */
+export async function getNetDeductionByOrderItem(
+  orderItemIds: string[]
+): Promise<Map<string, number>> {
+  const totals = new Map<string, number>();
+  if (orderItemIds.length === 0) return totals;
+
+  const { data, error } = await supabase
+    .from('inventory_movements')
+    .select('reference_id, quantity_change')
+    .eq('reference_type', 'order_item')
+    .eq('movement_type', 'usage' satisfies MovementType)
+    .in('reference_id', orderItemIds);
+  if (error) throw error;
+
+  for (const row of data ?? []) {
+    const id = row.reference_id as string;
+    totals.set(id, (totals.get(id) ?? 0) + (row.quantity_change as number));
+  }
+  return totals;
+}
+
+export type ProductionDeductionLine = { ingredientId: string; orderItemId: string; amount: number };
+
+/**
+ * Applies (direction 'deduct') or reverses (direction 'reverse') Production
+ * ingredient usage in one go — see production.ts's setProductionRowStatus
+ * for when each direction is used. One inventory_movements row per
+ * (ingredient, order_item) pair, tagged reference_type 'order_item' /
+ * reference_id = that order_item's id, so the audit trail stays traceable
+ * to an actual order line (see getNetDeductionByOrderItem above).
+ *
+ * Grouped by ingredient so an ingredient touched by several lines in one
+ * call only does one stock read-then-write. Sequential awaits across
+ * ingredients — same reasoning as recordUseOrWaste: a production day's
+ * ingredient list is a handful of rows, not hundreds, and the Supabase
+ * client has no multi-table transaction to batch this into anyway.
+ */
+export async function applyProductionDeduction(
+  lines: ProductionDeductionLine[],
+  direction: 'deduct' | 'reverse'
+): Promise<void> {
+  if (lines.length === 0) return;
+  const bakerId = await getCurrentBakerId();
+
+  const byIngredient = new Map<string, ProductionDeductionLine[]>();
+  for (const line of lines) {
+    const existing = byIngredient.get(line.ingredientId);
+    if (existing) {
+      existing.push(line);
+    } else {
+      byIngredient.set(line.ingredientId, [line]);
+    }
+  }
+
+  for (const [ingredientId, entries] of byIngredient) {
+    const existing = await getIngredient(ingredientId);
+    const totalAmount = entries.reduce((sum, e) => sum + e.amount, 0);
+    const signedTotal = direction === 'deduct' ? -totalAmount : totalAmount;
+    const newStock = existing.current_stock + signedTotal;
+
+    const { error: stockError } = await supabase
+      .from('ingredients')
+      .update({ current_stock: newStock })
+      .eq('id', ingredientId);
+    if (stockError) throw stockError;
+
+    let runningStock = existing.current_stock;
+    for (const entry of entries) {
+      const signedAmount = direction === 'deduct' ? -entry.amount : entry.amount;
+      runningStock += signedAmount;
+      const { error: movementError } = await supabase.from('inventory_movements').insert({
+        baker_id: bakerId,
+        ingredient_id: ingredientId,
+        movement_type: 'usage' satisfies MovementType,
+        quantity_change: signedAmount,
+        resulting_stock: runningStock,
+        reference_type: 'order_item',
+        reference_id: entry.orderItemId,
+        note: direction === 'deduct' ? 'Used in production' : 'Production undone',
+      });
+      if (movementError) throw movementError;
+    }
+  }
+}
+
 const WASTE_REASONS: readonly UseWasteReason[] = ['Wasted', 'Spoiled'];
 
 /**

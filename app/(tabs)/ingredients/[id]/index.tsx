@@ -41,7 +41,7 @@ import type { ColorToken } from '../../../../src/theme/colors';
 
 export default function IngredientDetailScreen() {
   useHideFloatingNav();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, openRestock } = useLocalSearchParams<{ id: string; openRestock?: string }>();
   const router = useRouter();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -88,6 +88,17 @@ export default function IngredientDetailScreen() {
   const backPress = usePressScale();
   const deletePress = usePressScale();
   const editLinkPress = usePressScale();
+
+  // Opened via the Production screen's "Restock →" link on a low/short
+  // ingredient (?openRestock=1) — see src/services/production.ts and
+  // docs/DECISIONS.md's Phase 8 entry. Same one-shot-per-navigation
+  // pattern as ingredients/index.tsx's ?openAdd=1.
+  useEffect(() => {
+    if (openRestock === '1') {
+      setIsRestockOpen(true);
+      router.setParams({ openRestock: undefined });
+    }
+  }, [openRestock]);
 
   if (isLoading) {
     return (
