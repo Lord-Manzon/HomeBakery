@@ -90,6 +90,7 @@ function orderToFormValues(order: OrderWithItems): OrderFormValues {
     scheduledTime: order.scheduled_time ? fromTimeString(order.scheduled_time) : null,
     notes: order.notes ?? '',
     items: order.items.map((item) => ({
+      id: item.id,
       product_id: item.product_id,
       variant_id: item.variant_id,
       quantity: item.quantity,

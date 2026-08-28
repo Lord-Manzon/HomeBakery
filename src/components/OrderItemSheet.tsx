@@ -10,6 +10,10 @@ import { formatCurrency } from '../utils/currency';
 import type { ProductWithVariants } from '../types/product';
 
 export type CartItem = {
+  /** Present for an item that already exists on the order being edited;
+   * absent for one newly added in this session. See orderSchemas.ts's
+   * orderItemFormSchema comment for why this matters on save. */
+  id?: string;
   product_id: string;
   variant_id: string;
   quantity: number;
@@ -105,6 +109,7 @@ export function OrderItemSheet({
     }
     setError(null);
     onSubmit({
+      id: initialValue?.id,
       product_id: selectedProduct.id,
       variant_id: variant.id,
       quantity: parsedQuantity,

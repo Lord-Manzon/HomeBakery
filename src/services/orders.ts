@@ -99,6 +99,14 @@ export async function getOrders(filter: OrderListFilter = 'today'): Promise<Orde
     case 'cancelled':
       query = query.eq('status', 'cancelled');
       break;
+    case 'history':
+      // Per docs/DECISIONS.md's 2026-08-28 entry: "no longer active" --
+      // everything that's finished one way or another. Distinct from
+      // 'delivered' (which is "has been delivered," including orders
+      // still awaiting payment) and from 'cancelled' alone -- History
+      // is the union of both terminal states.
+      query = query.in('status', ['completed', 'cancelled']);
+      break;
     case 'all':
       break;
   }
@@ -136,7 +144,14 @@ async function fetchVariantPrices(variantIds: string[]): Promise<Map<string, num
   return map;
 }
 
-type ItemWithPrice = { product_id: string; variant_id: string; quantity: number; unit_price: number; line_total: number };
+type ItemWithPrice = {
+  id?: string;
+  product_id: string;
+  variant_id: string;
+  quantity: number;
+  unit_price: number;
+  line_total: number;
+};
 
 async function resolveItemsWithPrice(items: OrderFormInput['items']): Promise<ItemWithPrice[]> {
   const priceByVariant = await fetchVariantPrices(items.map((i) => i.variant_id));
@@ -209,22 +224,41 @@ export async function createOrder(input: OrderFormInput): Promise<Order> {
 }
 
 /**
- * Updates an order's own fields AND replaces its line items entirely
- * (delete existing order_items for this order, insert fresh ones from
- * `input`) -- the FULL-payload pattern this codebase always uses for
- * updates, per the "watch for partial-payload saves" note carried over
- * from Products.
+ * Updates an order's own fields, then diffs its line items against what's
+ * already saved rather than always deleting and recreating them.
  *
- * KNOWN TRADEOFF, flagged rather than silently built around: replacing
- * items generates new order_item ids on every edit. That throws away any
- * order_items.production_status the baker had already set, and once
- * Phase 8 (Production / inventory deduction) exists, it would also orphan
- * an inventory_movements.reference_id pointing at a now-deleted item id.
- * Not a live problem today -- Production doesn't exist yet and nothing in
- * the app sets production_status to 'done' -- but a proper diff-based
- * update (match existing items by id, only insert/delete what actually
- * changed) is worth doing before or during Phase 8, not carried past that
- * point without revisiting.
+ * Per docs/DECISIONS.md's 2026-08-22 entry (flagging this) and the
+ * Phase 8 entry (fixing it): the old approach deleted every order_item
+ * and inserted fresh ones on every save, which generated new ids each
+ * time. That's harmless on its own, but once Production
+ * (order_items.production_status) and its inventory deduction
+ * (inventory_movements.reference_id -> order_items.id) exist, it would
+ * silently orphan both the moment a baker edited an order they'd already
+ * started baking against.
+ *
+ * The fix: an incoming item with an `id` (see orderSchemas.ts's
+ * orderItemFormSchema) is UPDATED in place -- its row, and therefore its
+ * production_status and any inventory_movements pointing at it, survive
+ * untouched. An existing item whose id is no longer present in the
+ * incoming list is DELETED (the baker removed it). An incoming item with
+ * no `id` is a genuinely new line, INSERTED fresh.
+ *
+ * Deliberately three separate calls rather than one `upsert()` -- an
+ * upsert's insert/update column set is derived from whichever keys are
+ * present on each row, and mixing "has id" and "has no id" rows in one
+ * array risks Postgrest building an inconsistent column list across the
+ * batch. Three explicit, unambiguous steps is worth a few extra round
+ * trips for an operation this consequential, especially given order
+ * sizes here are always a handful of items, not hundreds.
+ *
+ * KNOWN LIMITATION, flagged rather than silently built around: if a
+ * baker edits the quantity/variant of a line item that was already
+ * checked off in Production (and, if auto-deduction was on, already
+ * deducted), production_status and the deduction amount are NOT
+ * recalculated to match the edit -- the row keeps whatever was true
+ * before the edit. Reconciling an already-baked line against a
+ * post-hoc order edit is a real edge case worth its own product
+ * decision, not something to guess at here.
  */
 export async function updateOrder(id: string, input: OrderFormInput): Promise<Order> {
   const itemsWithPrice = await resolveItemsWithPrice(input.items);
@@ -249,20 +283,51 @@ export async function updateOrder(id: string, input: OrderFormInput): Promise<Or
     .single();
   if (orderError) throw orderError;
 
-  const { error: deleteError } = await supabase.from('order_items').delete().eq('order_id', id);
-  if (deleteError) throw deleteError;
+  const { data: existingRows, error: existingError } = await supabase
+    .from('order_items')
+    .select('id')
+    .eq('order_id', id);
+  if (existingError) throw existingError;
+  const existingIds = new Set((existingRows ?? []).map((row) => row.id as string));
 
-  const { error: itemsError } = await supabase.from('order_items').insert(
-    itemsWithPrice.map((item) => ({
-      order_id: id,
-      product_id: item.product_id,
-      variant_id: item.variant_id,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      line_total: item.line_total,
-    }))
+  const incomingIds = new Set(
+    itemsWithPrice.map((item) => item.id).filter((v): v is string => !!v)
   );
-  if (itemsError) throw itemsError;
+  const idsToDelete = Array.from(existingIds).filter((existingId) => !incomingIds.has(existingId));
+  if (idsToDelete.length > 0) {
+    const { error: deleteError } = await supabase.from('order_items').delete().in('id', idsToDelete);
+    if (deleteError) throw deleteError;
+  }
+
+  const toUpdate = itemsWithPrice.filter((item) => item.id && existingIds.has(item.id));
+  for (const item of toUpdate) {
+    const { error: updateError } = await supabase
+      .from('order_items')
+      .update({
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        line_total: item.line_total,
+      })
+      .eq('id', item.id as string);
+    if (updateError) throw updateError;
+  }
+
+  const toInsert = itemsWithPrice.filter((item) => !item.id || !existingIds.has(item.id));
+  if (toInsert.length > 0) {
+    const { error: insertError } = await supabase.from('order_items').insert(
+      toInsert.map((item) => ({
+        order_id: id,
+        product_id: item.product_id,
+        variant_id: item.variant_id,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        line_total: item.line_total,
+      }))
+    );
+    if (insertError) throw insertError;
+  }
 
   return order as Order;
 }

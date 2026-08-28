@@ -18,8 +18,20 @@ const ordersBaseKey = ['orders'] as const;
 const ordersListKey = (filter: OrderListFilter) => ['orders', 'list', filter] as const;
 const orderDetailKey = (id: string) => ['orders', 'detail', id] as const;
 
+// 60s staleTime -- cached list data is trusted for a minute before
+// TanStack Query considers it worth silently refetching. This is safe
+// (not "stale-looking data risk") because every order mutation
+// (create/update/delete/mark paid/mark delivered/cancel) already calls
+// invalidateQueries({ queryKey: ordersBaseKey }) below -- so a real
+// change to the data is reflected immediately regardless of staleTime;
+// this setting only controls "how eager is a routine tab-switch to
+// re-ask Supabase for the same data it already has."
 export function useOrders(filter: OrderListFilter) {
-  return useQuery({ queryKey: ordersListKey(filter), queryFn: () => getOrders(filter) });
+  return useQuery({
+    queryKey: ordersListKey(filter),
+    queryFn: () => getOrders(filter),
+    staleTime: 60 * 1000,
+  });
 }
 
 export function useOrder(id: string) {

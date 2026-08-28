@@ -6,6 +6,15 @@ import { z } from 'zod';
 // selling_price at save time rather than trusting whatever the New Order
 // screen had cached when the baker picked it (see that file's comments).
 export const orderItemFormSchema = z.object({
+  // Present when this item already exists on the order being edited
+  // (carried through from OrderForm's initial hydration), absent for an
+  // item newly added during this edit. src/services/orders.ts's
+  // updateOrder uses this to update existing rows IN PLACE instead of
+  // deleting and recreating every item on every save -- see that file's
+  // comments for why (it's what keeps a checked-off Production row, and
+  // any inventory_movements pointing at it, from being silently orphaned
+  // by an unrelated order edit).
+  id: z.string().uuid().optional(),
   product_id: z.string().uuid(),
   variant_id: z.string().uuid(),
   quantity: z.coerce.number().positive('Enter a quantity above 0'),

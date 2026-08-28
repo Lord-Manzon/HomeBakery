@@ -1,16 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import Animated, {
-  FadeIn,
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, runOnJS } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useHideNavOnScroll } from '../../../src/hooks/useHideNavOnScroll';
+import { useQueryClient } from '@tanstack/react-query';
+import { getOrders } from '../../../src/services/orders';
 import { useOrders, useMarkOrderDelivered, useMarkOrderPaid } from '../../../src/hooks/useOrders';
 import { useBakerProfile } from '../../../src/hooks/useBakerProfile';
 import { usePressScale } from '../../../src/hooks/usePressScale';
@@ -45,6 +41,7 @@ const REFINE_FILTERS: { value: OrderListFilter; label: string }[] = [
   { value: 'delivered', label: 'Delivered' },
   { value: 'overdue', label: 'Overdue' },
   { value: 'cancelled', label: 'Cancelled' },
+  { value: 'history', label: 'History' },
 ];
 
 // Per docs/UI_UX_1.md section E.2's *Empty* state, tailored per filter --
@@ -60,6 +57,7 @@ const EMPTY_MESSAGE: Record<OrderListFilter, string> = {
   delivered: 'No delivered orders yet.',
   overdue: 'Nothing overdue — nice!',
   cancelled: 'No cancelled orders.',
+  history: 'No completed or cancelled orders yet.',
 };
 
 export default function OrdersListScreen() {
@@ -73,6 +71,27 @@ export default function OrdersListScreen() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const { data: orders, isLoading, isError, refetch } = useOrders(filter);
   const { data: baker } = useBakerProfile();
+  const queryClient = useQueryClient();
+
+  // Prefetches the other two primary tabs as soon as this screen opens,
+  // so swiping/tapping between Today/Upcoming/All feels instant even the
+  // FIRST time a baker visits a given tab in this session -- without
+  // this, only the currently-open tab has cached data, and switching to
+  // a never-visited one always shows the loading skeleton once.
+  useEffect(() => {
+    for (const f of PRIMARY_FILTERS) {
+      if (f.value === filter) continue;
+      queryClient.prefetchQuery({
+        queryKey: ['orders', 'list', f.value],
+        queryFn: () => getOrders(f.value),
+        staleTime: 60 * 1000,
+      });
+    }
+    // Intentionally NOT re-running this every time `filter` changes --
+    // that would prefetch on every tab switch too, tripling Supabase
+    // calls for no benefit. Runs once per screen visit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const markDelivered = useMarkOrderDelivered();
   const markPaid = useMarkOrderPaid();
 
@@ -107,6 +126,25 @@ export default function OrdersListScreen() {
   }, [filtered]);
 
   const isRefineActive = REFINE_FILTERS.some((f) => f.value === filter);
+
+  // Per docs/DECISIONS.md's 2026-08-28 entry: swiping anywhere on the
+  // screen pages between the three primary tabs. Only active when the
+  // current filter IS one of those three -- if a refine filter (Unpaid,
+  // Overdue, etc.) is active, swiping is disabled rather than guessing
+  // which primary tab to land on.
+  const currentPrimaryIndex = PRIMARY_FILTERS.findIndex((f) => f.value === filter);
+  const tabSwipeGesture = Gesture.Pan()
+    .enabled(currentPrimaryIndex !== -1)
+    .activeOffsetX([-20, 20])
+    .failOffsetY([-15, 15])
+    .onEnd((e) => {
+      if (currentPrimaryIndex === -1) return;
+      if (e.translationX < -50 && currentPrimaryIndex < PRIMARY_FILTERS.length - 1) {
+        runOnJS(setFilter)(PRIMARY_FILTERS[currentPrimaryIndex + 1].value);
+      } else if (e.translationX > 50 && currentPrimaryIndex > 0) {
+        runOnJS(setFilter)(PRIMARY_FILTERS[currentPrimaryIndex - 1].value);
+      }
+    });
 
   if (isLoading) {
     return (
@@ -268,6 +306,7 @@ export default function OrdersListScreen() {
             </>
           ) : null}
 
+          <GestureDetector gesture={tabSwipeGesture}>
           <Animated.FlatList
             data={rows}
             keyExtractor={(row) => row.key}
@@ -300,11 +339,23 @@ export default function OrdersListScreen() {
                   currency={baker?.currency}
                   styles={styles}
                   colors={colors}
-                  onPress={() => router.push(`/orders/${item.order.id}`)}
+                  onView={() => router.push(`/orders/${item.order.id}`)}
+                  onEdit={() => router.push(`/orders/${item.order.id}/edit`)}
+                  onMarkPaid={() =>
+                    markPaid.mutate({ order: { id: item.order.id, status: item.order.status }, paymentMethod: 'Cash' })
+                  }
+                  onMarkDelivered={() =>
+                    markDelivered.mutate({
+                      id: item.order.id,
+                      status: item.order.status,
+                      payment_status: item.order.payment_status,
+                    })
+                  }
                 />
               );
             }}
           />
+          </GestureDetector>
         </>
       )}
     </Screen>
@@ -321,23 +372,16 @@ function formatItemsSummary(items: OrderWithItems['items']): string {
   return items.length === 1 ? firstLabel : `${firstLabel} +${items.length - 1} more`;
 }
 
-// Per docs/DECISIONS.md's 2026-08-26 entry: swipe left to reveal quick
-// actions, right-to-left, in the order "Mark Paid" then "Mark Delivered"
-// (Paid revealed first/closest to the card edge, Delivered revealed last,
-// closest to the screen edge). Only the actions that actually apply to
-// this order's current status are shown -- an order with nothing left to
-// mark (e.g. already Completed) has no swipe actions at all, and the
-// gesture is disabled entirely rather than revealing an empty row.
-const SWIPE_ACTION_WIDTH = 88;
-const SWIPE_OPEN_THRESHOLD = 40;
 
-function SwipeableOrderCard({
+
+function OrderCard({
   order,
   index,
   currency,
   styles,
   colors,
-  onPress,
+  onView,
+  onEdit,
   onMarkPaid,
   onMarkDelivered,
 }: {
@@ -346,127 +390,20 @@ function SwipeableOrderCard({
   currency: string | null | undefined;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
-  onPress: () => void;
+  onView: () => void;
+  onEdit: () => void;
   onMarkPaid: () => void;
   onMarkDelivered: () => void;
 }) {
-  const canPay = canMarkPaid(order.status, order.payment_status);
-  const canDeliver = canMarkDelivered(order.status);
-  const actionCount = (canPay ? 1 : 0) + (canDeliver ? 1 : 0);
-  const revealWidth = SWIPE_ACTION_WIDTH * actionCount;
-
-  const translateX = useSharedValue(0);
-
-  function close() {
-    translateX.value = withSpring(0, { damping: 22, stiffness: 220 });
-  }
-
-  const panGesture = Gesture.Pan()
-    .enabled(actionCount > 0)
-    .activeOffsetX([-10, 10])
-    .failOffsetY([-10, 10])
-    .onUpdate((e) => {
-      translateX.value = Math.min(0, Math.max(-revealWidth, e.translationX));
-    })
-    .onEnd(() => {
-      const shouldOpen = translateX.value < -SWIPE_OPEN_THRESHOLD;
-      translateX.value = withSpring(shouldOpen ? -revealWidth : 0, { damping: 22, stiffness: 220 });
-    });
-
-  const cardAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value }],
-  }));
-
-  function handleCardPress() {
-    // Tapping an open (swiped) card closes it instead of navigating --
-    // matches the standard swipeable-list convention (iOS Mail/Reminders)
-    // this pattern is deliberately modeled on, per the 2026-08-26 entry.
-    if (translateX.value !== 0) {
-      close();
-      return;
-    }
-    onPress();
-  }
-
-  return (
-    <View style={styles.swipeContainer}>
-      {actionCount > 0 ? (
-        <View style={styles.swipeActionsRow}>
-          {canPay ? (
-            <Pressable
-              style={[styles.swipeAction, { backgroundColor: colors.success }]}
-              onPress={() => {
-                onMarkPaid();
-                close();
-              }}
-            >
-              <Ionicons name="cash-outline" size={18} color={colors.textInverse} />
-              <Text style={styles.swipeActionText}>Paid</Text>
-            </Pressable>
-          ) : null}
-          {canDeliver ? (
-            <Pressable
-              style={[styles.swipeAction, { backgroundColor: colors.primary }]}
-              onPress={() => {
-                onMarkDelivered();
-                close();
-              }}
-            >
-              <Ionicons
-                name={order.fulfillment_type === 'delivery' ? 'bicycle-outline' : 'bag-handle-outline'}
-                size={18}
-                color={colors.textInverse}
-              />
-              <Text style={styles.swipeActionText}>
-                {order.fulfillment_type === 'delivery' ? 'Delivered' : 'Picked up'}
-              </Text>
-            </Pressable>
-          ) : null}
-        </View>
-      ) : null}
-      <GestureDetector gesture={panGesture}>
-        <Animated.View style={cardAnimatedStyle}>
-          <OrderCard
-            order={order}
-            index={index}
-            currency={currency}
-            styles={styles}
-            colors={colors}
-            onPress={handleCardPress}
-          />
-        </Animated.View>
-      </GestureDetector>
-    </View>
-  );
-}
-
-function OrderCard({
-  order,
-  index,
-  currency,
-  styles,
-  colors,
-  onPress,
-}: {
-  order: OrderWithItems;
-  index: number;
-  currency: string | null | undefined;
-  styles: ReturnType<typeof makeStyles>;
-  colors: Record<ColorToken, string>;
-  onPress: () => void;
-}) {
   const press = usePressScale();
+  const [isExpanded, setIsExpanded] = useState(false);
   const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
 
   // Per docs/DECISIONS.md's 2026-08-27 Orders list redesign: one badge
   // slot, not two -- collapses the old separate status badge + payment
   // badge into a single priority-ordered label (Cancelled overrides
   // Overdue overrides Paid/Unpaid), since payment status is the one
-  // status dimension the redesign's field list actually calls for. A
-  // Cancelled or Overdue order needs to stand out more than its payment
-  // state does; everything else, payment is the practically useful
-  // signal (a Completed order is always paid by definition, so "Paid"
-  // reads correctly for it too, without a separate "Completed" label).
+  // status dimension the redesign's field list actually calls for.
   const isOverdue = isOrderActive(order.status) && order.scheduled_date < todayDateString();
   const badgeLabel =
     order.status === 'cancelled'
@@ -485,43 +422,148 @@ function OrderCard({
           ? colors.success
           : colors.warning;
 
-  // Date is no longer shown per-card -- the day divider header above
-  // already carries it. hasTime distinguishes a real scheduled time from
-  // the "No time set" placeholder so the two can be styled differently
-  // (below) -- otherwise the placeholder reads as convincingly as real
-  // data, per docs/DECISIONS.md's 2026-08-27 refinement entry.
   const hasTime = Boolean(order.scheduled_time);
   const timeLabel = formatOrderTime(order.scheduled_time) ?? 'No time set';
   const fulfillmentLabel = order.fulfillment_type === 'delivery' ? 'Delivery' : 'Pickup';
+
+  const canPay = canMarkPaid(order.status, order.payment_status);
+  const canDeliver = canMarkDelivered(order.status);
 
   return (
     <Animated.View
       entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
     >
-      <Pressable onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}>
+      <Pressable
+        onPress={() => setIsExpanded((v) => !v)}
+        onPressIn={press.onPressIn}
+        onPressOut={press.onPressOut}
+      >
         <Animated.View style={[styles.card, press.style]}>
           <View style={styles.cardTopRow}>
-            <Text style={styles.cardName} numberOfLines={1}>
-              {order.customer_name}
-            </Text>
+            <View style={styles.cardNameRow}>
+              <Text style={styles.cardName} numberOfLines={1}>
+                {order.customer_name}
+              </Text>
+              <View style={styles.statusIndicator}>
+                <View style={[styles.statusDot, { backgroundColor: badgeColor }]} />
+                <Text style={[styles.statusText, { color: badgeColor }]}>{badgeLabel}</Text>
+              </View>
+            </View>
             <Text style={styles.cardTotal}>{formatCurrency(order.total, currency)}</Text>
           </View>
 
+          <Text style={styles.cardItems} numberOfLines={1}>
+            {formatItemsSummary(order.items)}
+          </Text>
+
           <View style={styles.cardMiddleRow}>
-            <Text style={styles.cardItems} numberOfLines={1}>
-              {formatItemsSummary(order.items)}
+            <Text style={styles.cardMetaText}>
+              <Text style={!hasTime ? styles.cardMetaTextMuted : undefined}>{timeLabel}</Text>
+              {' · '}
+              {fulfillmentLabel}
             </Text>
-            <View style={styles.statusIndicator}>
-              <View style={[styles.statusDot, { backgroundColor: badgeColor }]} />
-              <Text style={[styles.statusText, { color: badgeColor }]}>{badgeLabel}</Text>
+            <View style={styles.cardActionsRow}>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onView();
+                }}
+                style={styles.cardIconButton}
+                hitSlop={12}
+                accessibilityLabel="View order"
+              >
+                <Ionicons name="eye-outline" size={18} color={colors.textSecondary} />
+              </Pressable>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                style={styles.cardIconButton}
+                hitSlop={12}
+                accessibilityLabel="Edit order"
+              >
+                <Ionicons name="pencil-outline" size={18} color={colors.textSecondary} />
+              </Pressable>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  setIsExpanded((v) => !v);
+                }}
+                style={styles.cardIconButton}
+                hitSlop={12}
+                accessibilityLabel={isExpanded ? 'Collapse order' : 'Expand order'}
+              >
+                <Ionicons
+                  name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={18}
+                  color={colors.textSecondary}
+                />
+              </Pressable>
             </View>
           </View>
 
-          <Text style={styles.cardMetaText}>
-            <Text style={!hasTime ? styles.cardMetaTextMuted : undefined}>{timeLabel}</Text>
-            {' · '}
-            {fulfillmentLabel}
-          </Text>
+          {isExpanded ? (
+            <Animated.View
+              entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
+              style={styles.expandedSection}
+            >
+              <Text style={styles.expandedSectionLabel}>Items</Text>
+              {order.items.map((lineItem) => (
+                <View key={lineItem.id} style={styles.expandedItemRow}>
+                  <Text style={styles.expandedItemText} numberOfLines={1}>
+                    {lineItem.quantity}× {lineItem.product_name} · {lineItem.variant_name}
+                  </Text>
+                  <Text style={styles.expandedItemPrice}>
+                    {formatCurrency(lineItem.line_total, currency)}
+                  </Text>
+                </View>
+              ))}
+
+              <View style={styles.expandedDivider} />
+
+              <Text style={styles.expandedSectionLabel}>Order</Text>
+              <View style={styles.expandedDetailRow}>
+                <Text style={styles.expandedDetailLabel}>Schedule</Text>
+                <Text style={styles.expandedDetailValue}>{timeLabel}</Text>
+              </View>
+              <View style={styles.expandedDetailRow}>
+                <Text style={styles.expandedDetailLabel}>Method</Text>
+                <Text style={styles.expandedDetailValue}>{fulfillmentLabel}</Text>
+              </View>
+
+              {canPay || canDeliver ? (
+                <View style={styles.expandedButtonRow}>
+                  {canPay ? (
+                    <Pressable
+                      style={styles.expandedActionButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        onMarkPaid();
+                      }}
+                    >
+                      <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
+                      <Text style={styles.expandedActionButtonText}>Mark as Paid</Text>
+                    </Pressable>
+                  ) : null}
+                  {canDeliver ? (
+                    <Pressable
+                      style={styles.expandedActionButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        onMarkDelivered();
+                      }}
+                    >
+                      <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
+                      <Text style={styles.expandedActionButtonText}>
+                        {order.fulfillment_type === 'delivery' ? 'Mark Delivered' : 'Mark Picked Up'}
+                      </Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ) : null}
+            </Animated.View>
+          ) : null}
         </Animated.View>
       </Pressable>
     </Animated.View>
@@ -663,26 +705,20 @@ function makeStyles(colors: Record<ColorToken, string>) {
     // Products' own Grid card (2026-08-18 entry).
     card: {
       backgroundColor: colors.surface,
-      // Only the left corners round on the card itself -- the right
-      // corners are handled by swipeContainer's own borderRadius +
-      // overflow:'hidden' clipping it at rest. Rounding all 4 corners
-      // here caused a visible gap once the card slid left over the swipe
-      // actions: the card's own top-right/bottom-right curves exposed a
-      // sliver of the page background mid-seam instead of sitting flush
-      // against the action buttons.
-      borderTopLeftRadius: radii.md,
-      borderBottomLeftRadius: radii.md,
+      borderRadius: radii.md,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
+      marginBottom: spacing.xs,
     },
+    cardNameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
     cardTopRow: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: spacing.sm,
-      marginBottom: spacing.xxs,
+      marginBottom: spacing.xs,
     },
-    cardName: { ...typography.body, color: colors.textPrimary, fontWeight: '600', flex: 1 },
+    cardName: { ...typography.body, color: colors.textPrimary, fontWeight: '600', flexShrink: 1 },
     // Per docs/DECISIONS.md's 2026-08-27 entry: dropped the filled pill
     // background in favor of a plain colored dot + text -- one more step
     // toward the "flatter, not another chip" direction this list's been
@@ -695,9 +731,8 @@ function makeStyles(colors: Record<ColorToken, string>) {
       alignItems: 'center',
       justifyContent: 'space-between',
       gap: spacing.sm,
-      marginBottom: spacing.xxs,
     },
-    cardItems: { ...typography.bodySm, color: colors.textSecondary, flex: 1 },
+    cardItems: { ...typography.bodySm, color: colors.textSecondary, flex: 1, marginBottom: spacing.xs },
     // Per docs/DECISIONS.md's 2026-08-27 refinement: dialed back from
     // typography.metric (22/600) to titleLg (16/600) -- still bold and
     // clearly the price, but no longer visually outweighing the
@@ -714,31 +749,60 @@ function makeStyles(colors: Record<ColorToken, string>) {
     // time -- otherwise both read with identical weight and the
     // placeholder can pass for actual data at a glance.
     cardMetaTextMuted: { fontStyle: 'italic', opacity: 0.7 },
-    // Swipe-to-reveal wrapper (Mark Paid / Mark Delivered) -- the card's
-    // own marginBottom moved here so the actions row behind it lines up
-    // exactly with the card's edges instead of poking out underneath.
-    swipeContainer: {
-      marginBottom: spacing.xs,
-      borderRadius: radii.md,
-      overflow: 'hidden',
-      position: 'relative',
-    },
-    swipeActionsRow: {
-      position: 'absolute',
-      top: 0,
-      bottom: 0,
-      left: 0,
-      right: 0,
-      flexDirection: 'row',
-      justifyContent: 'flex-end',
-    },
-    swipeAction: {
-      width: SWIPE_ACTION_WIDTH,
+    cardActionsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    cardIconButton: {
+      width: 20,
+      height: 20,
       alignItems: 'center',
       justifyContent: 'center',
+    },
+    expandedSection: {
+      marginTop: spacing.sm,
+      paddingTop: spacing.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
       gap: spacing.xxs,
     },
-    swipeActionText: { ...typography.caption, color: colors.textInverse, fontWeight: '600' },
+    expandedSectionLabel: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      fontWeight: '600',
+      marginBottom: spacing.xxs,
+    },
+    expandedItemRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      gap: spacing.sm,
+      paddingVertical: spacing.xxs,
+    },
+    expandedItemText: { ...typography.bodySm, color: colors.textPrimary, flex: 1 },
+    expandedItemPrice: { ...typography.bodySm, color: colors.textPrimary },
+    expandedDivider: { height: 1, backgroundColor: colors.border, marginVertical: spacing.sm },
+    expandedDetailRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      paddingVertical: spacing.xxs,
+    },
+    expandedDetailLabel: { ...typography.bodySm, color: colors.textSecondary },
+    expandedDetailValue: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
+    expandedButtonRow: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      marginTop: spacing.md,
+    },
+    expandedActionButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xs,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      paddingVertical: spacing.sm,
+      minHeight: 44,
+    },
+    expandedActionButtonText: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
     emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     emptyTitle: {
       ...typography.titleLg,

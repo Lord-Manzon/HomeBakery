@@ -136,7 +136,12 @@ export function OrderForm({
       scheduled_date: toISODateString(scheduledDate),
       scheduled_time: scheduledTime ? toTimeString(scheduledTime) : '',
       notes,
-      items: items.map((i) => ({ product_id: i.product_id, variant_id: i.variant_id, quantity: i.quantity })),
+      items: items.map((i) => ({
+        id: i.id,
+        product_id: i.product_id,
+        variant_id: i.variant_id,
+        quantity: i.quantity,
+      })),
     });
 
     if (!parsed.success) {

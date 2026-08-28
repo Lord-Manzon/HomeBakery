@@ -96,4 +96,5 @@ export type OrderListFilter =
   | 'pickup'
   | 'delivered'
   | 'overdue'
-  | 'cancelled';
+  | 'cancelled'
+  | 'history';
