@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -34,15 +34,22 @@ export default function IngredientsListScreen() {
   // the stack. Shared across all cards in the list, not per-card, so
   // rapidly tapping two DIFFERENT cards back-to-back is also debounced.
   const isNavigatingRef = useRef(false);
-  const navigateToIngredient = (ingredientId: string) => {
-    if (isNavigatingRef.current) return;
-    isNavigatingRef.current = true;
-    router.push(`/ingredients/${ingredientId}`);
-    setTimeout(() => {
-      isNavigatingRef.current = false;
-    }, 600);
-  };
-  const { openAdd, lowStockOnly } = useLocalSearchParams<{ openAdd?: string; lowStockOnly?: string }>();
+  // useCallback with stable deps (router is stable, isNavigatingRef is a
+  // ref) so this keeps the same identity across re-renders — needed for
+  // IngredientCard's React.memo (below) to actually skip re-rendering
+  // rows when unrelated screen state changes, e.g. opening the Add sheet.
+  const navigateToIngredient = useCallback(
+    (ingredientId: string) => {
+      if (isNavigatingRef.current) return;
+      isNavigatingRef.current = true;
+      router.push(`/ingredients/${ingredientId}`);
+      setTimeout(() => {
+        isNavigatingRef.current = false;
+      }, 600);
+    },
+    [router]
+  );
+  const { openAdd } = useLocalSearchParams<{ openAdd?: string }>();
   const onScroll = useHideNavOnScroll();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -82,32 +89,39 @@ export default function IngredientsListScreen() {
     }
   }, [openAdd]);
 
-  // Same convention as openAdd above — lets other screens (e.g.
-  // Production's restock banner and per-row "N ingredients low" chip)
-  // deep-link straight into the existing attentionBanner filter instead
-  // of each building its own filtered list.
-  useEffect(() => {
-    if (lowStockOnly === '1') {
-      setShowLowStockOnly(true);
-      router.setParams({ lowStockOnly: undefined });
-    }
-  }, [lowStockOnly]);
-
   // Defaults to 'balanced' while the baker profile is still loading, so
   // the gauge has a sensible reading immediately rather than waiting.
   const sensitivity: GaugeSensitivity = baker?.gauge_sensitivity ?? 'balanced';
 
-  const lowStockCount = (ingredients ?? []).filter(isLowStock).length;
+  const lowStockCount = useMemo(
+    () => (ingredients ?? []).filter(isLowStock).length,
+    [ingredients]
+  );
 
-  const filtered = (ingredients ?? [])
-    .filter((i) => i.name.toLowerCase().includes(search.toLowerCase()))
-    .filter((i) => (selectedCategory === 'All' ? true : i.category === selectedCategory))
-    .filter((i) => (showLowStockOnly ? isLowStock(i) : true))
-    // Low-stock items surface first, per docs/UI_UX.md — now driven by
-    // the actual gauge percentage (closer to empty sorts first) rather
-    // than just the boolean isLowStock flag, so items get a meaningful
-    // order within "low" too, not just low-vs-not-low.
-    .sort((a, b) => gaugeSortValue(a, sensitivity) - gaugeSortValue(b, sensitivity));
+  // Memoized: this was previously recomputed on every render of this
+  // screen, including renders that have nothing to do with the list
+  // itself — e.g. setIsAddOpen(true) when tapping "Add ingredient".
+  // That meant opening the Add sheet also forced a synchronous
+  // triple-filter + gauge-sort pass over the whole ingredient list on
+  // the JS thread, in the same tick that's supposed to just open a
+  // sheet — real, blocking work sitting directly in the critical path
+  // between "tap" and "sheet appears," which read as a delay followed
+  // by a janky animation start once the JS thread finally freed up.
+  // Now only recomputes when something that actually changes the
+  // result changes.
+  const filtered = useMemo(
+    () =>
+      (ingredients ?? [])
+        .filter((i) => i.name.toLowerCase().includes(search.toLowerCase()))
+        .filter((i) => (selectedCategory === 'All' ? true : i.category === selectedCategory))
+        .filter((i) => (showLowStockOnly ? isLowStock(i) : true))
+        // Low-stock items surface first, per docs/UI_UX.md — now driven by
+        // the actual gauge percentage (closer to empty sorts first) rather
+        // than just the boolean isLowStock flag, so items get a meaningful
+        // order within "low" too, not just low-vs-not-low.
+        .sort((a, b) => gaugeSortValue(a, sensitivity) - gaugeSortValue(b, sensitivity)),
+    [ingredients, search, selectedCategory, showLowStockOnly, sensitivity]
+  );
 
   const handleAddSubmit = (input: Parameters<typeof createIngredient.mutate>[0]) => {
     createIngredient.mutate(input, {
@@ -234,7 +248,7 @@ export default function IngredientsListScreen() {
                 index={index}
                 styles={styles}
                 colors={colors}
-                onPress={() => navigateToIngredient(item.id)}
+                onPress={navigateToIngredient}
               />
             )}
           />
@@ -292,7 +306,7 @@ function CategoryChip({
   );
 }
 
-function IngredientCard({
+const IngredientCard = memo(function IngredientCard({
   ingredient,
   sensitivity,
   usedToday,
@@ -309,7 +323,12 @@ function IngredientCard({
   index: number;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
-  onPress: () => void;
+  /** Stable across re-renders (see navigateToIngredient's useCallback
+   * above) — receives the ingredient's id rather than being a fresh
+   * per-row closure, which is what lets memo() below actually prevent
+   * every visible row from re-rendering (and re-running gauge math)
+   * whenever unrelated screen state changes, e.g. opening the Add sheet. */
+  onPress: (ingredientId: string) => void;
 }) {
   const lowStock = isLowStock(ingredient);
   const gauge = getIngredientGauge(ingredient, sensitivity);
@@ -325,7 +344,7 @@ function IngredientCard({
     <Animated.View
       entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
     >
-      <Pressable onPress={onPress} onPressIn={press.onPressIn} onPressOut={press.onPressOut}>
+      <Pressable onPress={() => onPress(ingredient.id)} onPressIn={press.onPressIn} onPressOut={press.onPressOut}>
         <Animated.View style={[styles.card, gauge.status === 'out' && styles.cardOut, press.style]}>
           <View style={styles.cardTopRow}>
             <View style={[styles.iconTile, { backgroundColor: `${tintColor}1F` }]}>
@@ -370,7 +389,7 @@ function IngredientCard({
       </Pressable>
     </Animated.View>
   );
-}
+});
 
 // Styles are built per-render from the live theme palette (rather than a
 // static module-level StyleSheet.create()) so the screen reacts when the

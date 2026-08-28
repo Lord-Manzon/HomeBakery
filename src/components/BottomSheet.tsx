@@ -111,25 +111,41 @@ export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: B
     };
   }, []);
 
+  // Reset to the off-screen starting position as soon as `visible` flips
+  // true, but do NOT start the slide/fade animation here. `visible`
+  // becoming true only means React has asked the native <Modal> to
+  // present itself — on Android in particular, actually creating that
+  // native Dialog window takes a real, variable beat. Starting the
+  // Animated.timing() here meant the 250ms slide was running (and often
+  // finishing) *before* the window was actually on screen, so what the
+  // person saw was: nothing for a moment, then the sheet snapping into
+  // its final position — read as "delay, then janky". The entrance
+  // animation is now kicked off from the Modal's `onShow` (below),
+  // which only fires once it's actually visible natively, so the full
+  // slide plays out on screen instead of mostly happening off-screen.
   useEffect(() => {
     if (visible) {
       sheetTranslateY.setValue(SCREEN_HEIGHT);
-      Animated.parallel([
-        Animated.timing(backdropOpacity, {
-          toValue: 1,
-          duration: motionDuration.medium,
-          easing: sheetEasingIn,
-          useNativeDriver: true,
-        }),
-        Animated.timing(sheetTranslateY, {
-          toValue: 0,
-          duration: motionDuration.medium,
-          easing: sheetEasingIn,
-          useNativeDriver: true,
-        }),
-      ]).start();
+      backdropOpacity.setValue(0);
     }
   }, [visible]);
+
+  const runEntranceAnimation = () => {
+    Animated.parallel([
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: motionDuration.medium,
+        easing: sheetEasingIn,
+        useNativeDriver: true,
+      }),
+      Animated.timing(sheetTranslateY, {
+        toValue: 0,
+        duration: motionDuration.medium,
+        easing: sheetEasingIn,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
   const animateOutAndDismiss = () => {
     if (dismissDisabled) return;
@@ -177,6 +193,7 @@ export function BottomSheet({ visible, onDismiss, children, dismissDisabled }: B
       transparent
       animationType="none"
       onRequestClose={animateOutAndDismiss}
+      onShow={runEntranceAnimation}
       statusBarTranslucent
     >
       {/*
