@@ -52,6 +52,15 @@ function formatQty(value: number): string {
   return Number(value.toFixed(2)).toString();
 }
 
+/** Stock can legitimately go negative internally (a batch consumed more
+ * than was on hand), but showing "-7.95 kg on hand" to the baker reads
+ * like a data bug rather than "you're out". Clamp the displayed number
+ * at 0 -- the shortfall is already communicated by the needed amount
+ * and the Out of stock grouping. */
+function displayStock(value: number): number {
+  return Math.max(0, value);
+}
+
 export default function ProductionScreen() {
   const router = useRouter();
   const onScroll = useHideNavOnScroll();
@@ -100,8 +109,15 @@ export default function ProductionScreen() {
     [requirements]
   );
 
+  // Grouped once for both the blocking-count banner and the sectioned
+  // ingredient list below -- one source of truth for "what's the status
+  // of everything this bake needs" instead of recomputing per view.
+  const requirementGroups = useMemo(() => groupRequirementsByStatus(requirements), [requirements]);
+  const blockingCount = requirementGroups.insufficient.length;
+
   const progress = calculateProductionProgress(singleDateRows);
   const lowStockIngredients = (allIngredients ?? []).filter(isLowStock);
+  const lowStockGroups = useMemo(() => groupIngredientsByStockStatus(lowStockIngredients), [lowStockIngredients]);
 
   const handleToggleRow = (row: ProductionRow, scheduledDate: string) => {
     setPendingRowKey(row.key);
@@ -148,6 +164,15 @@ export default function ProductionScreen() {
           ) : (
             <>
               <ProgressBar progress={progress} styles={styles} />
+
+              {blockingCount > 0 ? (
+                <RestockBanner
+                  count={blockingCount}
+                  styles={styles}
+                  colors={colors}
+                  onPress={() => setIngredientsView('needed')}
+                />
+              ) : null}
 
               <View style={styles.listSectionHeader}>
                 <Text style={styles.listSectionTitle}>TO MAKE</Text>
@@ -223,33 +248,80 @@ export default function ProductionScreen() {
             requirements.length === 0 ? (
               <Text style={styles.emptyText}>Nothing needed yet.</Text>
             ) : (
-              requirements.map((req) => (
-                <IngredientRequirementRow
-                  key={req.ingredientId}
-                  requirement={req}
+              <>
+                <IngredientStatusSection
+                  title="Out of stock"
+                  color={colors.danger}
+                  items={requirementGroups.insufficient}
                   styles={styles}
                   colors={colors}
-                  onRestock={() => router.push(`/ingredients/${req.ingredientId}?openRestock=1`)}
+                  onRestock={(id) => router.push(`/ingredients/${id}?openRestock=1`)}
                 />
-              ))
+                <IngredientStatusSection
+                  title="Low stock"
+                  color={colors.warning}
+                  items={requirementGroups.low}
+                  styles={styles}
+                  colors={colors}
+                  onRestock={(id) => router.push(`/ingredients/${id}?openRestock=1`)}
+                />
+                <IngredientStatusSection
+                  title="Enough on hand"
+                  color={colors.success}
+                  items={requirementGroups.enough}
+                  styles={styles}
+                  colors={colors}
+                />
+              </>
             )
           ) : lowStockIngredients.length === 0 ? (
             <Text style={styles.emptyText}>Nothing running low right now.</Text>
           ) : (
-            lowStockIngredients.map((ingredient) => (
-              <LowStockRow
-                key={ingredient.id}
-                ingredient={ingredient}
+            <>
+              <StockStatusSection
+                title="Out of stock"
+                color={colors.danger}
+                items={lowStockGroups.out}
                 styles={styles}
                 colors={colors}
-                onRestock={() => router.push(`/ingredients/${ingredient.id}?openRestock=1`)}
+                onRestock={(id) => router.push(`/ingredients/${id}?openRestock=1`)}
               />
-            ))
+              <StockStatusSection
+                title="Low stock"
+                color={colors.warning}
+                items={lowStockGroups.low}
+                styles={styles}
+                colors={colors}
+                onRestock={(id) => router.push(`/ingredients/${id}?openRestock=1`)}
+              />
+            </>
           )}
         </View>
       </Animated.ScrollView>
     </Screen>
   );
+}
+
+function groupRequirementsByStatus(requirements: IngredientRequirement[]) {
+  const insufficient: IngredientRequirement[] = [];
+  const low: IngredientRequirement[] = [];
+  const enough: IngredientRequirement[] = [];
+  for (const r of requirements) {
+    if (r.status === 'insufficient') insufficient.push(r);
+    else if (r.status === 'low') low.push(r);
+    else enough.push(r);
+  }
+  return { insufficient, low, enough };
+}
+
+function groupIngredientsByStockStatus(ingredients: Ingredient[]) {
+  const out: Ingredient[] = [];
+  const low: Ingredient[] = [];
+  for (const i of ingredients) {
+    if (i.current_stock <= 0) out.push(i);
+    else low.push(i);
+  }
+  return { out, low };
 }
 
 function SkeletonList() {
@@ -352,6 +424,39 @@ function ProgressBar({
   );
 }
 
+/**
+ * Replaces the old per-row red "Need restock" badge that repeated on
+ * every ingredient line. One banner, one number, one action -- states
+ * the thing that actually matters (can't finish the bake yet) instead
+ * of six identical alarms.
+ */
+function RestockBanner({
+  count,
+  styles,
+  colors,
+  onPress,
+}: {
+  count: number;
+  styles: ReturnType<typeof makeStyles>;
+  colors: Record<ColorToken, string>;
+  onPress: () => void;
+}) {
+  return (
+    <View style={styles.bannerCard}>
+      <Ionicons name="alert-circle" size={18} color={colors.danger} style={{ marginTop: 1 }} />
+      <View style={styles.bannerTextWrap}>
+        <Text style={styles.bannerTitle}>
+          {count} ingredient{count === 1 ? '' : 's'} need{count === 1 ? 's' : ''} restocking
+        </Text>
+        <Text style={styles.bannerSubtitle}>Today's bake can't finish without them.</Text>
+      </View>
+      <Pressable onPress={onPress} hitSlop={8}>
+        <Text style={styles.bannerAction}>View list</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function ProductionRowCard({
   row,
   index,
@@ -407,8 +512,8 @@ function ProductionRowCard({
               </Text>
             ) : null}
             {lowCount > 0 ? (
-              <View style={styles.rowWarningRow}>
-                <Ionicons name="alert-circle-outline" size={12} color={colors.warning} />
+              <View style={styles.rowWarningChip}>
+                <Ionicons name="alert-circle-outline" size={11} color={colors.warning} />
                 <Text style={styles.rowWarningText}>
                   {lowCount} ingredient{lowCount === 1 ? '' : 's'} low
                 </Text>
@@ -422,97 +527,97 @@ function ProductionRowCard({
   );
 }
 
-function ingredientStatusVisual(status: ProductionIngredientStatus, colors: Record<ColorToken, string>) {
-  switch (status) {
-    case 'enough':
-      return { icon: 'checkmark-circle' as const, color: colors.success, label: 'Enough' };
-    case 'low':
-      return { icon: 'alert-circle' as const, color: colors.warning, label: 'Low' };
-    case 'insufficient':
-      return { icon: 'alert-circle' as const, color: colors.danger, label: 'Need restock' };
-  }
-}
-
-function IngredientRequirementRow({
-  requirement,
+/**
+ * Shared status-grouped section for the "Needed for production" view.
+ * The section header (color + label) carries the status that used to
+ * repeat on every row as a badge -- rows underneath just show the
+ * number and, if action is possible, a single neutral Restock button.
+ */
+function IngredientStatusSection({
+  title,
+  color,
+  items,
   styles,
   colors,
   onRestock,
 }: {
-  requirement: IngredientRequirement;
+  title: string;
+  color: string;
+  items: IngredientRequirement[];
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
-  onRestock: () => void;
+  onRestock?: (ingredientId: string) => void;
 }) {
-  const visual = ingredientStatusVisual(requirement.status, colors);
-  const needsAction = requirement.status !== 'enough';
-
+  if (items.length === 0) return null;
   return (
-    <View style={styles.ingredientRow}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.ingredientName} numberOfLines={1}>
-          {requirement.name}
-        </Text>
-        <Text style={styles.ingredientMeta}>
-          {formatQty(requirement.currentStock)} {requirement.unit} on hand · {formatQty(requirement.amountNeeded)}{' '}
-          {requirement.unit} needed
-        </Text>
-      </View>
-      <View style={{ alignItems: 'flex-end' }}>
-        <View style={styles.statusRow}>
-          <Ionicons name={visual.icon} size={14} color={visual.color} />
-          <Text style={[styles.statusLabel, { color: visual.color }]}>{visual.label}</Text>
+    <View style={styles.statusGroup}>
+      <Text style={[styles.statusGroupTitle, { color }]}>
+        {title.toUpperCase()} · {items.length}
+      </Text>
+      {items.map((req) => (
+        <View key={req.ingredientId} style={styles.ingredientRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.ingredientName} numberOfLines={1}>
+              {req.name}
+            </Text>
+            <Text style={styles.ingredientMeta}>
+              {formatQty(displayStock(req.currentStock))} {req.unit} on hand · {formatQty(req.amountNeeded)}{' '}
+              {req.unit} needed
+            </Text>
+          </View>
+          {onRestock ? (
+            <Pressable onPress={() => onRestock(req.ingredientId)} style={styles.restockButton} hitSlop={4}>
+              <Text style={styles.restockButtonText}>Restock</Text>
+            </Pressable>
+          ) : (
+            <Ionicons name="checkmark" size={18} color={colors.success} />
+          )}
         </View>
-        {needsAction ? (
-          <Pressable onPress={onRestock} hitSlop={8}>
-            <Text style={styles.restockLink}>Restock ›</Text>
-          </Pressable>
-        ) : null}
-      </View>
+      ))}
     </View>
   );
 }
 
-function LowStockRow({
-  ingredient,
+/** Same shape as IngredientStatusSection but for the Ingredients tab's
+ * own Low stock view, which works off Ingredient records rather than
+ * IngredientRequirement -- mirrors that screen's own "Low stock"/"Out
+ * of stock" vocabulary per the existing convention. */
+function StockStatusSection({
+  title,
+  color,
+  items,
   styles,
   colors,
   onRestock,
 }: {
-  ingredient: Ingredient;
+  title: string;
+  color: string;
+  items: Ingredient[];
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
-  onRestock: () => void;
+  onRestock: (ingredientId: string) => void;
 }) {
-  // Mirrors the Ingredients tab's own "Low stock"/"Out of stock" language
-  // (see app/(tabs)/ingredients/index.tsx's lowStockBadge) rather than
-  // this screen's "Enough/Low/Need restock" wording above -- this row is
-  // showing the SAME general "running low" fact the Ingredients tab
-  // already surfaces, not a production-batch-specific shortfall, so it
-  // borrows that screen's vocabulary instead of inventing a second one.
-  const isOut = ingredient.current_stock <= 0;
-  const color = isOut ? colors.danger : colors.warning;
-  const label = isOut ? 'Out of stock' : 'Low stock';
-
+  if (items.length === 0) return null;
   return (
-    <View style={styles.ingredientRow}>
-      <View style={{ flex: 1 }}>
-        <Text style={styles.ingredientName} numberOfLines={1}>
-          {ingredient.name}
-        </Text>
-        <Text style={styles.ingredientMeta}>
-          {formatQty(ingredient.current_stock)} {ingredient.unit} on hand
-        </Text>
-      </View>
-      <View style={{ alignItems: 'flex-end' }}>
-        <View style={styles.statusRow}>
-          <Ionicons name="alert-circle" size={14} color={color} />
-          <Text style={[styles.statusLabel, { color }]}>{label}</Text>
+    <View style={styles.statusGroup}>
+      <Text style={[styles.statusGroupTitle, { color }]}>
+        {title.toUpperCase()} · {items.length}
+      </Text>
+      {items.map((ingredient) => (
+        <View key={ingredient.id} style={styles.ingredientRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.ingredientName} numberOfLines={1}>
+              {ingredient.name}
+            </Text>
+            <Text style={styles.ingredientMeta}>
+              {formatQty(displayStock(ingredient.current_stock))} {ingredient.unit} on hand
+            </Text>
+          </View>
+          <Pressable onPress={() => onRestock(ingredient.id)} style={styles.restockButton} hitSlop={4}>
+            <Text style={styles.restockButtonText}>Restock</Text>
+          </Pressable>
         </View>
-        <Pressable onPress={onRestock} hitSlop={8}>
-          <Text style={styles.restockLink}>Restock ›</Text>
-        </Pressable>
-      </View>
+      ))}
     </View>
   );
 }
@@ -555,6 +660,19 @@ function makeStyles(colors: Record<ColorToken, string>) {
       borderRadius: radii.full,
       backgroundColor: colors.primary,
     },
+    bannerCard: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: spacing.sm,
+      backgroundColor: `${colors.danger}1A`,
+      borderRadius: radii.md,
+      padding: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+    bannerTextWrap: { flex: 1 },
+    bannerTitle: { ...typography.bodySm, color: colors.danger, fontWeight: '600' },
+    bannerSubtitle: { ...typography.caption, color: colors.danger, marginTop: 1 },
+    bannerAction: { ...typography.bodySm, color: colors.danger, fontWeight: '600' },
     listSectionHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -580,8 +698,18 @@ function makeStyles(colors: Record<ColorToken, string>) {
     rowTitle: { ...typography.body, color: colors.textPrimary },
     rowTitleDone: { color: colors.textSecondary, textDecorationLine: 'line-through' },
     rowNote: { ...typography.caption, color: colors.textSecondary, fontStyle: 'italic', marginTop: 1 },
-    rowWarningRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 2 },
-    rowWarningText: { ...typography.caption, color: colors.warning },
+    rowWarningChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      alignSelf: 'flex-start',
+      backgroundColor: `${colors.warning}1A`,
+      borderRadius: radii.sm,
+      paddingHorizontal: spacing.xs,
+      paddingVertical: 2,
+      marginTop: spacing.xxs,
+    },
+    rowWarningText: { ...typography.caption, color: colors.warning, fontWeight: '600' },
     rowQty: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
     dateGroup: { marginBottom: spacing.lg },
     dateGroupHeader: {
@@ -600,10 +728,17 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.sm,
     },
     viewAllLink: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
+    statusGroup: { marginTop: spacing.md },
+    statusGroupTitle: {
+      ...typography.caption,
+      fontWeight: '700',
+      letterSpacing: 0.4,
+      marginBottom: spacing.xs,
+    },
     ingredientRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
-      alignItems: 'flex-start',
+      alignItems: 'center',
       paddingVertical: spacing.sm,
       borderBottomWidth: StyleSheet.hairlineWidth,
       borderBottomColor: colors.border,
@@ -611,8 +746,13 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     ingredientName: { ...typography.body, color: colors.textPrimary },
     ingredientMeta: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
-    statusRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-    statusLabel: { ...typography.caption, fontWeight: '600' },
-    restockLink: { ...typography.caption, color: colors.primary, fontWeight: '600', marginTop: 2 },
+    restockButton: {
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      borderRadius: radii.sm,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xxs,
+    },
+    restockButtonText: { ...typography.caption, color: colors.textPrimary, fontWeight: '600' },
   });
 }
