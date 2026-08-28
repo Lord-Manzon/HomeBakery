@@ -2,9 +2,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import Animated, { FadeIn, FadeInDown, FadeOut } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
 import { useHideNavOnScroll } from '../../../src/hooks/useHideNavOnScroll';
-import { useCreateIngredient, useIngredients, useTodayUsage } from '../../../src/hooks/useIngredients';
+import { useCreateIngredient, useIngredients, useMovementHistory, useRestockIngredient } from '../../../src/hooks/useIngredients';
 import { useBakerProfile, useUpdateBakerProfile } from '../../../src/hooks/useBakerProfile';
 import { usePressScale } from '../../../src/hooks/usePressScale';
 import { useThemeColors } from '../../../src/theme/ThemeContext';
@@ -13,10 +13,9 @@ import { ErrorBanner } from '../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../src/components/PrimaryButton';
 import { IngredientFormSheet } from '../../../src/components/IngredientFormSheet';
 import { GaugeSensitivitySheet } from '../../../src/components/GaugeSensitivitySheet';
-import { StockGauge } from '../../../src/components/StockGauge';
+import { RestockSheet } from '../../../src/components/RestockSheet';
 import { Screen } from '../../../src/components/Screen';
 import { getIngredientGauge, gaugeSortValue, type GaugeSensitivity } from '../../../src/services/stockGauge';
-import { getCategoryIcon } from '../../../src/utils/ingredientCategoryIcon';
 import {
   radii,
   spacing,
@@ -54,7 +53,6 @@ export default function IngredientsListScreen() {
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { data: ingredients, isLoading, isError, refetch } = useIngredients();
-  const { data: todayUsage } = useTodayUsage();
   const { data: baker } = useBakerProfile();
   const updateBakerProfile = useUpdateBakerProfile();
   const [search, setSearch] = useState('');
@@ -62,20 +60,24 @@ export default function IngredientsListScreen() {
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isSensitivityOpen, setIsSensitivityOpen] = useState(false);
-  // The "Used Xkg today" card badge is meant as a brief glanceable
-  // confirmation right after opening the list ("yep, that use I logged
-  // is reflected"), not a permanent fixture competing for attention
-  // with actual low/out-of-stock alerts — so it fades out a few seconds
-  // after the screen mounts. Low/out-of-stock status badges are
-  // unaffected: they already take priority over the usage badge
-  // instantly (see IngredientCard below), with no fade needed.
-  // ASSUMPTION: 4s "for a bit" — easy to retune, just this one constant.
-  const USAGE_BADGE_VISIBLE_MS = 4000;
-  const [usageBadgesVisible, setUsageBadgesVisible] = useState(true);
-  useEffect(() => {
-    const t = setTimeout(() => setUsageBadgesVisible(false), USAGE_BADGE_VISIBLE_MS);
-    return () => clearTimeout(t);
+  // Which ingredient the "+" on a grid card was tapped for. Kept
+  // separate from `isRestockOpen` (rather than nulled out on dismiss) so
+  // the RestockSheet's exit animation has a valid ingredient to render
+  // while it plays — same reasoning as the "forms retain stale typed
+  // data" pattern noted in IngredientFormSheet.tsx.
+  const [restockTarget, setRestockTarget] = useState<Ingredient | null>(null);
+  const [isRestockOpen, setIsRestockOpen] = useState(false);
+  const openRestock = useCallback((ingredient: Ingredient) => {
+    setRestockTarget(ingredient);
+    setIsRestockOpen(true);
   }, []);
+  const { data: restockHistory } = useMovementHistory(restockTarget?.id ?? '');
+  const restockIngredientMutation = useRestockIngredient(restockTarget?.id ?? '');
+  // history is sorted created_at desc (see getMovementHistory), so the
+  // first 'restock' row is the most recent — matches the same lookup
+  // used on the ingredient detail screen's RestockSheet.
+  const lastRestockQuantity =
+    restockHistory?.find((m) => m.movement_type === 'restock')?.quantity_change ?? null;
   const createIngredient = useCreateIngredient();
   const headerIconPress = usePressScale();
 
@@ -232,10 +234,12 @@ export default function IngredientsListScreen() {
           <Animated.FlatList
             data={filtered}
             keyExtractor={(item) => item.id}
+            numColumns={2}
+            columnWrapperStyle={styles.gridRow}
             showsVerticalScrollIndicator={false}
             onScroll={onScroll}
             scrollEventThrottle={16}
-            contentContainerStyle={{ paddingBottom: spacing.xxxl + 96 }}
+            contentContainerStyle={styles.gridContent}
             ListEmptyComponent={
               <Text style={styles.noMatch}>No ingredients match "{search}"</Text>
             }
@@ -243,12 +247,11 @@ export default function IngredientsListScreen() {
               <IngredientCard
                 ingredient={item}
                 sensitivity={sensitivity}
-                usedToday={todayUsage?.[item.id] ?? 0}
-                usageBadgeVisible={usageBadgesVisible}
                 index={index}
                 styles={styles}
                 colors={colors}
                 onPress={navigateToIngredient}
+                onRestockPress={openRestock}
               />
             )}
           />
@@ -262,6 +265,22 @@ export default function IngredientsListScreen() {
         isSaving={createIngredient.isPending}
         errorMessage={createIngredient.isError ? "Couldn't save. Try again." : null}
       />
+
+      {restockTarget ? (
+        <RestockSheet
+          visible={isRestockOpen}
+          onDismiss={() => setIsRestockOpen(false)}
+          ingredient={restockTarget}
+          onSubmit={(input) =>
+            restockIngredientMutation.mutate(input, {
+              onSuccess: () => setIsRestockOpen(false),
+            })
+          }
+          isSaving={restockIngredientMutation.isPending}
+          errorMessage={restockIngredientMutation.isError ? "Couldn't save. Try again." : null}
+          lastRestockQuantity={lastRestockQuantity}
+        />
+      ) : null}
 
       <GaugeSensitivitySheet
         visible={isSensitivityOpen}
@@ -309,17 +328,14 @@ function CategoryChip({
 const IngredientCard = memo(function IngredientCard({
   ingredient,
   sensitivity,
-  usedToday,
-  usageBadgeVisible,
   index,
   styles,
   colors,
   onPress,
+  onRestockPress,
 }: {
   ingredient: Ingredient;
   sensitivity: GaugeSensitivity;
-  usedToday: number;
-  usageBadgeVisible: boolean;
   index: number;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
@@ -329,62 +345,80 @@ const IngredientCard = memo(function IngredientCard({
    * every visible row from re-rendering (and re-running gauge math)
    * whenever unrelated screen state changes, e.g. opening the Add sheet. */
   onPress: (ingredientId: string) => void;
+  /** Opens the shared RestockSheet for this card's ingredient. Also a
+   * stable useCallback (see openRestock above) for the same memo()
+   * reason. */
+  onRestockPress: (ingredient: Ingredient) => void;
 }) {
-  const lowStock = isLowStock(ingredient);
   const gauge = getIngredientGauge(ingredient, sensitivity);
-  const iconName = getCategoryIcon(ingredient.category);
-  const tintColor =
-    gauge.status === 'out' ? colors.danger : gauge.status === 'low' ? colors.warning : colors.success;
+  // Same convention as StockGauge.tsx's horizontal bar: "out of stock"
+  // is shown as a full, solid wash rather than a literal (and
+  // visually-indistinguishable-from-empty) 0% fill. For everything
+  // else, the fill height is the actual gauge percentage — the fill
+  // color itself doesn't separately distinguish "low" from "good"
+  // (that's what the status text below is for); it just reads as
+  // "how much is actually in the container."
+  const isOut = gauge.status === 'out';
+  const fillPercent = isOut ? 100 : gauge.percent ?? 0;
+  const fillColor = isOut ? colors.dangerMuted : colors.successMuted;
+  const statusLabel =
+    gauge.status === 'out'
+      ? 'Out of stock'
+      : gauge.status === 'low'
+        ? 'Low'
+        : gauge.status === 'none'
+          ? 'No alert set'
+          : 'Good';
+  const statusColor =
+    gauge.status === 'out'
+      ? colors.danger
+      : gauge.status === 'low'
+        ? colors.warning
+        : gauge.status === 'none'
+          ? colors.textSecondary
+          : colors.success;
   const press = usePressScale();
+  const addPress = usePressScale();
   // Staggered entrance per motion.ts's motionStagger — capped so a long
   // ingredient list doesn't make the last rows look sluggishly late.
   const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
 
   return (
     <Animated.View
+      style={styles.gridCell}
       entering={FadeInDown.duration(motionDuration.medium).delay(delay).easing(motionEasing.decelerate)}
     >
       <Pressable onPress={() => onPress(ingredient.id)} onPressIn={press.onPressIn} onPressOut={press.onPressOut}>
-        <Animated.View style={[styles.card, gauge.status === 'out' && styles.cardOut, press.style]}>
-          <View style={styles.cardTopRow}>
-            <View style={[styles.iconTile, { backgroundColor: `${tintColor}1F` }]}>
-              <Ionicons name={iconName} size={16} color={tintColor} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.cardName}>{ingredient.name}</Text>
-              {ingredient.category ? (
-                <Text style={styles.cardCategory}>{ingredient.category}</Text>
-              ) : null}
-            </View>
-            <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.cardStock}>
-                {ingredient.current_stock} {ingredient.unit}
+        <Animated.View style={[styles.card, press.style]}>
+          {fillPercent > 0 ? (
+            <View
+              pointerEvents="none"
+              style={[styles.cardFill, { height: `${fillPercent}%`, backgroundColor: fillColor }]}
+            />
+          ) : null}
+          <View style={styles.cardContent}>
+            <View style={styles.cardTopRow}>
+              <Text style={styles.cardName} numberOfLines={2}>
+                {ingredient.name}
               </Text>
-              {lowStock ? (
-                <View
-                  style={[
-                    styles.lowStockBadge,
-                    { backgroundColor: gauge.status === 'out' ? colors.dangerMuted : colors.warningMuted },
-                  ]}
-                >
-                  <Text style={[styles.lowStockBadgeText, { color: tintColor }]}>
-                    {gauge.status === 'out' ? 'Out of stock' : 'Low stock'}
-                  </Text>
-                </View>
-              ) : usedToday > 0 && usageBadgeVisible ? (
-                <Animated.View
-                  exiting={FadeOut.duration(motionDuration.medium).easing(motionEasing.standard)}
-                  style={styles.usedTodayBadge}
-                >
-                  <Ionicons name="arrow-down" size={9} color={colors.textSecondary} />
-                  <Text style={styles.usedTodayBadgeText}>
-                    Used {usedToday} {ingredient.unit} today
-                  </Text>
+              <Pressable
+                onPress={() => onRestockPress(ingredient)}
+                onPressIn={addPress.onPressIn}
+                onPressOut={addPress.onPressOut}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel={`Restock ${ingredient.name}`}
+              >
+                <Animated.View style={[styles.addButton, addPress.style]}>
+                  <Ionicons name="add" size={16} color={colors.primary} />
                 </Animated.View>
-              ) : null}
+              </Pressable>
             </View>
+            <Text style={[styles.cardStatus, { color: statusColor }]}>{statusLabel}</Text>
+            <Text style={styles.cardQty}>
+              {ingredient.current_stock} {ingredient.unit}
+            </Text>
           </View>
-          <StockGauge percent={gauge.percent} status={gauge.status} />
         </Animated.View>
       </Pressable>
     </Animated.View>
@@ -460,51 +494,49 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.md,
     },
     attentionText: { ...typography.bodySm, color: colors.danger, flex: 1 },
+    gridContent: { paddingBottom: spacing.xxxl + 96, gap: spacing.sm },
+    gridRow: { gap: spacing.sm },
+    gridCell: { flex: 1 },
     card: {
+      minHeight: 128,
+      borderRadius: radii.lg,
+      overflow: 'hidden',
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
-      borderRadius: radii.lg,
-      padding: spacing.md,
-      marginBottom: spacing.sm,
     },
-    cardOut: {
-      borderColor: colors.danger,
+    // Absolutely positioned, bottom-anchored fill representing how full
+    // the ingredient's stock is — see the fillPercent/fillColor comment
+    // in IngredientCard. Sits behind cardContent; the card's own
+    // `overflow: hidden` keeps it clipped to the rounded corners.
+    cardFill: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+    },
+    cardContent: {
+      flex: 1,
+      padding: spacing.md,
+      justifyContent: 'space-between',
     },
     cardTopRow: {
       flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      marginBottom: spacing.sm,
+      alignItems: 'flex-start',
+      justifyContent: 'space-between',
+      gap: spacing.xs,
     },
-    iconTile: {
-      width: 32,
-      height: 32,
-      borderRadius: radii.sm,
+    cardName: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '700', flex: 1 },
+    addButton: {
+      width: 26,
+      height: 26,
+      borderRadius: radii.full,
       alignItems: 'center',
       justifyContent: 'center',
+      backgroundColor: `${colors.primary}26`,
     },
-    cardName: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
-    cardCategory: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xxs },
-    cardStock: { ...typography.body, color: colors.textPrimary },
-    lowStockBadge: {
-      borderRadius: radii.full,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 2,
-      marginTop: spacing.xxs,
-    },
-    lowStockBadgeText: { ...typography.caption },
-    usedTodayBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 3,
-      backgroundColor: colors.surfaceMuted,
-      borderRadius: radii.full,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 2,
-      marginTop: spacing.xxs,
-    },
-    usedTodayBadgeText: { ...typography.caption, color: colors.textSecondary },
+    cardStatus: { ...typography.caption, fontWeight: '600' },
+    cardQty: { ...typography.bodySm, color: colors.textSecondary },
     emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     emptyTitle: { ...typography.titleLg, color: colors.textPrimary, marginBottom: spacing.xs },
     emptyNote: {
