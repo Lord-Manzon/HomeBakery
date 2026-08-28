@@ -480,7 +480,20 @@ export default function ProductsListScreen() {
   );
 }
 
-const MAX_VISIBLE_VARIANT_CHIPS = 2;
+// A single line price display instead of per-variant chips — clearer
+// at a glance, and avoids "+N more" clutter for products with several
+// sizes. Equal-priced variants collapse to one price instead of a
+// pointless "100 - 100" range.
+function getPriceDisplay(
+  variants: ProductWithVariants['variants'],
+  currency: string | null | undefined
+): string {
+  const prices = variants.map((v) => v.selling_price);
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  if (min === max) return formatCurrency(min, currency);
+  return `${formatCurrency(min, currency)} - ${formatCurrency(max, currency)}`;
+}
 
 function ProductCard({
   product,
@@ -504,8 +517,6 @@ function ProductCard({
   onPress: () => void;
   onLongPress: () => void;
 }) {
-  const visibleVariants = product.variants.slice(0, MAX_VISIBLE_VARIANT_CHIPS);
-  const hiddenCount = product.variants.length - visibleVariants.length;
   // Staggered entrance per motion.ts's motionStagger — capped so a long
   // catalog doesn't make the last cards look sluggishly late.
   const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
@@ -535,23 +546,7 @@ function ProductCard({
             {product.name}
           </Text>
           {product.variants.length > 0 ? (
-            <View style={styles.variantChipRow}>
-              {visibleVariants.map((v) => (
-                <View key={v.id} style={styles.variantChip}>
-                  <Text style={styles.variantChipText} numberOfLines={1}>
-                    {v.name}
-                  </Text>
-                  <Text style={styles.variantChipPrice}>
-                    {formatCurrency(v.selling_price, currency)}
-                  </Text>
-                </View>
-              ))}
-              {hiddenCount > 0 ? (
-                <View style={styles.variantChipMore}>
-                  <Text style={styles.variantChipMoreText}>+{hiddenCount} more</Text>
-                </View>
-              ) : null}
-            </View>
+            <Text style={styles.cardPrice}>{getPriceDisplay(product.variants, currency)}</Text>
           ) : (
             <Text style={styles.cardNoVariants}>Tap to add a price</Text>
           )}
@@ -583,8 +578,6 @@ function ProductListCard({
   onPress: () => void;
   onLongPress: () => void;
 }) {
-  const visibleVariants = product.variants.slice(0, MAX_VISIBLE_VARIANT_CHIPS + 1);
-  const hiddenCount = product.variants.length - visibleVariants.length;
   const delay = Math.min(index, motionStagger.maxStaggeredItems) * motionStagger.listItem;
   const press = usePressScale();
 
@@ -611,23 +604,7 @@ function ProductListCard({
             {product.name}
           </Text>
           {product.variants.length > 0 ? (
-            <View style={styles.variantChipRow}>
-              {visibleVariants.map((v) => (
-                <View key={v.id} style={styles.variantChip}>
-                  <Text style={styles.variantChipText} numberOfLines={1}>
-                    {v.name}
-                  </Text>
-                  <Text style={styles.variantChipPrice}>
-                    {formatCurrency(v.selling_price, currency)}
-                  </Text>
-                </View>
-              ))}
-              {hiddenCount > 0 ? (
-                <View style={styles.variantChipMore}>
-                  <Text style={styles.variantChipMoreText}>+{hiddenCount} more</Text>
-                </View>
-              ) : null}
-            </View>
+            <Text style={styles.cardPrice}>{getPriceDisplay(product.variants, currency)}</Text>
           ) : (
             <Text style={styles.cardNoVariants}>Tap to add a price</Text>
           )}
@@ -920,26 +897,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     cardBody: { padding: spacing.md },
     cardName: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
     cardNoVariants: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
-    variantChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-    variantChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.xxs,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.full,
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xxs + 1,
-      backgroundColor: colors.surfaceMuted,
-    },
-    variantChipText: { ...typography.caption, color: colors.textPrimary },
-    variantChipPrice: { ...typography.caption, color: colors.textSecondary },
-    variantChipMore: {
-      justifyContent: 'center',
-      paddingHorizontal: spacing.sm,
-      paddingVertical: spacing.xxs + 1,
-    },
-    variantChipMoreText: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
+    cardPrice: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
     emptyState: {
       alignItems: 'center',
       paddingTop: spacing.xxxl,
