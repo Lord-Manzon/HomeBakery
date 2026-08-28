@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -66,6 +66,18 @@ export default function ProductionScreen() {
   const onScroll = useHideNavOnScroll();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+
+  // Same guard as FloatingTabBar.tsx's navigateOnce -- without it, a
+  // fast double-tap on "View all", a Restock button, or the low-stock
+  // banner/chip fires router.push twice before the first navigation has
+  // settled, pushing a duplicate screen onto the stack.
+  const lastNavAtRef = useRef(0);
+  function navigateOnce(action: () => void) {
+    const now = Date.now();
+    if (now - lastNavAtRef.current < 500) return;
+    lastNavAtRef.current = now;
+    action();
+  }
 
   const [tab, setTab] = useState<ProductionTabKey>('today');
   const [ingredientsView, setIngredientsView] = useState<IngredientsViewKey>('needed');
@@ -140,7 +152,10 @@ export default function ProductionScreen() {
   // app/(tabs)/ingredients/index.tsx) -- reuse that instead of building
   // a second filtered view here. `lowStockOnly=1` mirrors the existing
   // `openAdd=1` param convention that screen already reads.
-  const goToLowStock = () => router.push({ pathname: '/ingredients', params: { lowStockOnly: '1' } });
+  const goToLowStock = () =>
+    navigateOnce(() => router.push({ pathname: '/ingredients', params: { lowStockOnly: '1' } }));
+  const goToRestock = (ingredientId: string) =>
+    navigateOnce(() => router.push(`/ingredients/${ingredientId}?openRestock=1`));
 
   return (
     <Screen style={styles.container}>
@@ -241,7 +256,7 @@ export default function ProductionScreen() {
         <View style={styles.ingredientsSection}>
           <View style={styles.ingredientsHeaderRow}>
             <Text style={styles.listSectionTitle}>INGREDIENTS</Text>
-            <Pressable onPress={() => router.push('/ingredients')} hitSlop={8}>
+            <Pressable onPress={() => navigateOnce(() => router.push('/ingredients'))} hitSlop={8}>
               <Text style={styles.viewAllLink}>View all ›</Text>
             </Pressable>
           </View>
@@ -264,7 +279,7 @@ export default function ProductionScreen() {
                   items={requirementGroups.insufficient}
                   styles={styles}
                   colors={colors}
-                  onRestock={(id) => router.push(`/ingredients/${id}?openRestock=1`)}
+                  onRestock={goToRestock}
                 />
                 <IngredientStatusSection
                   title="Low stock"
@@ -272,7 +287,7 @@ export default function ProductionScreen() {
                   items={requirementGroups.low}
                   styles={styles}
                   colors={colors}
-                  onRestock={(id) => router.push(`/ingredients/${id}?openRestock=1`)}
+                  onRestock={goToRestock}
                 />
                 <IngredientStatusSection
                   title="Enough on hand"
@@ -293,7 +308,7 @@ export default function ProductionScreen() {
                 items={lowStockGroups.out}
                 styles={styles}
                 colors={colors}
-                onRestock={(id) => router.push(`/ingredients/${id}?openRestock=1`)}
+                onRestock={goToRestock}
               />
               <StockStatusSection
                 title="Low stock"
@@ -301,7 +316,7 @@ export default function ProductionScreen() {
                 items={lowStockGroups.low}
                 styles={styles}
                 colors={colors}
-                onRestock={(id) => router.push(`/ingredients/${id}?openRestock=1`)}
+                onRestock={goToRestock}
               />
             </>
           )}
