@@ -301,10 +301,51 @@ export function buildDeductionLinesForItem(
     .filter((line) => line.amount > 0);
 }
 
+/** One of a row's own ingredients that doesn't have enough CURRENT stock
+ * to cover what that row itself needs. */
+export type InsufficientIngredientLine = {
+  ingredientId: string;
+  name: string;
+  unit: string;
+  currentStock: number;
+  amountNeeded: number;
+};
+
+/**
+ * Which of a single row's own ingredients are short, checked at the
+ * moment a baker is about to mark it done — used to warn before
+ * completing (never to block it; see ingredients.ts's
+ * applyProductionDeduction, which allows stock to go negative).
+ *
+ * Deliberately independent of buildIngredientRequirements' day-wide
+ * totals: this checks the row's own need against each ingredient's own
+ * current stock, since that's specifically what's about to get deducted
+ * for THIS product, not the combined day's requirement.
+ */
+export function getInsufficientIngredientsForRow(row: ProductionRow): InsufficientIngredientLine[] {
+  const lines: InsufficientIngredientLine[] = [];
+  for (const ri of row.recipeIngredients) {
+    const amountNeeded = computeIngredientAmount(ri.quantityPerBatch, row.recipePortion, row.totalQuantity);
+    if (amountNeeded <= 0) continue;
+    if (ri.currentStock < amountNeeded) {
+      lines.push({
+        ingredientId: ri.ingredientId,
+        name: ri.ingredientName,
+        unit: ri.unit,
+        currentStock: ri.currentStock,
+        amountNeeded,
+      });
+    }
+  }
+  return lines;
+}
+
 /** True only when there's at least one item and every one of them is
  * 'done' -- an empty list is never considered "complete" (there's nothing
- * to complete). Used by production.ts to decide whether checking a row
- * just finished the whole day's list and should trigger deduction. */
+ * to complete). No longer used to gate deduction (see production.ts's
+ * 2026-08-28 decision — deduction is per-row now, not per-day) but kept
+ * as a small, tested, potentially reusable building block (e.g. a future
+ * "day fully baked" indicator). */
 export function isEveryItemDone(statuses: ProductionStatus[]): boolean {
   return statuses.length > 0 && statuses.every((s) => s === 'done');
 }

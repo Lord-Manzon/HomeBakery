@@ -1450,3 +1450,58 @@ drop-in replacement (same props, same layout behavior) — no change to
 visible to the type checker either way, confirming it needed on-device
 testing to catch — noted for future screens using this hook). `npx jest`
 — 5 suites, 82 tests, all passing, unaffected (no business logic touched).
+
+### 2026-08-28 — Deduction switched from "whole day complete" to per-row, immediate; confirm only when stock is short
+
+**Decision:** Superseding this same day's earlier "gated on the WHOLE
+day's checklist reaching 100%" entry. `production.ts`'s
+`setProductionRowStatus` now deducts (or reverses) a row's own
+ingredients the moment that row itself is marked done/pending — it no
+longer checks whether every other row for the date is also done, and no
+longer re-fetches the day to find out. The function's signature changed
+to take that row's own underlying order_items directly (id, quantity,
+recipe data) instead of `orderItemIds` + `scheduledDate`; the screen
+already has this from whichever Today/Tomorrow/Upcoming query populated
+it, so the function itself now does one query (the status update) instead
+of two.
+
+**Why the reversal:** re-examined against a concrete workflow question —
+should deduction fire on checking a box, or wait for an explicit
+"Complete" action — the earlier reasoning ("a baker mid-way through a
+day's list hasn't necessarily used an ingredient yet") turned out to be
+solving a problem that doesn't exist at the per-product level. Marking
+one specific product done means that product's own ingredients were
+genuinely used, regardless of whether unrelated rows in the same day's
+list are finished yet. The simpler model is also the more correct one
+here, not just easier to build.
+
+**Never blocks; confirms only the risky branch:** checking a row off
+still can't be blocked by insufficient stock — `ingredients.ts`'s
+`applyProductionDeduction` still has no floor, stock still goes negative
+rather than silently skipping the deduction. New: `productionLogic.ts`'s
+`getInsufficientIngredientsForRow` checks a row's own ingredients against
+current stock at the moment it's about to be marked done. If everything's
+covered, it deducts immediately with a brief, self-clearing "N
+ingredients deducted" note under the row (no popup). If something's
+short, a confirm dialog — reusing the existing `ConfirmDialog` component,
+no new modal pattern — lists exactly what's short and what will go
+negative, with Cancel / Complete anyway. This mirrors how confirmations
+are used everywhere else in the app: reserved for the consequential
+branch of an action (see the 2026-08-26 revert-actions entry), not added
+to the routine case, which stays a single tap.
+
+**Settings copy simplified to match:** "When on, marking a product done
+in Production subtracts its recipe's ingredients from stock right away."
+— dropped the "once that day's checklist is fully done" clause entirely,
+since that behavior no longer exists.
+
+**Alternatives considered:** A confirmation on every completion
+regardless of stock (proposed in an external design review) — declined
+as inconsistent with this app's own established pattern of instant,
+no-confirm quick actions (Mark Paid/Mark Delivered) for the routine case.
+
+**Verified:** `npx tsc --noEmit` — zero errors on everything touched (one
+pre-existing, unrelated error in `recipes/[id]/instructions.tsx` re:
+`total_time_minutes`, confirmed via `git stash` to predate this change —
+not fixed here, out of scope). `npx jest` — 5 suites, 85 tests, all
+passing (3 new, covering `getInsufficientIngredientsForRow`).

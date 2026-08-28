@@ -4,6 +4,7 @@ import {
   calculateProductionProgress,
   computeIngredientAmount,
   countLowIngredientsForRow,
+  getInsufficientIngredientsForRow,
   getProductionIngredientStatus,
   groupProductionItems,
   groupProductionItemsByDate,
@@ -213,6 +214,34 @@ describe('buildDeductionLinesForItem', () => {
   it('returns no lines when recipe_portion is null', () => {
     const item = makeItem({ recipePortion: null, recipeIngredients: [flour] });
     expect(buildDeductionLinesForItem(item)).toEqual([]);
+  });
+});
+
+describe('getInsufficientIngredientsForRow', () => {
+  it('flags an ingredient whose current stock is below what this row needs', () => {
+    // cocoa: 500g on hand, needs 400g × 1 unit = 400g -- fine on its own,
+    // but flour (2.5kg on hand, needs only 1kg here) is not short.
+    const rows = groupProductionItems([makeItem({ recipeIngredients: [cocoa, flour] })]);
+    const shortfalls = getInsufficientIngredientsForRow(rows[0]);
+    expect(shortfalls).toEqual([]);
+  });
+
+  it('flags it when the row\'s own quantity pushes the need past current stock', () => {
+    // cocoa: 500g on hand, quantity 2 -> needs 800g for this row alone.
+    const rows = groupProductionItems([
+      makeItem({ quantity: 2, recipePortion: 1, recipeIngredients: [cocoa] }),
+    ]);
+    const shortfalls = getInsufficientIngredientsForRow(rows[0]);
+    expect(shortfalls).toEqual([
+      { ingredientId: 'cocoa', name: 'Cocoa powder', unit: 'g', currentStock: 500, amountNeeded: 800 },
+    ]);
+  });
+
+  it('ignores ingredients from a variant with no recipe linked', () => {
+    const rows = groupProductionItems([
+      makeItem({ recipePortion: null, recipeIngredients: [cocoa] }),
+    ]);
+    expect(getInsufficientIngredientsForRow(rows[0])).toEqual([]);
   });
 });
 

@@ -4,6 +4,7 @@ import {
   getProductionSourceItemsAfter,
   setProductionRowStatus,
 } from '../services/production';
+import type { ProductionSourceItem } from '../services/productionLogic';
 import type { ProductionStatus } from '../types/order';
 
 const productionDateKey = (date: string) => ['production', 'date', date] as const;
@@ -23,25 +24,29 @@ export function useProductionAfter(dateExclusive: string) {
 }
 
 /**
- * Checks/unchecks one checklist row. `autoDeductEnabled` comes from the
- * baker's own profile (bakers.auto_deduct_inventory) -- the calling
- * screen reads it via useBakerProfile() and passes it through, same
- * pattern as markOrderPaid's paymentMethod argument in useOrders.ts.
+ * Checks/unchecks one checklist row. `items` are that row's own
+ * underlying order_items (id/quantity/recipe data), already sitting in
+ * whichever Today/Tomorrow/Upcoming query populated the screen -- no
+ * separate fetch needed here (see production.ts's setProductionRowStatus,
+ * which deducts/reverses immediately per row rather than waiting for the
+ * whole day, per the 2026-08-28 decision superseding the earlier gate).
+ * `autoDeductEnabled` comes from the baker's own profile
+ * (bakers.auto_deduct_inventory) -- the calling screen reads it via
+ * useBakerProfile() and passes it through, same pattern as
+ * markOrderPaid's paymentMethod argument in useOrders.ts.
  */
 export function useSetProductionRowStatus() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({
-      orderItemIds,
+      items,
       newStatus,
-      scheduledDate,
       autoDeductEnabled,
     }: {
-      orderItemIds: string[];
+      items: Pick<ProductionSourceItem, 'orderItemId' | 'quantity' | 'recipePortion' | 'recipeIngredients'>[];
       newStatus: ProductionStatus;
-      scheduledDate: string;
       autoDeductEnabled: boolean;
-    }) => setProductionRowStatus(orderItemIds, newStatus, scheduledDate, autoDeductEnabled),
+    }) => setProductionRowStatus(items, newStatus, autoDeductEnabled),
     onSuccess: () => {
       // A toggle can affect this date's list, the Upcoming range, AND
       // ingredient stock (if auto-deduction just fired) -- invalidate all

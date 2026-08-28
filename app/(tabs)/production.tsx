@@ -18,13 +18,17 @@ import {
   buildIngredientRequirements,
   calculateProductionProgress,
   countLowIngredientsForRow,
+  getInsufficientIngredientsForRow,
   groupProductionItems,
   groupProductionItemsByDate,
   type IngredientRequirement,
+  type InsufficientIngredientLine,
   type ProductionIngredientStatus,
   type ProductionRow,
+  type ProductionSourceItem,
 } from '../../src/services/productionLogic';
 import { formatGroupHeaderDate, formatOrderDate, todayDateString, tomorrowDateString } from '../../src/utils/dateFormat';
+import { ConfirmDialog } from '../../src/components/ConfirmDialog';
 import { ErrorBanner } from '../../src/components/ErrorBanner';
 import { Screen } from '../../src/components/Screen';
 import { radii, spacing, typography, motionDuration, motionEasing } from '../../src/theme';
@@ -59,6 +63,16 @@ function formatQty(value: number): string {
  * and the Out of stock grouping. */
 function displayStock(value: number): number {
   return Math.max(0, value);
+}
+
+/** Plain-text body for the "complete anyway?" confirm -- ConfirmDialog
+ * only takes a string message, not JSX, so the per-ingredient shortfall
+ * list is built as lines here rather than as its own component. */
+function buildInsufficientMessage(lines: InsufficientIngredientLine[]): string {
+  const detail = lines
+    .map((l) => `${l.name} — ${formatQty(l.currentStock)} ${l.unit} on hand, ${formatQty(l.amountNeeded)} ${l.unit} needed`)
+    .join('\n');
+  return `Not quite enough on hand for this batch:\n\n${detail}\n\nCompleting anyway will let stock go negative for these ingredients.`;
 }
 
 export default function ProductionScreen() {
@@ -131,17 +145,69 @@ export default function ProductionScreen() {
   const lowStockIngredients = (allIngredients ?? []).filter(isLowStock);
   const lowStockGroups = useMemo(() => groupIngredientsByStockStatus(lowStockIngredients), [lowStockIngredients]);
 
-  const handleToggleRow = (row: ProductionRow, scheduledDate: string) => {
+  // Which raw order_items back the row currently being toggled -- whatever
+  // query populated the active tab already has this, no extra fetch.
+  const rawItemsForTab: ProductionSourceItem[] =
+    tab === 'today' ? todayQuery.data ?? [] : tab === 'tomorrow' ? tomorrowQuery.data ?? [] : upcomingQuery.data ?? [];
+
+  // Set only while a row's own ingredients are short on stock and we're
+  // waiting on the baker to confirm completing it anyway (see
+  // ConfirmDialog below) -- per product decision, 2026-08-28: never block
+  // completion, but don't deduct into a confirmed shortfall silently
+  // either.
+  const [confirmRow, setConfirmRow] = useState<{
+    row: ProductionRow;
+    items: ProductionSourceItem[];
+    insufficient: InsufficientIngredientLine[];
+  } | null>(null);
+
+  // Brief "N ingredients deducted" feedback under a row right after it's
+  // completed -- cleared automatically so it doesn't linger indefinitely
+  // or collide with that row's own low-ingredient warning once stock
+  // re-settles.
+  const [justDeducted, setJustDeducted] = useState<{ key: string; count: number } | null>(null);
+  const justDeductedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const performToggle = (row: ProductionRow, items: ProductionSourceItem[]) => {
     setPendingRowKey(row.key);
+    const newStatus: 'pending' | 'done' = row.isDone ? 'pending' : 'done';
     toggleRow.mutate(
+      { items, newStatus, autoDeductEnabled },
       {
-        orderItemIds: row.orderItemIds,
-        newStatus: row.isDone ? 'pending' : 'done',
-        scheduledDate,
-        autoDeductEnabled,
-      },
-      { onSettled: () => setPendingRowKey(null) }
+        onSuccess: () => {
+          const deductedCount = row.recipePortion != null ? row.recipeIngredients.length : 0;
+          if (newStatus === 'done' && autoDeductEnabled && deductedCount > 0) {
+            if (justDeductedTimeout.current) clearTimeout(justDeductedTimeout.current);
+            setJustDeducted({ key: row.key, count: deductedCount });
+            justDeductedTimeout.current = setTimeout(() => setJustDeducted(null), 2500);
+          }
+        },
+        onSettled: () => setPendingRowKey(null),
+      }
     );
+  };
+
+  // Tapping a row's checkbox: deduction never BLOCKS completion (a baker
+  // may have substituted, bought more elsewhere, or just wants the record
+  // straight) -- but if this row's own ingredients don't cover it, ask
+  // first rather than silently letting stock go negative. Unchecking, and
+  // completing when stock is fine, both skip the prompt entirely.
+  const handleToggleRow = (row: ProductionRow) => {
+    const items = rawItemsForTab.filter((item) => row.orderItemIds.includes(item.orderItemId));
+    if (!row.isDone && autoDeductEnabled) {
+      const insufficient = getInsufficientIngredientsForRow(row);
+      if (insufficient.length > 0) {
+        setConfirmRow({ row, items, insufficient });
+        return;
+      }
+    }
+    performToggle(row, items);
+  };
+
+  const handleConfirmCompleteAnyway = () => {
+    if (!confirmRow) return;
+    performToggle(confirmRow.row, confirmRow.items);
+    setConfirmRow(null);
   };
 
   const activeQuery = tab === 'today' ? todayQuery : tab === 'tomorrow' ? tomorrowQuery : upcomingQuery;
@@ -212,7 +278,8 @@ export default function ProductionScreen() {
                   colors={colors}
                   isPending={pendingRowKey === row.key && toggleRow.isPending}
                   lowCount={countLowIngredientsForRow(row, statusByIngredientId)}
-                  onToggle={() => handleToggleRow(row, dateForTab as string)}
+                  justDeductedCount={justDeducted?.key === row.key ? justDeducted.count : null}
+                  onToggle={() => handleToggleRow(row)}
                   onLowPress={goToLowStock}
                 />
               ))}
@@ -244,7 +311,8 @@ export default function ProductionScreen() {
                     colors={colors}
                     isPending={pendingRowKey === row.key && toggleRow.isPending}
                     lowCount={countLowIngredientsForRow(row, statusByIngredientId)}
-                    onToggle={() => handleToggleRow(row, group.date)}
+                    justDeductedCount={justDeducted?.key === row.key ? justDeducted.count : null}
+                    onToggle={() => handleToggleRow(row)}
                     onLowPress={goToLowStock}
                   />
                 ))}
@@ -322,6 +390,15 @@ export default function ProductionScreen() {
           )}
         </View>
       </Animated.ScrollView>
+
+      <ConfirmDialog
+        visible={!!confirmRow}
+        title={confirmRow ? `Complete ${confirmRow.row.productName} (${confirmRow.row.variantName})?` : ''}
+        message={confirmRow ? buildInsufficientMessage(confirmRow.insufficient) : ''}
+        confirmLabel="Complete anyway"
+        onConfirm={handleConfirmCompleteAnyway}
+        onCancel={() => setConfirmRow(null)}
+      />
     </Screen>
   );
 }
@@ -531,6 +608,7 @@ function ProductionRowCard({
   colors,
   isPending,
   lowCount,
+  justDeductedCount,
   onToggle,
   onLowPress,
 }: {
@@ -540,6 +618,7 @@ function ProductionRowCard({
   colors: Record<ColorToken, string>;
   isPending: boolean;
   lowCount: number;
+  justDeductedCount: number | null;
   onToggle: () => void;
   onLowPress: () => void;
 }) {
@@ -580,7 +659,14 @@ function ProductionRowCard({
                 {row.note}
               </Text>
             ) : null}
-            {lowCount > 0 ? (
+            {justDeductedCount != null ? (
+              <View style={styles.rowDeductedRow}>
+                <Ionicons name="checkmark-circle-outline" size={11} color={colors.success} />
+                <Text style={styles.rowDeductedText}>
+                  {justDeductedCount} ingredient{justDeductedCount === 1 ? '' : 's'} deducted
+                </Text>
+              </View>
+            ) : lowCount > 0 ? (
               // Nested inside the row's own Pressable (which toggles
               // done/not-done) -- RN gives the innermost Pressable the
               // touch, so tapping the chip opens the filtered ingredient
@@ -789,6 +875,14 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginTop: spacing.xxs,
     },
     rowWarningText: { ...typography.caption, color: colors.warning, fontWeight: '600' },
+    rowDeductedRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 3,
+      alignSelf: 'flex-start',
+      marginTop: spacing.xxs,
+    },
+    rowDeductedText: { ...typography.caption, color: colors.success, fontWeight: '600' },
     rowQty: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
     dateGroup: { marginBottom: spacing.lg },
     dateGroupHeader: {

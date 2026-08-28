@@ -160,9 +160,8 @@ export default function AppearanceScreen() {
             Automatically deduct ingredients
           </Text>
           <Text style={{ fontSize: 12, color: colors.textSecondary, marginTop: 2 }}>
-            When on, checking off a product in Production subtracts its recipe's ingredients from
-            stock once that day's checklist is fully done. When off, checking items off only
-            updates the checklist.
+            When on, marking a product done in Production subtracts its recipe's ingredients from
+            stock right away. When off, checking items off only updates the checklist.
           </Text>
         </View>
         <Ionicons
