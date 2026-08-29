@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown } from 'react-native-reanimated';
-import { useHideNavOnScroll } from '../../../src/hooks/useHideNavOnScroll';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useCreateIngredient, useIngredients, useMovementHistory, useRestockIngredient } from '../../../src/hooks/useIngredients';
 import { useBakerProfile, useUpdateBakerProfile } from '../../../src/hooks/useBakerProfile';
 import { usePressScale } from '../../../src/hooks/usePressScale';
@@ -28,6 +28,7 @@ import type { ColorToken } from '../../../src/theme/colors';
 
 export default function IngredientsListScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   // Guards against a double-tap (or a slow re-render registering the
   // same tap twice) pushing two copies of the same detail screen onto
   // the stack. Shared across all cards in the list, not per-card, so
@@ -49,7 +50,6 @@ export default function IngredientsListScreen() {
     [router]
   );
   const { openAdd } = useLocalSearchParams<{ openAdd?: string }>();
-  const onScroll = useHideNavOnScroll();
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { data: ingredients, isLoading, isError, refetch } = useIngredients();
@@ -60,6 +60,11 @@ export default function IngredientsListScreen() {
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isSensitivityOpen, setIsSensitivityOpen] = useState(false);
+  // Header toggles between "Ingredients" + icons and a back-arrow +
+  // inline search input in their place, matching the Products screen's
+  // pattern — not a separate always-visible search bar. Exiting search
+  // (back arrow) also clears the query, same as a Cancel button would.
+  const [isSearchMode, setIsSearchMode] = useState(false);
   // Which ingredient the "+" on a grid card was tapped for. Kept
   // separate from `isRestockOpen` (rather than nulled out on dismiss) so
   // the RestockSheet's exit animation has a valid ingredient to render
@@ -80,6 +85,8 @@ export default function IngredientsListScreen() {
     restockHistory?.find((m) => m.movement_type === 'restock')?.quantity_change ?? null;
   const createIngredient = useCreateIngredient();
   const headerIconPress = usePressScale();
+  const searchIconPress = usePressScale();
+  const backIconPress = usePressScale();
 
   // Opened via the global Quick Add card's "Add ingredient" action
   // (?openAdd=1) — see docs/DECISIONS.md's 2026-08-19 entry. Only fires
@@ -125,6 +132,18 @@ export default function IngredientsListScreen() {
     [ingredients, search, selectedCategory, showLowStockOnly, sensitivity]
   );
 
+  // Built by hand (2 per row) instead of FlatList's numColumns — this
+  // keeps the category row in the same ScrollView as the header so
+  // stickyHeaderIndices can pin it below, which doesn't work reliably
+  // with FlatList's own numColumns row-chunking.
+  const gridRows = useMemo(() => {
+    const rows: Ingredient[][] = [];
+    for (let i = 0; i < filtered.length; i += 2) {
+      rows.push(filtered.slice(i, i + 2));
+    }
+    return rows;
+  }, [filtered]);
+
   const handleAddSubmit = (input: Parameters<typeof createIngredient.mutate>[0]) => {
     createIngredient.mutate(input, {
       onSuccess: () => setIsAddOpen(false),
@@ -140,81 +159,146 @@ export default function IngredientsListScreen() {
 
   const isEmpty = !ingredients || ingredients.length === 0;
 
-  return (
-    <Screen style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Ingredients</Text>
-        <Pressable
-          onPress={() => setIsSensitivityOpen(true)}
-          onPressIn={headerIconPress.onPressIn}
-          onPressOut={headerIconPress.onPressOut}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Stock gauge sensitivity"
-        >
-          <Animated.View style={[styles.headerIconButton, headerIconPress.style]}>
-            <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
-          </Animated.View>
-        </Pressable>
-      </View>
+  // Reused above the loading/error/empty states (where nothing scrolls,
+  // so it just sits statically) and as the first, non-sticky child
+  // inside the main ScrollView below (where it scrolls away, leaving
+  // the category row pinned via stickyHeaderIndices).
+  const headerContent = (
+    <View style={styles.headerRow}>
+      {isSearchMode ? (
+        <>
+          <Pressable
+            onPress={() => {
+              setIsSearchMode(false);
+              setSearch('');
+            }}
+            onPressIn={backIconPress.onPressIn}
+            onPressOut={backIconPress.onPressOut}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Close search"
+          >
+            <Animated.View style={[styles.headerIconButton, backIconPress.style]}>
+              <Ionicons name="arrow-back" size={20} color={colors.textPrimary} />
+            </Animated.View>
+          </Pressable>
+          <TextInput
+            autoFocus
+            style={styles.headerSearchInput}
+            placeholder="Search ingredients"
+            placeholderTextColor={colors.textSecondary}
+            value={search}
+            onChangeText={setSearch}
+            autoCapitalize="none"
+          />
+          <Pressable
+            onPress={() => setIsSensitivityOpen(true)}
+            onPressIn={headerIconPress.onPressIn}
+            onPressOut={headerIconPress.onPressOut}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel="Stock gauge sensitivity"
+          >
+            <Animated.View style={[styles.headerIconButton, headerIconPress.style]}>
+              <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
+            </Animated.View>
+          </Pressable>
+        </>
+      ) : (
+        <>
+          <Text style={styles.title}>Ingredients</Text>
+          <View style={styles.headerIconsRow}>
+            <Pressable
+              onPress={() => setIsSearchMode(true)}
+              onPressIn={searchIconPress.onPressIn}
+              onPressOut={searchIconPress.onPressOut}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Search ingredients"
+            >
+              <Animated.View style={[styles.headerIconButton, searchIconPress.style]}>
+                <Ionicons name="search-outline" size={20} color={colors.textPrimary} />
+              </Animated.View>
+            </Pressable>
+            <Pressable
+              onPress={() => setIsSensitivityOpen(true)}
+              onPressIn={headerIconPress.onPressIn}
+              onPressOut={headerIconPress.onPressOut}
+              hitSlop={12}
+              accessibilityRole="button"
+              accessibilityLabel="Stock gauge sensitivity"
+            >
+              <Animated.View style={[styles.headerIconButton, headerIconPress.style]}>
+                <Ionicons name="options-outline" size={20} color={colors.textPrimary} />
+              </Animated.View>
+            </Pressable>
+          </View>
+        </>
+      )}
+    </View>
+  );
 
+  const categoryChips = (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.categoryRow}
+      contentContainerStyle={styles.categoryRowContent}
+    >
+      {['All', ...INGREDIENT_CATEGORIES].map((c) => (
+        <CategoryChip
+          key={c}
+          label={c}
+          isSelected={selectedCategory === c}
+          styles={styles}
+          onPress={() => setSelectedCategory(c)}
+        />
+      ))}
+    </ScrollView>
+  );
+
+  return (
+    <Screen style={[styles.container, { paddingTop: insets.top }]}>
       {isLoading ? (
         <>
+          {headerContent}
           {[1, 2, 3, 4].map((n) => (
             <View key={n} style={styles.skeletonCard} />
           ))}
         </>
       ) : isError ? (
         <>
+          {headerContent}
           <ErrorBanner message="Couldn't load your ingredients." />
           <PrimaryButton title="Try again" onPress={() => refetch()} />
         </>
       ) : isEmpty ? (
-        <Animated.View
-          entering={FadeIn.duration(motionDuration.medium).easing(motionEasing.decelerate)}
-          style={styles.emptyContainer}
-        >
-          <Text style={styles.emptyTitle}>No ingredients yet</Text>
-          <Text style={styles.emptyNote}>Add one to start tracking your stock.</Text>
-          <View style={styles.emptyButton}>
-            <PrimaryButton title="Add ingredient" onPress={() => setIsAddOpen(true)} />
-          </View>
-        </Animated.View>
-      ) : (
         <>
-          <View style={styles.searchBar}>
-            <Ionicons name="search-outline" size={18} color={colors.textSecondary} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search ingredients"
-              placeholderTextColor={colors.textSecondary}
-              value={search}
-              onChangeText={setSearch}
-              autoCapitalize="none"
-            />
-            {search.length > 0 && (
-              <Pressable onPress={() => setSearch('')} hitSlop={8}>
-                <Ionicons name="close-circle" size={18} color={colors.textSecondary} />
-              </Pressable>
-            )}
-          </View>
-
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.categoryRow}
-            contentContainerStyle={styles.categoryRowContent}
+          {headerContent}
+          <Animated.View
+            entering={FadeIn.duration(motionDuration.medium).easing(motionEasing.decelerate)}
+            style={styles.emptyContainer}
           >
-            {['All', ...INGREDIENT_CATEGORIES].map((c) => (
-              <CategoryChip
-                key={c}
-                label={c}
-                isSelected={selectedCategory === c}
-                styles={styles}
-                onPress={() => setSelectedCategory(c)}
-              />
-            ))}
-          </ScrollView>
+            <Text style={styles.emptyTitle}>No ingredients yet</Text>
+            <Text style={styles.emptyNote}>Add one to start tracking your stock.</Text>
+            <View style={styles.emptyButton}>
+              <PrimaryButton title="Add ingredient" onPress={() => setIsAddOpen(true)} />
+            </View>
+          </Animated.View>
+        </>
+      ) : (
+        // stickyHeaderIndices={[1]}: index 0 is headerContent (scrolls
+        // away normally), index 1 is the category row (pins to the top
+        // once scrolled past). Nothing on this screen drives the shared
+        // bottom-nav-hide value anymore, so FloatingTabBar just stays
+        // visible the whole time you're on this screen.
+        <ScrollView
+          stickyHeaderIndices={[1]}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {headerContent}
+          <View style={styles.stickyCategoryWrap}>{categoryChips}</View>
 
           {lowStockCount > 0 && (
             <Animated.View entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}>
@@ -231,31 +315,30 @@ export default function IngredientsListScreen() {
             </Animated.View>
           )}
 
-          <Animated.FlatList
-            data={filtered}
-            keyExtractor={(item) => item.id}
-            numColumns={2}
-            columnWrapperStyle={styles.gridRow}
-            showsVerticalScrollIndicator={false}
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-            contentContainerStyle={styles.gridContent}
-            ListEmptyComponent={
-              <Text style={styles.noMatch}>No ingredients match "{search}"</Text>
-            }
-            renderItem={({ item, index }) => (
-              <IngredientCard
-                ingredient={item}
-                sensitivity={sensitivity}
-                index={index}
-                styles={styles}
-                colors={colors}
-                onPress={navigateToIngredient}
-                onRestockPress={openRestock}
-              />
-            )}
-          />
-        </>
+          {filtered.length === 0 ? (
+            <Text style={styles.noMatch}>No ingredients match "{search}"</Text>
+          ) : (
+            <View style={styles.grid}>
+              {gridRows.map((row, rowIndex) => (
+                <View key={row.map((i) => i.id).join('-')} style={styles.gridRow}>
+                  {row.map((item, colIndex) => (
+                    <IngredientCard
+                      key={item.id}
+                      ingredient={item}
+                      sensitivity={sensitivity}
+                      index={rowIndex * 2 + colIndex}
+                      styles={styles}
+                      colors={colors}
+                      onPress={navigateToIngredient}
+                      onRestockPress={openRestock}
+                    />
+                  ))}
+                  {row.length === 1 ? <View style={styles.gridCell} /> : null}
+                </View>
+              ))}
+            </View>
+          )}
+        </ScrollView>
       )}
 
       <IngredientFormSheet
@@ -434,13 +517,22 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingHorizontal: spacing.xl,
       paddingBottom: spacing.xl,
     },
+    scrollContent: { paddingBottom: spacing.xxxl + 96 },
     headerRow: {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
+      gap: spacing.sm,
+      // Was previously part of Screen's own paddingTop (which sits
+      // outside the scrollable area, so it never moves). Moved here so
+      // it scrolls away with the title instead of leaving a fixed,
+      // increasingly-empty-looking gap above the category row once it
+      // pins to the top — see the on-device screenshot that prompted this.
+      marginTop: spacing.xl,
       marginBottom: spacing.lg,
     },
     title: { ...typography.displaySm, color: colors.textPrimary },
+    headerIconsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     headerIconButton: {
       width: 44,
       height: 44,
@@ -448,26 +540,24 @@ function makeStyles(colors: Record<ColorToken, string>) {
       alignItems: 'center',
       justifyContent: 'center',
     },
+    // Inline input that replaces the title while in search mode — no
+    // box/border of its own, matching the Products screen reference
+    // (the header row itself is the "field").
+    headerSearchInput: { flex: 1, ...typography.body, color: colors.textPrimary, padding: 0 },
     skeletonCard: {
       height: 64,
       borderRadius: radii.md,
       backgroundColor: colors.surfaceMuted,
       marginBottom: spacing.sm,
     },
-    searchBar: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: spacing.sm,
-      backgroundColor: colors.surface,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.md,
-      paddingHorizontal: spacing.md,
-      height: 44,
-      marginBottom: spacing.md,
+    // Opaque so cards scrolling underneath the pinned category row (see
+    // stickyHeaderIndices on the main ScrollView) don't show through it.
+    stickyCategoryWrap: {
+      backgroundColor: colors.background,
+      paddingTop: spacing.xs,
+      paddingBottom: spacing.sm,
     },
-    searchInput: { flex: 1, ...typography.body, color: colors.textPrimary, padding: 0 },
-    categoryRow: { height: 40, maxHeight: 40, flexGrow: 0, flexShrink: 0, marginBottom: spacing.md },
+    categoryRow: { height: 40, maxHeight: 40, flexGrow: 0, flexShrink: 0 },
     categoryRowContent: { flexGrow: 0, alignItems: 'flex-start', paddingRight: spacing.xl },
     categoryChip: {
       borderWidth: 1,
@@ -493,8 +583,8 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.md,
     },
     attentionText: { ...typography.bodySm, color: colors.danger, flex: 1 },
-    gridContent: { paddingBottom: spacing.xxxl + 96, gap: spacing.sm },
-    gridRow: { gap: spacing.sm },
+    grid: { gap: spacing.sm },
+    gridRow: { flexDirection: 'row', gap: spacing.sm },
     gridCell: { flex: 1 },
     card: {
       minHeight: 128,
