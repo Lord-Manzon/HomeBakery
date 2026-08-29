@@ -151,7 +151,7 @@ export default function ProductsListScreen() {
           if (isEditingCategories) setIsEditingCategories(false);
         }}
       >
-      <View style={styles.headerRow}>
+      <View style={[styles.headerRow, categories.length > 0 && styles.headerRowTight]}>
         {isSearchOpen ? (
           <>
             <Pressable
@@ -710,7 +710,10 @@ function makeStyles(colors: Record<ColorToken, string>) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: spacing.md,
+      marginBottom: spacing.lg,
+    },
+    headerRowTight: {
+      marginBottom: 0,
     },
     title: { ...typography.displaySm, color: colors.textPrimary },
     headerActions: { flexDirection: 'row', gap: spacing.sm },

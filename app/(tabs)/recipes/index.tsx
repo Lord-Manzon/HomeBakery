@@ -229,15 +229,9 @@ function makeStyles(colors: Record<ColorToken, string>) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      marginBottom: spacing.md,
+      marginBottom: spacing.lg,
     },
-    title: {
-  fontSize: 28,           // or typography.titleXl if you have it
-  lineHeight: 34,
-  fontWeight: '800',
-  letterSpacing: -0.3,    // slightly tighter looks more modern
-  color: colors.textPrimary,
-},
+    title: { ...typography.displaySm, color: colors.textPrimary },
     iconButton: {
       width: 44,
       height: 44,

@@ -29,10 +29,6 @@ type IngredientFormSheetProps = {
   errorMessage?: string | null;
   /** Pass the existing ingredient to pre-fill for Edit; omit for Add. */
   initialValue?: Ingredient;
-  /** Pre-fills just the name field when adding a NEW ingredient (e.g.
-   * from a search term that didn't match anything) — ignored if
-   * initialValue is set, since edit mode's name comes from there. */
-  initialName?: string;
 };
 
 /**
@@ -72,7 +68,6 @@ export function IngredientFormSheet({
   isSaving,
   errorMessage,
   initialValue,
-  initialName,
 }: IngredientFormSheetProps) {
   const isEdit = !!initialValue;
   const { data: baker } = useBakerProfile();
@@ -89,7 +84,7 @@ export function IngredientFormSheet({
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [name, setName] = useState(initialValue?.name ?? initialName ?? '');
+  const [name, setName] = useState(initialValue?.name ?? '');
   const [category, setCategory] = useState<string | null>(initialValue?.category ?? null);
   const [quantity, setQuantity] = useState(initialValue ? String(initialValue.current_stock) : '');
   const [unit, setUnit] = useState<string>(initialValue?.unit ?? '');
@@ -107,7 +102,7 @@ export function IngredientFormSheet({
   // instead of the ingredient's actual current value.
   useEffect(() => {
     if (visible) {
-      setName(initialValue?.name ?? initialName ?? '');
+      setName(initialValue?.name ?? '');
       setCategory(initialValue?.category ?? null);
       setQuantity(initialValue ? String(initialValue.current_stock) : '');
       setUnit(initialValue?.unit ?? '');
@@ -116,7 +111,7 @@ export function IngredientFormSheet({
       );
       setFieldErrors({});
     }
-  }, [visible, initialValue, initialName]);
+  }, [visible, initialValue]);
 
   const handleSave = () => {
     const parsed = ingredientFormSchema(existingNames).safeParse({
@@ -219,10 +214,8 @@ export function IngredientFormSheet({
           <FormChip
             key={c}
             label={c}
-            icon={getCategoryIcon(c)}
             isSelected={category === c}
             styles={styles}
-            colors={colors}
             onPress={() => setCategory(category === c ? null : c)}
           />
         ))}
@@ -254,7 +247,6 @@ export function IngredientFormSheet({
                 label={u}
                 isSelected={unit === u}
                 styles={styles}
-                colors={colors}
                 onPress={() => setUnit(u)}
               />
             ))}
@@ -281,22 +273,17 @@ export function IngredientFormSheet({
   );
 }
 
-// Shared by both the category row and the unit row — icon is optional
-// since unit chips (g, kg, ml, pcs...) don't have one, only category
-// chips do (via getCategoryIcon).
+// Shared by both the category row and the unit row — label-only chip,
+// no icon.
 function FormChip({
   label,
-  icon,
   isSelected,
   styles,
-  colors,
   onPress,
 }: {
   label: string;
-  icon?: keyof typeof Ionicons.glyphMap;
   isSelected: boolean;
   styles: ReturnType<typeof makeStyles>;
-  colors: Record<ColorToken, string>;
   onPress: () => void;
 }) {
   const press = usePressScale();
@@ -310,14 +297,6 @@ function FormChip({
       accessibilityState={{ selected: isSelected }}
     >
       <Animated.View style={[styles.chip, isSelected && styles.chipSelected, press.style]}>
-        {icon ? (
-          <Ionicons
-            name={icon}
-            size={14}
-            color={isSelected ? colors.textInverse : colors.textPrimary}
-            style={styles.chipIcon}
-          />
-        ) : null}
         <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{label}</Text>
       </Animated.View>
     </Pressable>
@@ -350,7 +329,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       justifyContent: 'center',
       marginRight: spacing.sm,
     },
-    chipIcon: { marginRight: spacing.xxs },
     chipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     chipText: { ...typography.bodySm, color: colors.textPrimary },
     chipTextSelected: { color: colors.textInverse },
