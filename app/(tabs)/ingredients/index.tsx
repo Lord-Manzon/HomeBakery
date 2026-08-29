@@ -351,16 +351,15 @@ const IngredientCard = memo(function IngredientCard({
   onRestockPress: (ingredient: Ingredient) => void;
 }) {
   const gauge = getIngredientGauge(ingredient, sensitivity);
-  // Same convention as StockGauge.tsx's horizontal bar: "out of stock"
-  // is shown as a full, solid wash rather than a literal (and
-  // visually-indistinguishable-from-empty) 0% fill. For everything
-  // else, the fill height is the actual gauge percentage — the fill
-  // color itself doesn't separately distinguish "low" from "good"
-  // (that's what the status text below is for); it just reads as
-  // "how much is actually in the container."
-  const isOut = gauge.status === 'out';
-  const fillPercent = isOut ? 100 : gauge.percent ?? 0;
-  const fillColor = isOut ? colors.dangerMuted : colors.successMuted;
+  // Fill height is the actual gauge percentage — no special-casing
+  // needed: out-of-stock naturally computes to 0% already (current_stock
+  // <= 0), and "no alert set" has a null percent (?? 0), so both
+  // naturally render with no fill. Color: yellow for low, green for
+  // good — the fill itself is what shows how full the container is;
+  // out-of-stock intentionally stays visually empty rather than a full
+  // colored wash.
+  const fillPercent = gauge.percent ?? 0;
+  const fillColor = gauge.status === 'ok' ? colors.successMuted : colors.warningMuted;
   const statusLabel =
     gauge.status === 'out'
       ? 'Out of stock'
