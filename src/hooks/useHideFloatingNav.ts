@@ -1,27 +1,22 @@
-import { useEffect } from 'react';
+import { useCallback, useRef } from 'react';
+import { useFocusEffect, usePathname } from 'expo-router';
 import { useScrollNav } from '../contexts/ScrollNavContext';
 
-/**
- * Call once at the top of a full-screen, single-purpose route (a form
- * like New Product, New Recipe, Restock — not a list or detail/browse
- * screen) to hide the floating pill nav + FAB while that screen is
- * mounted. See docs/DECISIONS.md's 2026-08-21 entry and
- * docs/UI_UX_1.md section G for which screens this applies to.
- *
- * Usage:
- *   export default function NewProductScreen() {
- *     useHideFloatingNav();
- *     ...
- *   }
- */
 export function useHideFloatingNav() {
   const { forceHiddenCount } = useScrollNav();
+  const pathname = usePathname();
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
 
-  useEffect(() => {
-    forceHiddenCount.value += 1;
-    return () => {
-      forceHiddenCount.value -= 1;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      forceHiddenCount.value += 1;
+      console.log('[nav-debug] FOCUS', pathnameRef.current, '→ count =', forceHiddenCount.value);
+      return () => {
+        forceHiddenCount.value -= 1;
+        console.log('[nav-debug] BLUR ', pathnameRef.current, '→ count =', forceHiddenCount.value);
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [forceHiddenCount])
+  );
 }
