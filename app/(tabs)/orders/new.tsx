@@ -32,8 +32,8 @@ export default function NewOrderScreen() {
         hasSubmitError={createOrder.isError}
         onSubmit={(input) => {
           createOrder.mutate(input, {
-            onSuccess: (order) => {
-              router.replace(`/orders/${order.id}`);
+            onSuccess: () => {
+              router.replace('/orders');
             },
           });
         }}
