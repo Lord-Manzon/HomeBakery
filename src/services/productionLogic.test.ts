@@ -202,6 +202,55 @@ describe('buildIngredientRequirements + countLowIngredientsForRow', () => {
     ]);
     expect(buildIngredientRequirements(rows)).toHaveLength(0);
   });
+
+  it('breaks each ingredient\'s total back down by product name', () => {
+    const rows = groupProductionItems([
+      makeItem({
+        orderItemId: 'a',
+        productId: 'p1',
+        variantId: 'v1',
+        productName: 'Brownies',
+        quantity: 1,
+        recipeIngredients: [cocoa],
+      }),
+      makeItem({
+        orderItemId: 'b',
+        productId: 'p2',
+        variantId: 'v2',
+        productName: 'Chocolate Cake',
+        quantity: 1,
+        recipeIngredients: [cocoa],
+      }),
+    ]);
+    const [requirement] = buildIngredientRequirements(rows);
+    expect(requirement.neededFor.sort((a, b) => a.productName.localeCompare(b.productName))).toEqual([
+      { productName: 'Brownies', amount: 400 },
+      { productName: 'Chocolate Cake', amount: 400 },
+    ]);
+  });
+
+  it('merges two variants of the same product into one neededFor entry', () => {
+    const rows = groupProductionItems([
+      makeItem({
+        orderItemId: 'a',
+        productId: 'p1',
+        variantId: 'small',
+        productName: 'Croissant',
+        quantity: 1,
+        recipeIngredients: [cocoa],
+      }),
+      makeItem({
+        orderItemId: 'b',
+        productId: 'p1',
+        variantId: 'large',
+        productName: 'Croissant',
+        quantity: 1,
+        recipeIngredients: [cocoa],
+      }),
+    ]);
+    const [requirement] = buildIngredientRequirements(rows);
+    expect(requirement.neededFor).toEqual([{ productName: 'Croissant', amount: 800 }]);
+  });
 });
 
 describe('buildDeductionLinesForItem', () => {

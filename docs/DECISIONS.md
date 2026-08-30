@@ -1505,3 +1505,104 @@ pre-existing, unrelated error in `recipes/[id]/instructions.tsx` re:
 `total_time_minutes`, confirmed via `git stash` to predate this change —
 not fixed here, out of scope). `npx jest` — 5 suites, 85 tests, all
 passing (3 new, covering `getInsufficientIngredientsForRow`).
+
+### 2026-08-28 — Ingredients section: attribute each ingredient back to its products, drop the redundant "Low stock" toggle, reformat the shortage confirm
+
+**Decision, part 1 — attribution:** `IngredientRequirement` (`productionLogic.ts`)
+now carries `neededFor: { productName, amount }[]`, built while
+`buildIngredientRequirements` sums each ingredient's total across every
+row. Two variants of the same product (e.g. Small/Large Croissant) are
+combined into one `neededFor` entry by product name — the baker cares
+which PRODUCT an ingredient is going toward, not which variant. Shown as
+a "For: Carrot Cake, Croissant" caption under each row in the Needed for
+production list (capped at 3 names, "+N more" beyond that — same
+truncation as `OrderCard`'s item summary).
+
+**Why:** raised directly by the baker persona this feature is for: an
+ingredient's total need was previously just a number with no way to tell
+what it was actually for, forcing a guess or a trip to the recipe screen.
+
+**Decision, part 2 — removed the "Low stock" toggle entirely:** Production's
+Ingredients section is now just the one grouped "Needed for production"
+view (renamed "INGREDIENTS NEEDED" now that there's no second view to
+distinguish it from) — no more `Needed for production` / `Low stock`
+switcher. Removed `StockStatusSection`, `groupIngredientsByStockStatus`,
+`UnderlineTabs`, and the screen's own `useIngredients()`/`isLowStock`
+fetch, none of which have any other caller left.
+
+**Why:** the "Needed for production" list already splits into Out of
+stock / Low stock / Enough on hand sections, scoped to what's actually
+needed right now. The separate "Low stock" toggle showed the SAME
+low/out filter the Ingredients tab already applies, just baker-wide
+instead of scoped to today — a second view of data the Ingredients tab
+already owns, not a different one. "View all →" (already existing) is
+the correct path to that baker-wide view; Production doesn't need to
+duplicate it. Net effect: less code, one less state variable, one fewer
+data fetch on this screen.
+
+**Decision, part 3 — the shortage confirm shows the actual consequence,
+not just the raw numbers:** `buildInsufficientMessage` now computes and
+shows the resulting negative stock directly per ingredient (e.g.
+"Cinnamon: 10 ml on hand, needs 20 ml → -10 ml") instead of listing
+have/need and leaving the baker to do that subtraction themselves.
+
+**Why:** direct baker feedback — the dialog needed to be "easily read,
+understand what would happen," not just accurate. Showing the arrived-at
+number is the actual answer to "what will happen if I confirm," not an
+input to compute it from.
+
+**Also, post-completion feedback now names ingredients, not just a
+count:** "Flour, Sugar deducted" (same 3-name-cap-then-"+N more" helper
+as the attribution line) replaces the earlier "2 ingredients deducted."
+
+**Verified:** `npx tsc --noEmit` — zero errors on everything touched
+(same one pre-existing, unrelated `total_time_minutes` error as the
+previous entry). `npx jest` — 5 suites, 87 tests, all passing (2 new,
+covering the `neededFor` attribution and its same-product/different-
+variant merge).
+
+### 2026-08-30 — Fixed: new orders didn't show in Production until the app was restarted; Production screen decluttered
+
+**Decision, the actual bug:** `useOrders.ts`'s mutations (create, update,
+delete, mark delivered/paid, revert either, cancel) only ever invalidated
+the `['orders']` query cache. Production's data is entirely derived from
+orders/order_items, but its queries live under a separate `['production']`
+key (`useProduction.ts`) that nothing in `useOrders.ts` ever touched — so
+a new order (or any other order change) never triggered Production to
+refetch. It only ever appeared after a full app restart, which starts
+with an empty, unstale cache. Fixed by exporting a shared
+`productionBaseKey` from `useProduction.ts` and having every one of
+`useOrders.ts`'s mutations invalidate it alongside `['orders']`.
+
+**Also fixed in the same pass — four screen polish items:**
+- Ingredient shortfall now states the actual gap: "Need 2 kg more"
+  instead of "10 kg needed" (which made the baker subtract on-hand from
+  needed themselves). Only applies to the Out-of-stock case — Low/Enough
+  already have enough for this batch, so there's nothing to state.
+- Removed the "View all" link next to "Ingredients needed" — it opened
+  the same Ingredients tab the restock banner's "View list" already
+  opens (filtered to low stock), just unfiltered. One CTA, not two.
+- Removed the "Production" title / "Today" subtitle header — the
+  Today/Tomorrow/Upcoming segmented control immediately below it already
+  states which view is showing.
+- Segmented tab control (Today/Tomorrow/Upcoming) gained a hairline
+  border (definition against the page background, which is close in
+  tone to the control's own track color) and switched the selected tab
+  from plain black-on-white to the app's accent color with a subtle
+  shadow for lift.
+
+**Also worth recording:** the `ingredient-attribution.patch` delivered in
+the prior session had been applied locally but never committed/pushed to
+`product-screen` — `git log` on a fresh clone confirmed the branch tip
+didn't have it, while the baker's own screenshots clearly showed its
+output (the "For: X" captions, no Low-stock toggle). Reconstructed by
+cherry-picking that same patch's saved commits onto the actual current
+tip and confirmed byte-for-byte against the screenshots before making
+today's changes on top — flagged here as a reminder that a delivered
+patch isn't safely "in the codebase" until it's actually pushed.
+
+**Verified:** `npx tsc --noEmit` — zero errors on everything touched
+(same two pre-existing, unrelated errors from the baker's own recent
+ingredient-form work). `npx jest` — 5 suites, 87 tests, all passing (no
+new business logic in this pass — the invalidation fix and the four UI
+changes are wiring/display only).

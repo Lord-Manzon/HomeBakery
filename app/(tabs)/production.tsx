@@ -5,7 +5,6 @@ import { useRouter } from 'expo-router';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useHideNavOnScroll } from '../../src/hooks/useHideNavOnScroll';
 import { useBakerProfile } from '../../src/hooks/useBakerProfile';
-import { useIngredients } from '../../src/hooks/useIngredients';
 import {
   useProductionAfter,
   useProductionForDate,
@@ -13,10 +12,10 @@ import {
 } from '../../src/hooks/useProduction';
 import { usePressScale } from '../../src/hooks/usePressScale';
 import { useThemeColors } from '../../src/theme/ThemeContext';
-import { isLowStock, type Ingredient } from '../../src/types/ingredient';
 import {
   buildIngredientRequirements,
   calculateProductionProgress,
+  computeIngredientAmount,
   countLowIngredientsForRow,
   getInsufficientIngredientsForRow,
   groupProductionItems,
@@ -27,7 +26,7 @@ import {
   type ProductionRow,
   type ProductionSourceItem,
 } from '../../src/services/productionLogic';
-import { formatGroupHeaderDate, formatOrderDate, todayDateString, tomorrowDateString } from '../../src/utils/dateFormat';
+import { formatGroupHeaderDate, todayDateString, tomorrowDateString } from '../../src/utils/dateFormat';
 import { ConfirmDialog } from '../../src/components/ConfirmDialog';
 import { ErrorBanner } from '../../src/components/ErrorBanner';
 import { Screen } from '../../src/components/Screen';
@@ -35,17 +34,11 @@ import { radii, spacing, typography, motionDuration, motionEasing } from '../../
 import type { ColorToken } from '../../src/theme/colors';
 
 type ProductionTabKey = 'today' | 'tomorrow' | 'upcoming';
-type IngredientsViewKey = 'needed' | 'low';
 
 const PRODUCTION_TABS: { label: string; value: ProductionTabKey }[] = [
   { label: 'Today', value: 'today' },
   { label: 'Tomorrow', value: 'tomorrow' },
   { label: 'Upcoming', value: 'upcoming' },
-];
-
-const INGREDIENTS_VIEWS: { label: string; value: IngredientsViewKey }[] = [
-  { label: 'Needed for production', value: 'needed' },
-  { label: 'Low stock', value: 'low' },
 ];
 
 /** Rounds to 2 decimals and drops trailing zeros -- recipe-portion math
@@ -65,14 +58,45 @@ function displayStock(value: number): number {
   return Math.max(0, value);
 }
 
-/** Plain-text body for the "complete anyway?" confirm -- ConfirmDialog
- * only takes a string message, not JSX, so the per-ingredient shortfall
- * list is built as lines here rather than as its own component. */
+/** Comma-joins a list of names, capping it at 3 with "+N more" -- same
+ * truncation idea as OrderCard's item summary, used here for both a
+ * row's "For: Carrot Cake, Croissant" attribution and its post-completion
+ * "Flour, Sugar deducted" feedback. */
+function formatNameList(names: string[]): string {
+  if (names.length <= 3) return names.join(', ');
+  return `${names.slice(0, 3).join(', ')} +${names.length - 3} more`;
+}
+
+/**
+ * Plain-text body for the "complete anyway?" confirm -- ConfirmDialog
+ * only takes a string message, not JSX, so this is built as lines rather
+ * than its own component. Per baker feedback (2026-08-28): show the
+ * actual CONSEQUENCE (the resulting negative number), not just the raw
+ * have/need pair the baker would otherwise have to subtract themselves.
+ */
 function buildInsufficientMessage(lines: InsufficientIngredientLine[]): string {
+  const count = lines.length;
   const detail = lines
-    .map((l) => `${l.name} — ${formatQty(l.currentStock)} ${l.unit} on hand, ${formatQty(l.amountNeeded)} ${l.unit} needed`)
+    .map((l) => {
+      const resulting = formatQty(l.currentStock - l.amountNeeded);
+      return `${l.name}: ${formatQty(l.currentStock)} ${l.unit} on hand, needs ${formatQty(l.amountNeeded)} ${l.unit} → ${resulting} ${l.unit}`;
+    })
     .join('\n');
-  return `Not quite enough on hand for this batch:\n\n${detail}\n\nCompleting anyway will let stock go negative for these ingredients.`;
+  return `${count} ingredient${count === 1 ? '' : 's'} won't fully cover this batch:\n\n${detail}\n\nYou can still complete it — these will just show negative until you restock.`;
+}
+
+/** For an ingredient that can't cover this batch, "10 kg needed" makes
+ * the baker do the subtraction themselves to find out how short they
+ * actually are. Show the shortage directly instead: "Need 2 kg more".
+ * Only applies to the insufficient/Out-of-stock case -- Low/Enough
+ * already have enough for this batch, so there's no shortage to state. */
+function buildIngredientMetaText(req: IngredientRequirement): string {
+  const onHand = `${formatQty(displayStock(req.currentStock))} ${req.unit} on hand`;
+  if (req.status === 'insufficient') {
+    const shortage = req.amountNeeded - req.currentStock;
+    return `${onHand} · Need ${formatQty(shortage)} ${req.unit} more`;
+  }
+  return `${onHand} · ${formatQty(req.amountNeeded)} ${req.unit} needed`;
 }
 
 export default function ProductionScreen() {
@@ -94,7 +118,6 @@ export default function ProductionScreen() {
   }
 
   const [tab, setTab] = useState<ProductionTabKey>('today');
-  const [ingredientsView, setIngredientsView] = useState<IngredientsViewKey>('needed');
   // Only the row actually being toggled shows a loading state -- a slow
   // network shouldn't visually freeze rows the baker didn't tap.
   const [pendingRowKey, setPendingRowKey] = useState<string | null>(null);
@@ -108,7 +131,6 @@ export default function ProductionScreen() {
   const todayQuery = useProductionForDate(today);
   const tomorrowQuery = useProductionForDate(tomorrow);
   const upcomingQuery = useProductionAfter(tomorrow);
-  const { data: allIngredients } = useIngredients();
   const toggleRow = useSetProductionRowStatus();
 
   const singleDateRows = useMemo(() => {
@@ -142,8 +164,6 @@ export default function ProductionScreen() {
   const blockingCount = requirementGroups.insufficient.length;
 
   const progress = calculateProductionProgress(singleDateRows);
-  const lowStockIngredients = (allIngredients ?? []).filter(isLowStock);
-  const lowStockGroups = useMemo(() => groupIngredientsByStockStatus(lowStockIngredients), [lowStockIngredients]);
 
   // Which raw order_items back the row currently being toggled -- whatever
   // query populated the active tab already has this, no extra fetch.
@@ -161,11 +181,12 @@ export default function ProductionScreen() {
     insufficient: InsufficientIngredientLine[];
   } | null>(null);
 
-  // Brief "N ingredients deducted" feedback under a row right after it's
-  // completed -- cleared automatically so it doesn't linger indefinitely
-  // or collide with that row's own low-ingredient warning once stock
-  // re-settles.
-  const [justDeducted, setJustDeducted] = useState<{ key: string; count: number } | null>(null);
+  // Brief "Flour, Sugar deducted" feedback under a row right after it's
+  // completed -- names, not just a count, so the baker can see what
+  // actually happened without tapping anything. Cleared automatically so
+  // it doesn't linger indefinitely or collide with that row's own
+  // low-ingredient warning once stock re-settles.
+  const [justDeducted, setJustDeducted] = useState<{ key: string; names: string[] } | null>(null);
   const justDeductedTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const performToggle = (row: ProductionRow, items: ProductionSourceItem[]) => {
@@ -175,10 +196,15 @@ export default function ProductionScreen() {
       { items, newStatus, autoDeductEnabled },
       {
         onSuccess: () => {
-          const deductedCount = row.recipePortion != null ? row.recipeIngredients.length : 0;
-          if (newStatus === 'done' && autoDeductEnabled && deductedCount > 0) {
+          const deductedNames =
+            row.recipePortion != null
+              ? row.recipeIngredients
+                  .filter((ri) => computeIngredientAmount(ri.quantityPerBatch, row.recipePortion, row.totalQuantity) > 0)
+                  .map((ri) => ri.ingredientName)
+              : [];
+          if (newStatus === 'done' && autoDeductEnabled && deductedNames.length > 0) {
             if (justDeductedTimeout.current) clearTimeout(justDeductedTimeout.current);
-            setJustDeducted({ key: row.key, count: deductedCount });
+            setJustDeducted({ key: row.key, names: deductedNames });
             justDeductedTimeout.current = setTimeout(() => setJustDeducted(null), 2500);
           }
         },
@@ -211,7 +237,6 @@ export default function ProductionScreen() {
   };
 
   const activeQuery = tab === 'today' ? todayQuery : tab === 'tomorrow' ? tomorrowQuery : upcomingQuery;
-  const dateForTab = tab === 'today' ? today : tab === 'tomorrow' ? tomorrow : null;
 
   // The Ingredients tab already has its own "needs attention" filter
   // (the attentionBanner + showLowStockOnly toggle in
@@ -225,13 +250,6 @@ export default function ProductionScreen() {
 
   return (
     <Screen style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={styles.title}>Production</Text>
-        <Text style={styles.subtitle}>
-          {dateForTab ? formatOrderDate(dateForTab) : 'Beyond tomorrow'}
-        </Text>
-      </View>
-
       <SegmentedControl options={PRODUCTION_TABS} value={tab} onChange={setTab} colors={colors} />
 
       <Animated.ScrollView
@@ -278,7 +296,7 @@ export default function ProductionScreen() {
                   colors={colors}
                   isPending={pendingRowKey === row.key && toggleRow.isPending}
                   lowCount={countLowIngredientsForRow(row, statusByIngredientId)}
-                  justDeductedCount={justDeducted?.key === row.key ? justDeducted.count : null}
+                  justDeductedNames={justDeducted?.key === row.key ? justDeducted.names : null}
                   onToggle={() => handleToggleRow(row)}
                   onLowPress={goToLowStock}
                 />
@@ -311,7 +329,7 @@ export default function ProductionScreen() {
                     colors={colors}
                     isPending={pendingRowKey === row.key && toggleRow.isPending}
                     lowCount={countLowIngredientsForRow(row, statusByIngredientId)}
-                    justDeductedCount={justDeducted?.key === row.key ? justDeducted.count : null}
+                    justDeductedNames={justDeducted?.key === row.key ? justDeducted.names : null}
                     onToggle={() => handleToggleRow(row)}
                     onLowPress={goToLowStock}
                   />
@@ -322,69 +340,34 @@ export default function ProductionScreen() {
         )}
 
         <View style={styles.ingredientsSection}>
-          <View style={styles.ingredientsHeaderRow}>
-            <Text style={styles.listSectionTitle}>INGREDIENTS</Text>
-            <Pressable onPress={() => navigateOnce(() => router.push('/ingredients'))} hitSlop={8}>
-              <Text style={styles.viewAllLink}>View all ›</Text>
-            </Pressable>
-          </View>
+          <Text style={styles.ingredientsSectionTitle}>INGREDIENTS NEEDED</Text>
 
-          <UnderlineTabs
-            options={INGREDIENTS_VIEWS}
-            value={ingredientsView}
-            onChange={setIngredientsView}
-            styles={styles}
-          />
-
-          {ingredientsView === 'needed' ? (
-            requirements.length === 0 ? (
-              <Text style={styles.emptyText}>Nothing needed yet.</Text>
-            ) : (
-              <>
-                <IngredientStatusSection
-                  title="Out of stock"
-                  color={colors.danger}
-                  items={requirementGroups.insufficient}
-                  styles={styles}
-                  colors={colors}
-                  onRestock={goToRestock}
-                />
-                <IngredientStatusSection
-                  title="Low stock"
-                  color={colors.warning}
-                  items={requirementGroups.low}
-                  styles={styles}
-                  colors={colors}
-                  onRestock={goToRestock}
-                />
-                <IngredientStatusSection
-                  title="Enough on hand"
-                  color={colors.success}
-                  items={requirementGroups.enough}
-                  styles={styles}
-                  colors={colors}
-                />
-              </>
-            )
-          ) : lowStockIngredients.length === 0 ? (
-            <Text style={styles.emptyText}>Nothing running low right now.</Text>
+          {requirements.length === 0 ? (
+            <Text style={styles.emptyText}>Nothing needed yet.</Text>
           ) : (
             <>
-              <StockStatusSection
+              <IngredientStatusSection
                 title="Out of stock"
                 color={colors.danger}
-                items={lowStockGroups.out}
+                items={requirementGroups.insufficient}
                 styles={styles}
                 colors={colors}
                 onRestock={goToRestock}
               />
-              <StockStatusSection
+              <IngredientStatusSection
                 title="Low stock"
                 color={colors.warning}
-                items={lowStockGroups.low}
+                items={requirementGroups.low}
                 styles={styles}
                 colors={colors}
                 onRestock={goToRestock}
+              />
+              <IngredientStatusSection
+                title="Enough on hand"
+                color={colors.success}
+                items={requirementGroups.enough}
+                styles={styles}
+                colors={colors}
               />
             </>
           )}
@@ -413,16 +396,6 @@ function groupRequirementsByStatus(requirements: IngredientRequirement[]) {
     else enough.push(r);
   }
   return { insufficient, low, enough };
-}
-
-function groupIngredientsByStockStatus(ingredients: Ingredient[]) {
-  const out: Ingredient[] = [];
-  const low: Ingredient[] = [];
-  for (const i of ingredients) {
-    if (i.current_stock <= 0) out.push(i);
-    else low.push(i);
-  }
-  return { out, low };
 }
 
 function SkeletonList() {
@@ -466,6 +439,8 @@ function SegmentedControl<T extends string>({
         flexDirection: 'row',
         backgroundColor: colors.surfaceMuted,
         borderRadius: radii.md,
+        borderWidth: StyleSheet.hairlineWidth,
+        borderColor: colors.border,
         padding: 3,
         marginBottom: spacing.lg,
       }}
@@ -484,14 +459,23 @@ function SegmentedControl<T extends string>({
               borderRadius: radii.sm,
               alignItems: 'center',
               backgroundColor: isSelected ? colors.surface : 'transparent',
+              ...(isSelected
+                ? {
+                    shadowColor: '#000',
+                    shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.08,
+                    shadowRadius: 2,
+                    elevation: 1,
+                  }
+                : null),
             }}
           >
             <Text
               numberOfLines={1}
               style={{
                 ...typography.bodySm,
-                fontWeight: isSelected ? '600' : '400',
-                color: isSelected ? colors.textPrimary : colors.textSecondary,
+                fontWeight: isSelected ? '700' : '500',
+                color: isSelected ? colors.primary : colors.textSecondary,
               }}
             >
               {opt.label}
@@ -510,42 +494,6 @@ function SegmentedControl<T extends string>({
  * content, so it reads as nested/subordinate rather than a sibling of
  * Today/Tomorrow/Upcoming.
  */
-function UnderlineTabs<T extends string>({
-  options,
-  value,
-  onChange,
-  styles,
-}: {
-  options: { label: string; value: T }[];
-  value: T;
-  onChange: (value: T) => void;
-  styles: ReturnType<typeof makeStyles>;
-}) {
-  return (
-    <View style={styles.underlineTabs}>
-      {options.map((opt) => {
-        const isSelected = opt.value === value;
-        return (
-          <Pressable
-            key={opt.value}
-            onPress={() => onChange(opt.value)}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: isSelected }}
-            style={[styles.underlineTab, isSelected && styles.underlineTabActive]}
-          >
-            <Text
-              numberOfLines={1}
-              style={[styles.underlineTabText, isSelected && styles.underlineTabTextActive]}
-            >
-              {opt.label}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
-}
-
 function ProgressBar({
   progress,
   styles,
@@ -608,7 +556,7 @@ function ProductionRowCard({
   colors,
   isPending,
   lowCount,
-  justDeductedCount,
+  justDeductedNames,
   onToggle,
   onLowPress,
 }: {
@@ -618,7 +566,7 @@ function ProductionRowCard({
   colors: Record<ColorToken, string>;
   isPending: boolean;
   lowCount: number;
-  justDeductedCount: number | null;
+  justDeductedNames: string[] | null;
   onToggle: () => void;
   onLowPress: () => void;
 }) {
@@ -659,11 +607,11 @@ function ProductionRowCard({
                 {row.note}
               </Text>
             ) : null}
-            {justDeductedCount != null ? (
+            {justDeductedNames != null ? (
               <View style={styles.rowDeductedRow}>
                 <Ionicons name="checkmark-circle-outline" size={11} color={colors.success} />
-                <Text style={styles.rowDeductedText}>
-                  {justDeductedCount} ingredient{justDeductedCount === 1 ? '' : 's'} deducted
+                <Text style={styles.rowDeductedText} numberOfLines={1}>
+                  {formatNameList(justDeductedNames)} deducted
                 </Text>
               </View>
             ) : lowCount > 0 ? (
@@ -725,9 +673,9 @@ function IngredientStatusSection({
             <Text style={styles.ingredientName} numberOfLines={1}>
               {req.name}
             </Text>
-            <Text style={styles.ingredientMeta}>
-              {formatQty(displayStock(req.currentStock))} {req.unit} on hand · {formatQty(req.amountNeeded)}{' '}
-              {req.unit} needed
+            <Text style={styles.ingredientMeta}>{buildIngredientMetaText(req)}</Text>
+            <Text style={styles.ingredientForText} numberOfLines={1}>
+              For: {formatNameList(req.neededFor.map((p) => p.productName))}
             </Text>
           </View>
           {onRestock ? (
@@ -743,50 +691,6 @@ function IngredientStatusSection({
   );
 }
 
-/** Same shape as IngredientStatusSection but for the Ingredients tab's
- * own Low stock view, which works off Ingredient records rather than
- * IngredientRequirement -- mirrors that screen's own "Low stock"/"Out
- * of stock" vocabulary per the existing convention. */
-function StockStatusSection({
-  title,
-  color,
-  items,
-  styles,
-  colors,
-  onRestock,
-}: {
-  title: string;
-  color: string;
-  items: Ingredient[];
-  styles: ReturnType<typeof makeStyles>;
-  colors: Record<ColorToken, string>;
-  onRestock: (ingredientId: string) => void;
-}) {
-  if (items.length === 0) return null;
-  return (
-    <View style={styles.statusGroup}>
-      <Text style={[styles.statusGroupTitle, { color }]}>
-        {title.toUpperCase()} · {items.length}
-      </Text>
-      {items.map((ingredient) => (
-        <View key={ingredient.id} style={styles.ingredientRow}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.ingredientName} numberOfLines={1}>
-              {ingredient.name}
-            </Text>
-            <Text style={styles.ingredientMeta}>
-              {formatQty(displayStock(ingredient.current_stock))} {ingredient.unit} on hand
-            </Text>
-          </View>
-          <Pressable onPress={() => onRestock(ingredient.id)} style={styles.restockButton} hitSlop={4}>
-            <Text style={styles.restockButtonText}>Restock</Text>
-          </Pressable>
-        </View>
-      ))}
-    </View>
-  );
-}
-
 // Styles are built per-render from the live theme palette, same pattern
 // as Ingredients/Orders/PrimaryButton — see FormField.tsx for why.
 function makeStyles(colors: Record<ColorToken, string>) {
@@ -794,11 +698,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
     container: {
       paddingHorizontal: spacing.xl,
     },
-    headerRow: {
-      marginBottom: spacing.lg,
-    },
-    title: { ...typography.displaySm, color: colors.textPrimary },
-    subtitle: { ...typography.bodySm, color: colors.textSecondary, marginTop: spacing.xxs },
     emptyText: {
       ...typography.bodySm,
       color: colors.textSecondary,
@@ -894,28 +793,13 @@ function makeStyles(colors: Record<ColorToken, string>) {
     dateGroupTitle: { ...typography.titleSm, color: colors.textPrimary },
     dateGroupCount: { ...typography.caption, color: colors.textSecondary },
     ingredientsSection: { marginTop: spacing.xl },
-    ingredientsHeaderRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
+    ingredientsSectionTitle: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      fontWeight: '700',
+      letterSpacing: 0.4,
       marginBottom: spacing.sm,
     },
-    viewAllLink: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
-    underlineTabs: {
-      flexDirection: 'row',
-      gap: spacing.lg,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.border,
-      marginBottom: spacing.md,
-    },
-    underlineTab: {
-      paddingBottom: spacing.sm,
-      borderBottomWidth: 2,
-      borderBottomColor: 'transparent',
-    },
-    underlineTabActive: { borderBottomColor: colors.primary },
-    underlineTabText: { ...typography.bodySm, color: colors.textSecondary },
-    underlineTabTextActive: { color: colors.textPrimary, fontWeight: '600' },
     statusGroup: { marginTop: spacing.md },
     statusGroupTitle: {
       ...typography.caption,
@@ -934,6 +818,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     ingredientName: { ...typography.body, color: colors.textPrimary },
     ingredientMeta: { ...typography.caption, color: colors.textSecondary, marginTop: 1 },
+    ingredientForText: { ...typography.caption, color: colors.textSecondary, marginTop: 1, fontStyle: 'italic' },
     restockButton: {
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,

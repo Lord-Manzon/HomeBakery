@@ -70,7 +70,9 @@ export type ProductionRow = {
 export type ProductionIngredientStatus = 'enough' | 'low' | 'insufficient';
 
 /** One ingredient's line in the "Needed for production" list — amount
- * required is summed across every row for the date(s) being viewed. */
+ * required is summed across every row for the date(s) being viewed.
+ * `neededFor` breaks that total back down by product, so the list can
+ * answer "what's this actually for?" instead of showing a bare total. */
 export type IngredientRequirement = {
   ingredientId: string;
   name: string;
@@ -79,6 +81,7 @@ export type IngredientRequirement = {
   lowStockThreshold: number | null;
   amountNeeded: number;
   status: ProductionIngredientStatus;
+  neededFor: { productName: string; amount: number }[];
 };
 
 /**
@@ -240,6 +243,16 @@ export function buildIngredientRequirements(rows: ProductionRow[]): IngredientRe
       const existing = totals.get(ri.ingredientId);
       if (existing) {
         existing.req.amountNeeded += amount;
+        // Two different variants of the same product (e.g. Small/Large
+        // Croissant) both just read as "Croissant" here -- the baker
+        // cares which PRODUCT an ingredient is going toward, not which
+        // variant, so contributions are combined by product name.
+        const forProduct = existing.req.neededFor.find((p) => p.productName === row.productName);
+        if (forProduct) {
+          forProduct.amount += amount;
+        } else {
+          existing.req.neededFor.push({ productName: row.productName, amount });
+        }
       } else {
         totals.set(ri.ingredientId, {
           req: {
@@ -249,6 +262,7 @@ export function buildIngredientRequirements(rows: ProductionRow[]): IngredientRe
             currentStock: ri.currentStock,
             lowStockThreshold: ri.lowStockThreshold,
             amountNeeded: amount,
+            neededFor: [{ productName: row.productName, amount }],
           },
         });
       }

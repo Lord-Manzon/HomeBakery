@@ -7,6 +7,14 @@ import {
 import type { ProductionSourceItem } from '../services/productionLogic';
 import type { ProductionStatus } from '../types/order';
 
+/** Exported so other hooks whose mutations affect Production's underlying
+ * data (order_items, via orders) can invalidate it too, without each
+ * duplicating the literal ['production'] key -- see useOrders.ts, whose
+ * order create/update/cancel/etc. mutations previously only invalidated
+ * ['orders'], leaving Production showing stale data (missing new orders
+ * entirely) until the app was force-restarted and got a fresh cache. */
+export const productionBaseKey = ['production'] as const;
+
 const productionDateKey = (date: string) => ['production', 'date', date] as const;
 const productionAfterKey = (dateExclusive: string) => ['production', 'after', dateExclusive] as const;
 
@@ -52,7 +60,7 @@ export function useSetProductionRowStatus() {
       // ingredient stock (if auto-deduction just fired) -- invalidate all
       // three broadly rather than guessing one narrow key, same
       // reasoning as useOrders.ts's ordersBaseKey invalidation.
-      queryClient.invalidateQueries({ queryKey: ['production'] });
+      queryClient.invalidateQueries({ queryKey: productionBaseKey });
       queryClient.invalidateQueries({ queryKey: ['ingredients'] });
       queryClient.invalidateQueries({ queryKey: ['orders'] });
     },

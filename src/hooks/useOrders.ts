@@ -11,6 +11,7 @@ import {
   revertOrderPaid,
   updateOrder,
 } from '../services/orders';
+import { productionBaseKey } from './useProduction';
 import type { Order, OrderRefineFilters, OrderTab } from '../types/order';
 import type { OrderFormInput } from '../utils/validation/orderSchemas';
 
@@ -38,6 +39,14 @@ export function useOrder(id: string) {
 // order change (a new order, a status flip, a delete) can move it in or
 // out of more than one filter at once (e.g. Today AND Unpaid), so a
 // narrower invalidation risks leaving some other open list stale.
+//
+// Every one of these ALSO invalidates `['production']` (see
+// useProduction.ts's productionBaseKey): Production's checklist is
+// entirely derived from orders/order_items, but its query keys live in
+// a different namespace, so it was never automatically refreshed by
+// these. Fixed 2026-08-30 -- a new order (or any other order change)
+// wasn't showing up in Production until the app was force-restarted and
+// got a fresh, unstale cache.
 
 export function useCreateOrder() {
   const queryClient = useQueryClient();
@@ -45,6 +54,7 @@ export function useCreateOrder() {
     mutationFn: (input: OrderFormInput) => createOrder(input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+      queryClient.invalidateQueries({ queryKey: productionBaseKey });
     },
   });
 }
@@ -55,6 +65,7 @@ export function useUpdateOrder(id: string) {
     mutationFn: (input: OrderFormInput) => updateOrder(id, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+      queryClient.invalidateQueries({ queryKey: productionBaseKey });
     },
   });
 }
@@ -65,6 +76,7 @@ export function useDeleteOrder() {
     mutationFn: (id: string) => deleteOrder(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+      queryClient.invalidateQueries({ queryKey: productionBaseKey });
     },
   });
 }
@@ -75,6 +87,7 @@ export function useMarkOrderDelivered() {
     mutationFn: (order: Pick<Order, 'id' | 'status' | 'payment_status'>) => markOrderDelivered(order),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+      queryClient.invalidateQueries({ queryKey: productionBaseKey });
     },
   });
 }
@@ -91,6 +104,7 @@ export function useMarkOrderPaid() {
     }) => markOrderPaid(order, paymentMethod),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+      queryClient.invalidateQueries({ queryKey: productionBaseKey });
     },
   });
 }
@@ -105,6 +119,7 @@ export function useRevertOrderDelivered() {
     mutationFn: (order: Pick<Order, 'id' | 'status'>) => revertOrderDelivered(order),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+      queryClient.invalidateQueries({ queryKey: productionBaseKey });
     },
   });
 }
@@ -115,6 +130,7 @@ export function useRevertOrderPaid() {
     mutationFn: (order: Pick<Order, 'id' | 'status'>) => revertOrderPaid(order),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+      queryClient.invalidateQueries({ queryKey: productionBaseKey });
     },
   });
 }
@@ -125,6 +141,7 @@ export function useCancelOrder() {
     mutationFn: (order: Pick<Order, 'id' | 'status'>) => cancelOrder(order),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+      queryClient.invalidateQueries({ queryKey: productionBaseKey });
     },
   });
 }
