@@ -10,6 +10,7 @@ export const colors = {
   // Brand / primary
   primary: '#C9683F', // primary buttons, active nav icon, FAB, links
   primaryPressed: '#B85A34', // button pressed state
+  primaryMuted: '#F3E1D6', // tonal accent — chip/button fills where a filled primary would be too heavy (e.g. repeated per-row actions)
 
   // Surfaces
   background: '#FBF7F1', // warm off-white, not pure white

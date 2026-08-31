@@ -296,6 +296,35 @@ export function countLowIngredientsForRow(
   return count;
 }
 
+/** One row's own ingredients, split by severity -- unlike
+ * countLowIngredientsForRow (which folds 'low' and 'insufficient' into
+ * one number), this keeps them separate so the UI can match the same
+ * red/amber severity split already used in the "Ingredients Needed"
+ * section below, instead of a per-row badge that always read as amber
+ * regardless of true severity. */
+export type RowBlockerSummary = {
+  /** Names of this row's ingredients that can't even cover THIS batch --
+   * maps to the "Out of stock" / danger group. */
+  insufficientNames: string[];
+  /** Count of this row's ingredients that are merely running low --
+   * maps to the "Low stock" / warning group. */
+  lowCount: number;
+};
+
+export function getRowBlockerSummary(
+  row: ProductionRow,
+  statusByIngredientId: Map<string, ProductionIngredientStatus>
+): RowBlockerSummary {
+  const insufficientNames: string[] = [];
+  let lowCount = 0;
+  for (const ri of row.recipeIngredients) {
+    const status = statusByIngredientId.get(ri.ingredientId);
+    if (status === 'insufficient') insufficientNames.push(ri.ingredientName);
+    else if (status === 'low') lowCount += 1;
+  }
+  return { insufficientNames, lowCount };
+}
+
 /**
  * Per-ingredient deduction amounts for ONE order_item (not a whole row) —
  * production.ts needs this granularity so each deduction/reversal can be

@@ -37,7 +37,7 @@ const LIGHT_SEMANTIC = {
   success: '#5C8A54',
   successMuted: '#E3ECE1',
   warning: '#D99A33',
-  warningMuted: '#F8EDDC',
+  warningMuted: '#F3E1B0', // was #F8EDDC — too close to background (#FBF7F1), chip barely read as a chip
   danger: '#C6533F',
   dangerMuted: '#F7E7E3',
 } as const;
@@ -60,6 +60,19 @@ function darken(hex: string, amount = 0.12): string {
   return `#${[r, g, b].map((c) => Math.round(c).toString(16).padStart(2, '0')).join('')}`;
 }
 
+/** Mixes a hex color toward a background hex, for tonal fills (e.g. a
+ * "primaryMuted" chip/button background) — same idea as darken() but
+ * blends toward the mode's own background instead of toward black, so
+ * the tint stays correct whether we're in light or dark mode. */
+function tint(hex: string, bg: string, amount = 0.82): string {
+  const c = parseInt(hex.replace('#', ''), 16);
+  const b = parseInt(bg.replace('#', ''), 16);
+  const r = ((c >> 16) & 0xff) * (1 - amount) + ((b >> 16) & 0xff) * amount;
+  const g = ((c >> 8) & 0xff) * (1 - amount) + ((b >> 8) & 0xff) * amount;
+  const bl = (c & 0xff) * (1 - amount) + (b & 0xff) * amount;
+  return `#${[r, g, bl].map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+}
+
 export function buildPalette(
   accent: string,
   mode: ThemeMode
@@ -70,6 +83,7 @@ export function buildPalette(
   return {
     primary: accent,
     primaryPressed: darken(accent),
+    primaryMuted: tint(accent, neutrals.background),
     ...neutrals,
     ...semantic,
     // Order status colors — see colors.ts's comment: every value now

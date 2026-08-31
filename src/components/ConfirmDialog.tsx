@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useThemeColors } from '../theme/ThemeContext';
 import { radii, spacing, typography } from '../theme';
@@ -7,7 +7,15 @@ import type { ColorToken } from '../theme/colors';
 type ConfirmDialogProps = {
   visible: boolean;
   title: string;
-  message: string;
+  /** Plain-text body -- the default for simple confirmations (e.g.
+   * ingredient deletion). Ignored when `children` is provided. */
+  message?: string;
+  /** Structured body content for cases a single string can't represent
+   * well (e.g. a scannable per-item list instead of a run-on paragraph).
+   * When set, this renders in place of `message` -- see Production's
+   * insufficient-ingredients confirm for the motivating case,
+   * 2026-08-31. */
+  children?: ReactNode;
   confirmLabel?: string;
   onConfirm: () => void;
   onCancel: () => void;
@@ -26,6 +34,7 @@ export function ConfirmDialog({
   visible,
   title,
   message,
+  children,
   confirmLabel = 'Delete',
   onConfirm,
   onCancel,
@@ -38,7 +47,7 @@ export function ConfirmDialog({
         <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} />
         <View style={styles.card}>
           <Text style={styles.title}>{title}</Text>
-          <Text style={styles.message}>{message}</Text>
+          {children ? children : <Text style={styles.message}>{message}</Text>}
           <View style={styles.buttonRow}>
             <Pressable style={styles.cancelButton} onPress={onCancel}>
               <Text style={styles.cancelText}>Cancel</Text>
