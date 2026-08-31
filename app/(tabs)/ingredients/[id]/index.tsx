@@ -1,4 +1,4 @@
-import { useHideFloatingNav } from '../../../../src/hooks/useHideFloatingNav';
+
 import { useMemo, useState, useEffect } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,7 +40,6 @@ import {
 import type { ColorToken } from '../../../../src/theme/colors';
 
 export default function IngredientDetailScreen() {
-  useHideFloatingNav();
   const { id, openRestock } = useLocalSearchParams<{ id: string; openRestock?: string }>();
   const router = useRouter();
   const { colors } = useThemeColors();

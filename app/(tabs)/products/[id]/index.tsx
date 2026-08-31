@@ -1,5 +1,4 @@
 import { useMemo, useState } from 'react';
-import { useHideFloatingNav } from '../../../../src/hooks/useHideFloatingNav';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -31,7 +30,6 @@ import type { ColorToken } from '../../../../src/theme/colors';
 import type { ProductCategory, ProductVariant } from '../../../../src/types/product';
 
 export default function ProductDetailScreen() {
-  useHideFloatingNav();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors } = useThemeColors();

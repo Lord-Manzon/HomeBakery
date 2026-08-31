@@ -702,7 +702,7 @@ function FilterCategoryChip({
 function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
     container: {
-      paddingHorizontal: spacing.lg,
+      paddingHorizontal: spacing.xl,
       paddingBottom: spacing.xl,
     },
     editDismissWrapper: { flex: 1 },

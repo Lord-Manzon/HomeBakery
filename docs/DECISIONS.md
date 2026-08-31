@@ -1606,3 +1606,26 @@ patch isn't safely "in the codebase" until it's actually pushed.
 ingredient-form work). `npx jest` — 5 suites, 87 tests, all passing (no
 new business logic in this pass — the invalidation fix and the four UI
 changes are wiring/display only).
+
+### 2026-08-31 — Fixed floating nav bar getting stuck permanently hidden
+
+**Decision:** Removed `useHideFloatingNav()` from `app/(tabs)/products/[id]/index.tsx`
+(Product Detail) and `app/(tabs)/ingredients/[id]/index.tsx` (Ingredient Detail).
+Neither is a full-screen form — the hook is meant only for those (New order,
+New product, Restock, etc.) — and calling it here was the direct cause of
+the bug.
+**Why:** New Product saves via `router.replace()` straight into Product
+Detail. `useHideFloatingNav` tracks a shared "hide" counter via
+`useFocusEffect`, incrementing on focus and decrementing on blur. During a
+`replace()` transition both screens can briefly overlap, and blur isn't
+guaranteed to fire before focus — so the counter could get stuck above
+zero, permanently hiding the nav bar until the app was restarted. Removing
+the hook from these two detail screens (which shouldn't hide the nav in
+the first place) removes the mismatch at the source.
+**Repro:** Products → Add product → save (no variant added) → back →
+floating nav bar gone app-wide, required a restart to recover.
+**Follow-up, not yet audited:** any other `useHideFloatingNav()` screen
+reached via `router.replace()` instead of `push` could hit the same bug.
+Current call sites: `recipes/new.tsx`, `recipes/[id]/instructions.tsx`,
+`orders/new.tsx`, `orders/[id]/edit.tsx`, `products/categories/new.tsx` —
+worth a quick check that none of these are ever reached via `replace()`.
