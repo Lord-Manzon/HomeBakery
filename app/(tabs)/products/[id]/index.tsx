@@ -708,6 +708,11 @@ function makeStyles(colors: Record<ColorToken, string>) {
       padding: spacing.md,
       minHeight: 64,
       justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.05,
+      shadowRadius: 3,
+      elevation: 1,
     },
     variantCardRevealed: {
       borderColor: colors.danger,

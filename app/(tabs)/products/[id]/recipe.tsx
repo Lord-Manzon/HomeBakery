@@ -101,7 +101,6 @@ export default function RecipeAndCostingScreen() {
 
   const parsedPortion = portionDraft ? Number(portionDraft) : null;
   const parsedMargin = marginDraft ? Number(marginDraft) : null;
-  const linkedRecipeVisual = linkedRecipe ? getRecipeVisual(linkedRecipe.name) : null;
 
   // Compares live drafts against the last-saved values (the same valuescc
   // the useEffect above seeds the drafts with) to detect unsaved edits.
@@ -256,20 +255,6 @@ export default function RecipeAndCostingScreen() {
               style={styles.recipeLinkRow}
               onPress={() => router.push(`/recipes/${variant.recipe_id}`)}
             >
-              <View
-                style={[
-                  styles.recipeLinkIconTile,
-                  linkedRecipeVisual ? { backgroundColor: `${linkedRecipeVisual.color}1F` } : null,
-                ]}
-              >
-                {linkedRecipeVisual ? (
-                  <Text style={[styles.recipeLinkIconTileText, { color: linkedRecipeVisual.color }]}>
-                    {linkedRecipeVisual.initials}
-                  </Text>
-                ) : (
-                  <Ionicons name="restaurant-outline" size={18} color={colors.textSecondary} />
-                )}
-              </View>
               <View style={styles.recipeLinkBody}>
                 <Text style={styles.recipeLinkName}>{linkedRecipe?.name ?? 'Loading…'}</Text>
                 <Text style={styles.recipeLinkMeta}>
@@ -305,8 +290,9 @@ export default function RecipeAndCostingScreen() {
               </View>
             </View>
             <Text style={styles.hint}>
-              e.g. 0.25 = this variant uses a quarter of one full recipe batch. Margin resolves
-              variant → product → recipe → your baker default, per docs/DATABASE.md.
+              e.g. 0.25 means this variant uses a quarter of one full recipe batch. If you don't
+              set a margin here, it falls back to this product's margin, then the recipe's, then
+              your default.
             </Text>
 
             <View style={styles.costCard}>
@@ -316,7 +302,7 @@ export default function RecipeAndCostingScreen() {
                 label="Suggested price"
                 value={suggestedPrice != null ? formatCurrency(suggestedPrice, baker?.currency) : '—'}
                 colors={colors}
-                emphasize
+                emphasize={!isNegative}
               />
               <View style={styles.costDivider} />
               <CostRow label="Your selling price" value={formatCurrency(variant.selling_price, baker?.currency)} colors={colors} />
@@ -615,8 +601,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       padding: spacing.md,
       marginBottom: spacing.xs,
     },
-    recipeLinkIconTile: { width: 36, height: 36, borderRadius: radii.sm, backgroundColor: colors.surfaceMuted, alignItems: 'center', justifyContent: 'center' },
-    recipeLinkIconTileText: { ...typography.bodySm, fontWeight: '700' },
     recipeLinkBody: { flex: 1 },
     recipeLinkName: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
     recipeLinkMeta: { ...typography.bodySm, color: colors.textSecondary },

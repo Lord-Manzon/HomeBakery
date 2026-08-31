@@ -538,7 +538,7 @@ function ProductCard({
           <Image source={{ uri: product.image_url }} style={styles.cardImage} />
         ) : (
           <View style={styles.cardImagePlaceholder}>
-            <Ionicons name="image-outline" size={28} color={colors.textSecondary} />
+            <Ionicons name="restaurant-outline" size={28} color={colors.primary} />
           </View>
         )}
         <View style={styles.cardBody}>
@@ -548,7 +548,7 @@ function ProductCard({
           {product.variants.length > 0 ? (
             <Text style={styles.cardPrice}>{getPriceDisplay(product.variants, currency)}</Text>
           ) : (
-            <Text style={styles.cardNoVariants}>Tap to add a price</Text>
+            <Text style={styles.cardNoVariants}>No price set</Text>
           )}
         </View>
       </Animated.View>
@@ -596,7 +596,7 @@ function ProductListCard({
           <Image source={{ uri: product.image_url }} style={styles.listCardImage} />
         ) : (
           <View style={styles.listCardImagePlaceholder}>
-            <Ionicons name="image-outline" size={22} color={colors.textSecondary} />
+            <Ionicons name="restaurant-outline" size={22} color={colors.primary} />
           </View>
         )}
         <View style={styles.listCardBody}>
@@ -606,7 +606,7 @@ function ProductListCard({
           {product.variants.length > 0 ? (
             <Text style={styles.cardPrice}>{getPriceDisplay(product.variants, currency)}</Text>
           ) : (
-            <Text style={styles.cardNoVariants}>Tap to add a price</Text>
+            <Text style={styles.cardNoVariants}>No price set</Text>
           )}
         </View>
       </Animated.View>
@@ -856,6 +856,11 @@ function makeStyles(colors: Record<ColorToken, string>) {
       borderRadius: radii.lg,
       overflow: 'hidden',
       marginBottom: spacing.md,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.06,
+      shadowRadius: 4,
+      elevation: 2,
     },
     // --- List view ---
     listCard: {
@@ -899,7 +904,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     cardBody: { padding: spacing.md },
     cardName: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.xs },
-    cardNoVariants: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
+    cardNoVariants: { ...typography.bodySm, color: colors.textSecondary },
     cardPrice: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
     emptyState: {
       alignItems: 'center',
