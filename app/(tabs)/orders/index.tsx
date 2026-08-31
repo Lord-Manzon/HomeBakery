@@ -29,6 +29,8 @@ import {
 } from '../../../src/services/orderLogic';
 import { formatOrderTime, formatGroupHeaderDate, todayDateString } from '../../../src/utils/dateFormat';
 import { formatCurrency } from '../../../src/utils/currency';
+import { titleCase, initialOf } from '../../../src/utils/textFormat';
+import { hashStringToColor } from '../../../src/utils/colorHash';
 import { Screen } from '../../../src/components/Screen';
 import { ErrorBanner } from '../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../src/components/PrimaryButton';
@@ -445,11 +447,14 @@ export default function OrdersListScreen() {
             renderItem={({ item }) => {
               if (item.type === 'header') {
                 const count = item.count === 1 ? '1 order' : `${item.count} orders`;
+                // The Today tab only ever has one group -- today -- so
+                // repeating "Today" here just echoes the active tab pill
+                // above it. Every other tab spans multiple days, where
+                // the date label is the useful part.
+                const dividerText = tab === 'today' ? count : `${formatGroupHeaderDate(item.date)} · ${count}`;
                 return (
                   <View style={styles.dayDivider}>
-                    <Text style={styles.dayDividerText}>
-                      {formatGroupHeaderDate(item.date)} · {count}
-                    </Text>
+                    <Text style={styles.dayDividerText}>{dividerText}</Text>
                   </View>
                 );
               }
@@ -595,11 +600,26 @@ function OrderCard({
           : colors.warning;
 
   const hasTime = Boolean(order.scheduled_time);
-  const timeLabel = formatOrderTime(order.scheduled_time) ?? 'No time set';
+  const timeLabel = formatOrderTime(order.scheduled_time);
   const fulfillmentLabel = order.fulfillment_type === 'delivery' ? 'Delivery' : 'Pickup';
+  const metaText = hasTime ? `${timeLabel} · ${fulfillmentLabel}` : fulfillmentLabel;
+
+  const displayName = titleCase(order.customer_name);
+  const avatarColor = hashStringToColor(order.customer_name);
 
   const canPay = canMarkPaid(order.status, order.payment_status);
   const canDeliver = canMarkDelivered(order.status);
+
+  // What's shown in the compact row (name, badge, price, item summary,
+  // time/method) shouldn't be repeated in the expanded section -- only
+  // show what's genuinely new there. A single-item order's full
+  // breakdown is identical to the compact summary line, so it's skipped
+  // unless there's more than one item to actually break down.
+  const showItemsBreakdown = order.items.length > 1;
+  const showContact = Boolean(order.customer_contact);
+  const showAddress = order.fulfillment_type === 'delivery' && Boolean(order.delivery_address);
+  const showNotes = Boolean(order.notes);
+  const hasExpandedContent = showItemsBreakdown || showContact || showAddress || showNotes;
 
   return (
     <Animated.View
@@ -614,12 +634,17 @@ function OrderCard({
         <Animated.View style={[styles.card, press.style]}>
           <View style={styles.cardTopRow}>
             <View style={styles.cardNameRow}>
-              <Text style={styles.cardName} numberOfLines={1}>
-                {order.customer_name}
-              </Text>
-              <View style={styles.statusIndicator}>
-                <View style={[styles.statusDot, { backgroundColor: badgeColor }]} />
-                <Text style={[styles.statusText, { color: badgeColor }]}>{badgeLabel}</Text>
+              <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
+                <Text style={styles.avatarText}>{initialOf(order.customer_name)}</Text>
+              </View>
+              <View style={styles.cardNameTextGroup}>
+                <Text style={styles.cardName} numberOfLines={1}>
+                  {displayName}
+                </Text>
+                <View style={styles.statusIndicator}>
+                  <View style={[styles.statusDot, { backgroundColor: badgeColor }]} />
+                  <Text style={[styles.statusText, { color: badgeColor }]}>{badgeLabel}</Text>
+                </View>
               </View>
             </View>
             <Text style={styles.cardTotal}>{formatCurrency(order.total, currency)}</Text>
@@ -630,11 +655,7 @@ function OrderCard({
           </Text>
 
           <View style={styles.cardMiddleRow}>
-            <Text style={styles.cardMetaText}>
-              <Text style={!hasTime ? styles.cardMetaTextMuted : undefined}>{timeLabel}</Text>
-              {' · '}
-              {fulfillmentLabel}
-            </Text>
+            <Text style={styles.cardMetaText}>{metaText}</Text>
             <View style={styles.cardActionsRow}>
               <Pressable
                 onPress={(e) => {
@@ -647,21 +668,6 @@ function OrderCard({
               >
                 <Ionicons name="pencil-outline" size={18} color={colors.textSecondary} />
               </Pressable>
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
-                  setIsExpanded((v) => !v);
-                }}
-                style={styles.cardIconButton}
-                hitSlop={12}
-                accessibilityLabel={isExpanded ? 'Collapse order' : 'Expand order'}
-              >
-                <Ionicons
-                  name={isExpanded ? 'chevron-up' : 'chevron-down'}
-                  size={18}
-                  color={colors.textSecondary}
-                />
-              </Pressable>
             </View>
           </View>
 
@@ -672,26 +678,24 @@ function OrderCard({
             <View style={styles.actionButtonRow}>
               {canPay ? (
                 <Pressable
-                  style={styles.actionButton}
+                  style={[styles.actionButton, styles.actionButtonWarning]}
                   onPress={(e) => {
                     e.stopPropagation();
                     onMarkPaid();
                   }}
                 >
-                  <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
-                  <Text style={styles.actionButtonText}>Mark as Paid</Text>
+                  <Text style={[styles.actionButtonText, { color: colors.warning }]}>Mark as Paid</Text>
                 </Pressable>
               ) : null}
               {canDeliver ? (
                 <Pressable
-                  style={styles.actionButton}
+                  style={[styles.actionButton, styles.actionButtonSuccess]}
                   onPress={(e) => {
                     e.stopPropagation();
                     onMarkDelivered();
                   }}
                 >
-                  <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
-                  <Text style={styles.actionButtonText}>
+                  <Text style={[styles.actionButtonText, { color: colors.success }]}>
                     {order.fulfillment_type === 'delivery' ? 'Mark Delivered' : 'Mark Picked Up'}
                   </Text>
                 </Pressable>
@@ -704,49 +708,55 @@ function OrderCard({
               entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
               style={styles.expandedSection}
             >
-              <Text style={styles.expandedSectionLabel}>Items</Text>
-              {order.items.map((lineItem) => (
-                <View key={lineItem.id} style={styles.expandedItemRow}>
-                  <Text style={styles.expandedItemText} numberOfLines={1}>
-                    {lineItem.quantity}× {lineItem.product_name} · {lineItem.variant_name}
-                  </Text>
-                  <Text style={styles.expandedItemPrice}>
-                    {formatCurrency(lineItem.line_total, currency)}
-                  </Text>
-                </View>
-              ))}
-
-              <View style={styles.expandedDivider} />
-
-              <Text style={styles.expandedSectionLabel}>Order</Text>
-              {order.customer_contact ? (
-                <View style={styles.expandedDetailRow}>
-                  <Text style={styles.expandedDetailLabel}>Contact</Text>
-                  <Text style={styles.expandedDetailValue}>{order.customer_contact}</Text>
-                </View>
-              ) : null}
-              <View style={styles.expandedDetailRow}>
-                <Text style={styles.expandedDetailLabel}>Schedule</Text>
-                <Text style={styles.expandedDetailValue}>{timeLabel}</Text>
-              </View>
-              <View style={styles.expandedDetailRow}>
-                <Text style={styles.expandedDetailLabel}>Method</Text>
-                <Text style={styles.expandedDetailValue}>{fulfillmentLabel}</Text>
-              </View>
-              {order.fulfillment_type === 'delivery' && order.delivery_address ? (
-                <View style={styles.expandedDetailRow}>
-                  <Text style={styles.expandedDetailLabel}>Address</Text>
-                  <Text style={styles.expandedDetailValue}>{order.delivery_address}</Text>
-                </View>
-              ) : null}
-
-              {order.notes ? (
+              {hasExpandedContent ? (
                 <>
-                  <View style={styles.expandedDivider} />
-                  <Text style={styles.expandedSectionLabel}>Notes</Text>
-                  <Text style={styles.expandedItemText}>{order.notes}</Text>
+                  {showItemsBreakdown ? (
+                    <>
+                      <Text style={styles.expandedSectionLabel}>Items</Text>
+                      {order.items.map((lineItem) => (
+                        <View key={lineItem.id} style={styles.expandedItemRow}>
+                          <Text style={styles.expandedItemText} numberOfLines={1}>
+                            {lineItem.quantity}× {lineItem.product_name} · {lineItem.variant_name}
+                          </Text>
+                          <Text style={styles.expandedItemPrice}>
+                            {formatCurrency(lineItem.line_total, currency)}
+                          </Text>
+                        </View>
+                      ))}
+                    </>
+                  ) : null}
+
+                  {showContact || showAddress ? (
+                    <>
+                      {showItemsBreakdown ? <View style={styles.expandedDivider} /> : null}
+                      {showContact ? (
+                        <View style={styles.expandedDetailRow}>
+                          <Text style={styles.expandedDetailLabel}>Contact</Text>
+                          <Text style={styles.expandedDetailValue}>{order.customer_contact}</Text>
+                        </View>
+                      ) : null}
+                      {showAddress ? (
+                        <View style={styles.expandedDetailRow}>
+                          <Text style={styles.expandedDetailLabel}>Address</Text>
+                          <Text style={styles.expandedDetailValue}>{order.delivery_address}</Text>
+                        </View>
+                      ) : null}
+                    </>
+                  ) : null}
+
+                  {showNotes ? (
+                    <>
+                      {showItemsBreakdown || showContact || showAddress ? (
+                        <View style={styles.expandedDivider} />
+                      ) : null}
+                      <Text style={styles.expandedSectionLabel}>Notes</Text>
+                      <Text style={styles.expandedItemText}>{order.notes}</Text>
+                    </>
+                  ) : null}
                 </>
-              ) : null}
+              ) : (
+                <Text style={styles.expandedEmptyText}>Nothing more for this order.</Text>
+              )}
             </Animated.View>
           ) : null}
         </Animated.View>
@@ -877,11 +887,8 @@ function makeStyles(colors: Record<ColorToken, string>) {
       backgroundColor: colors.border,
       marginVertical: spacing.xs,
     },
-    // Per docs/DECISIONS.md's 2026-08-27 refinement: flanking lines
-    // extend from the day label, per the reference request -- makes the
-    // day break read clearly without adding another bordered container.
     dayDivider: {
-      alignItems: 'center',
+      alignItems: 'flex-start',
       paddingTop: spacing.md,
       paddingBottom: spacing.sm,
     },
@@ -902,6 +909,20 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.xs,
     },
     cardNameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
+    // Customer-initial avatar: color is hashed from the name (see
+    // src/utils/colorHash.ts, shared with product-category colors) so
+    // the same customer always gets the same color with nothing extra
+    // persisted. Also breaks up this card's otherwise flat white
+    // background with a bit of deliberate color.
+    avatar: {
+      width: 36,
+      height: 36,
+      borderRadius: radii.full,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    avatarText: { ...typography.bodySm, color: '#FFFFFF', fontWeight: '700' },
+    cardNameTextGroup: { flexShrink: 1 },
     cardTopRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -910,11 +931,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       marginBottom: spacing.xs,
     },
     cardName: { ...typography.body, color: colors.textPrimary, fontWeight: '600', flexShrink: 1 },
-    // Per docs/DECISIONS.md's 2026-08-27 entry: dropped the filled pill
-    // background in favor of a plain colored dot + text -- one more step
-    // toward the "flatter, not another chip" direction this list's been
-    // moving in across the earlier refinement passes.
-    statusIndicator: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
+    statusIndicator: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs, marginTop: 1 },
     statusDot: { width: 6, height: 6, borderRadius: 3 },
     statusText: { ...typography.caption, fontWeight: '600' },
     cardMiddleRow: {
@@ -924,22 +941,8 @@ function makeStyles(colors: Record<ColorToken, string>) {
       gap: spacing.sm,
     },
     cardItems: { ...typography.bodySm, color: colors.textSecondary, flex: 1, marginBottom: spacing.xs },
-    // Per docs/DECISIONS.md's 2026-08-27 refinement: dialed back from
-    // typography.metric (22/600) to titleLg (16/600) -- still bold and
-    // clearly the price, but no longer visually outweighing the
-    // customer name and the rest of the row. typography.metric stays
-    // defined and available for a context that actually needs that much
-    // weight (e.g. a future Reports summary figure).
     cardTotal: { ...typography.titleLg, color: colors.textPrimary },
-    // Time + fulfillment merged into one line rather than two stacked
-    // right-column elements (badge, then this) -- per the 2026-08-27
-    // refinement, the original 3-row layout read as a "busy" right
-    // column even though it was only ever pairs of two per row.
     cardMetaText: { ...typography.caption, color: colors.textSecondary },
-    // Distinguishes the "No time set" placeholder from a real scheduled
-    // time -- otherwise both read with identical weight and the
-    // placeholder can pass for actual data at a glance.
-    cardMetaTextMuted: { fontStyle: 'italic', opacity: 0.7 },
     cardActionsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     cardIconButton: {
       width: 20,
@@ -976,6 +979,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     expandedDetailLabel: { ...typography.bodySm, color: colors.textSecondary },
     expandedDetailValue: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
+    expandedEmptyText: { ...typography.bodySm, color: colors.textSecondary },
     actionButtonRow: {
       flexDirection: 'row',
       gap: spacing.sm,
@@ -983,17 +987,15 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     actionButton: {
       flex: 1,
-      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      gap: spacing.xs,
-      borderWidth: 1,
-      borderColor: colors.border,
       borderRadius: radii.md,
       paddingVertical: spacing.sm,
       minHeight: 44,
     },
-    actionButtonText: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
+    actionButtonWarning: { backgroundColor: colors.warningMuted },
+    actionButtonSuccess: { backgroundColor: colors.successMuted },
+    actionButtonText: { ...typography.bodySm, fontWeight: '600' },
     emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     emptyTitle: {
       ...typography.titleLg,

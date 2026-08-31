@@ -1,5 +1,5 @@
-import { ACCENT_SWATCHES } from '../theme/accentSwatches';
 import type { ProductCategory } from '../types/product';
+import { hashStringToColor } from './colorHash';
 
 /**
  * Shown when a product's category text has no matching row in
@@ -10,19 +10,12 @@ import type { ProductCategory } from '../types/product';
 export const DEFAULT_PRODUCT_CATEGORY_ICON = 'pricetag-outline';
 
 /**
- * Deterministic color for a category name, hashed into one of the
- * app's 6 curated accent swatches (src/theme/accentSwatches.ts) — the
- * same name always resolves to the same color without persisting
- * anything extra on product_categories. See docs/DECISIONS.md's
- * 2026-08-18 entry.
+ * Deterministic color for a category name — see src/utils/colorHash.ts.
+ * Thin wrapper kept so existing callers (getCategoryVisual, etc.) don't
+ * need to change.
  */
 export function getCategoryColor(name: string): string {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) {
-    hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
-  }
-  const swatch = ACCENT_SWATCHES[hash % ACCENT_SWATCHES.length];
-  return swatch.hex;
+  return hashStringToColor(name);
 }
 
 /**
