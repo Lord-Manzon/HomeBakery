@@ -7,16 +7,33 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useHideNavOnScroll } from '../../../src/hooks/useHideNavOnScroll';
 import { useQueryClient } from '@tanstack/react-query';
 import { getOrders } from '../../../src/services/orders';
-import { useOrders, useMarkOrderDelivered, useMarkOrderPaid } from '../../../src/hooks/useOrders';
+import {
+  useOrders,
+  useMarkOrderDelivered,
+  useMarkOrderPaid,
+  useRevertOrderDelivered,
+  useRevertOrderPaid,
+  useCancelOrder,
+  useDeleteOrder,
+} from '../../../src/hooks/useOrders';
 import { useBakerProfile } from '../../../src/hooks/useBakerProfile';
 import { usePressScale } from '../../../src/hooks/usePressScale';
 import { useThemeColors } from '../../../src/theme/ThemeContext';
-import { isOrderActive, canMarkDelivered, canMarkPaid } from '../../../src/services/orderLogic';
+import {
+  isOrderActive,
+  canMarkDelivered,
+  canMarkPaid,
+  canRevertDelivered,
+  canRevertPaid,
+  canCancelOrder,
+} from '../../../src/services/orderLogic';
 import { formatOrderTime, formatGroupHeaderDate, todayDateString } from '../../../src/utils/dateFormat';
 import { formatCurrency } from '../../../src/utils/currency';
 import { Screen } from '../../../src/components/Screen';
 import { ErrorBanner } from '../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../src/components/PrimaryButton';
+import { OrderActionSheet } from '../../../src/components/OrderActionSheet';
+import { ConfirmDialog } from '../../../src/components/ConfirmDialog';
 import { radii, spacing, typography, motionDuration, motionEasing, motionStagger } from '../../../src/theme';
 import type { ColorToken } from '../../../src/theme/colors';
 import type {
@@ -94,6 +111,23 @@ export default function OrdersListScreen() {
   const { data: orders, isLoading, isError, refetch } = useOrders(tab, refine);
   const { data: baker } = useBakerProfile();
   const queryClient = useQueryClient();
+  const markPaid = useMarkOrderPaid();
+  const markDelivered = useMarkOrderDelivered();
+  const revertDelivered = useRevertOrderDelivered();
+  const revertPaid = useRevertOrderPaid();
+  const cancelOrder = useCancelOrder();
+  const deleteOrder = useDeleteOrder();
+
+  // Long-press on a card opens this order's action sheet (Revert
+  // Delivered/Paid, Cancel, Delete). Cancel/Delete route through
+  // `confirmAction` for a follow-up ConfirmDialog once the sheet closes;
+  // Revert Delivered/Paid fire immediately, same as this screen's
+  // existing Mark Paid/Mark Delivered buttons already do.
+  const [actionSheetOrder, setActionSheetOrder] = useState<OrderWithItems | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    order: OrderWithItems;
+    type: 'cancel' | 'delete';
+  } | null>(null);
 
   // Prefetches the other three tabs (base scope, no refine) as soon as
   // this screen opens, so swiping/tapping between them feels instant
@@ -121,8 +155,6 @@ export default function OrdersListScreen() {
       setRefine((prev) => ({ ...prev, status: undefined }));
     }
   }, [tab, refine.status]);
-  const markDelivered = useMarkOrderDelivered();
-  const markPaid = useMarkOrderPaid();
 
   const filtered = (orders ?? []).filter((o) =>
     o.customer_name.toLowerCase().includes(search.toLowerCase())
@@ -428,8 +460,8 @@ export default function OrdersListScreen() {
                   currency={baker?.currency}
                   styles={styles}
                   colors={colors}
-                  onView={() => router.push(`/orders/${item.order.id}`)}
                   onEdit={() => router.push(`/orders/${item.order.id}/edit`)}
+                  onLongPress={() => setActionSheetOrder(item.order)}
                   onMarkPaid={() =>
                     markPaid.mutate({ order: { id: item.order.id, status: item.order.status }, paymentMethod: 'Cash' })
                   }
@@ -447,6 +479,57 @@ export default function OrdersListScreen() {
           </GestureDetector>
         </>
       )}
+
+      <OrderActionSheet
+        visible={!!actionSheetOrder}
+        customerName={actionSheetOrder?.customer_name ?? ''}
+        canRevertDelivered={actionSheetOrder ? canRevertDelivered(actionSheetOrder.status) : false}
+        canRevertPaid={actionSheetOrder ? canRevertPaid(actionSheetOrder.status) : false}
+        canCancel={actionSheetOrder ? canCancelOrder(actionSheetOrder.status) : false}
+        fulfillmentType={actionSheetOrder?.fulfillment_type ?? 'pickup'}
+        onDismiss={() => setActionSheetOrder(null)}
+        onRevertDelivered={() => {
+          if (actionSheetOrder) {
+            revertDelivered.mutate({ id: actionSheetOrder.id, status: actionSheetOrder.status });
+          }
+          setActionSheetOrder(null);
+        }}
+        onRevertPaid={() => {
+          if (actionSheetOrder) {
+            revertPaid.mutate({ id: actionSheetOrder.id, status: actionSheetOrder.status });
+          }
+          setActionSheetOrder(null);
+        }}
+        onCancel={() => {
+          if (actionSheetOrder) setConfirmAction({ order: actionSheetOrder, type: 'cancel' });
+          setActionSheetOrder(null);
+        }}
+        onDelete={() => {
+          if (actionSheetOrder) setConfirmAction({ order: actionSheetOrder, type: 'delete' });
+          setActionSheetOrder(null);
+        }}
+      />
+
+      <ConfirmDialog
+        visible={!!confirmAction}
+        title={confirmAction?.type === 'delete' ? 'Delete this order?' : 'Cancel this order?'}
+        message={
+          confirmAction?.type === 'delete'
+            ? "This can't be undone. If it just needs to not go ahead, Cancel keeps it in your history instead."
+            : 'It stays in your order history as Cancelled.'
+        }
+        confirmLabel={confirmAction?.type === 'delete' ? 'Confirm delete' : 'Confirm cancel'}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={() => {
+          if (!confirmAction) return;
+          if (confirmAction.type === 'delete') {
+            deleteOrder.mutate(confirmAction.order.id);
+          } else {
+            cancelOrder.mutate({ id: confirmAction.order.id, status: confirmAction.order.status });
+          }
+          setConfirmAction(null);
+        }}
+      />
     </Screen>
   );
 }
@@ -469,8 +552,8 @@ function OrderCard({
   currency,
   styles,
   colors,
-  onView,
   onEdit,
+  onLongPress,
   onMarkPaid,
   onMarkDelivered,
 }: {
@@ -479,8 +562,8 @@ function OrderCard({
   currency: string | null | undefined;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
-  onView: () => void;
   onEdit: () => void;
+  onLongPress: () => void;
   onMarkPaid: () => void;
   onMarkDelivered: () => void;
 }) {
@@ -524,6 +607,7 @@ function OrderCard({
     >
       <Pressable
         onPress={() => setIsExpanded((v) => !v)}
+        onLongPress={onLongPress}
         onPressIn={press.onPressIn}
         onPressOut={press.onPressOut}
       >
@@ -555,17 +639,6 @@ function OrderCard({
               <Pressable
                 onPress={(e) => {
                   e.stopPropagation();
-                  onView();
-                }}
-                style={styles.cardIconButton}
-                hitSlop={12}
-                accessibilityLabel="View order"
-              >
-                <Ionicons name="eye-outline" size={18} color={colors.textSecondary} />
-              </Pressable>
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
                   onEdit();
                 }}
                 style={styles.cardIconButton}
@@ -592,6 +665,40 @@ function OrderCard({
             </View>
           </View>
 
+          {/* Mark Paid/Mark Delivered are part of the compact row now,
+              not gated behind expand -- these are the most-used actions
+              on this screen and shouldn't cost an extra tap. */}
+          {canPay || canDeliver ? (
+            <View style={styles.actionButtonRow}>
+              {canPay ? (
+                <Pressable
+                  style={styles.actionButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onMarkPaid();
+                  }}
+                >
+                  <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
+                  <Text style={styles.actionButtonText}>Mark as Paid</Text>
+                </Pressable>
+              ) : null}
+              {canDeliver ? (
+                <Pressable
+                  style={styles.actionButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onMarkDelivered();
+                  }}
+                >
+                  <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
+                  <Text style={styles.actionButtonText}>
+                    {order.fulfillment_type === 'delivery' ? 'Mark Delivered' : 'Mark Picked Up'}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          ) : null}
+
           {isExpanded ? (
             <Animated.View
               entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
@@ -612,6 +719,12 @@ function OrderCard({
               <View style={styles.expandedDivider} />
 
               <Text style={styles.expandedSectionLabel}>Order</Text>
+              {order.customer_contact ? (
+                <View style={styles.expandedDetailRow}>
+                  <Text style={styles.expandedDetailLabel}>Contact</Text>
+                  <Text style={styles.expandedDetailValue}>{order.customer_contact}</Text>
+                </View>
+              ) : null}
               <View style={styles.expandedDetailRow}>
                 <Text style={styles.expandedDetailLabel}>Schedule</Text>
                 <Text style={styles.expandedDetailValue}>{timeLabel}</Text>
@@ -620,36 +733,19 @@ function OrderCard({
                 <Text style={styles.expandedDetailLabel}>Method</Text>
                 <Text style={styles.expandedDetailValue}>{fulfillmentLabel}</Text>
               </View>
-
-              {canPay || canDeliver ? (
-                <View style={styles.expandedButtonRow}>
-                  {canPay ? (
-                    <Pressable
-                      style={styles.expandedActionButton}
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        onMarkPaid();
-                      }}
-                    >
-                      <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
-                      <Text style={styles.expandedActionButtonText}>Mark as Paid</Text>
-                    </Pressable>
-                  ) : null}
-                  {canDeliver ? (
-                    <Pressable
-                      style={styles.expandedActionButton}
-                      onPress={(e) => {
-                        e.stopPropagation();
-                        onMarkDelivered();
-                      }}
-                    >
-                      <View style={[styles.statusDot, { backgroundColor: colors.warning }]} />
-                      <Text style={styles.expandedActionButtonText}>
-                        {order.fulfillment_type === 'delivery' ? 'Mark Delivered' : 'Mark Picked Up'}
-                      </Text>
-                    </Pressable>
-                  ) : null}
+              {order.fulfillment_type === 'delivery' && order.delivery_address ? (
+                <View style={styles.expandedDetailRow}>
+                  <Text style={styles.expandedDetailLabel}>Address</Text>
+                  <Text style={styles.expandedDetailValue}>{order.delivery_address}</Text>
                 </View>
+              ) : null}
+
+              {order.notes ? (
+                <>
+                  <View style={styles.expandedDivider} />
+                  <Text style={styles.expandedSectionLabel}>Notes</Text>
+                  <Text style={styles.expandedItemText}>{order.notes}</Text>
+                </>
               ) : null}
             </Animated.View>
           ) : null}
@@ -880,12 +976,12 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     expandedDetailLabel: { ...typography.bodySm, color: colors.textSecondary },
     expandedDetailValue: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
-    expandedButtonRow: {
+    actionButtonRow: {
       flexDirection: 'row',
       gap: spacing.sm,
-      marginTop: spacing.md,
+      marginTop: spacing.xs,
     },
-    expandedActionButton: {
+    actionButton: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
@@ -897,7 +993,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.sm,
       minHeight: 44,
     },
-    expandedActionButtonText: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
+    actionButtonText: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
     emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     emptyTitle: {
       ...typography.titleLg,

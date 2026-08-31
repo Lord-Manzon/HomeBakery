@@ -44,7 +44,7 @@ export default function EditOrderScreen() {
       ) : !isOrderActive(order.status) ? (
         <>
           <ErrorBanner message="This order is no longer editable." />
-          <PrimaryButton title="Back to order" onPress={() => router.replace(`/orders/${id}`)} />
+          <PrimaryButton title="Back to orders" onPress={() => router.replace('/orders')} />
         </>
       ) : (
         <OrderForm
@@ -56,7 +56,7 @@ export default function EditOrderScreen() {
           onSubmit={(input) => {
             updateOrder.mutate(input, {
               onSuccess: () => {
-                router.replace(`/orders/${id}`);
+                router.replace('/orders');
               },
             });
           }}
