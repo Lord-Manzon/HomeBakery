@@ -239,22 +239,30 @@ export default function IngredientsListScreen() {
   );
 
   const categoryChips = (
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={styles.categoryRow}
-      contentContainerStyle={styles.categoryRowContent}
-    >
-      {['All', ...INGREDIENT_CATEGORIES].map((c) => (
-        <CategoryChip
-          key={c}
-          label={c}
-          isSelected={selectedCategory === c}
-          styles={styles}
-          onPress={() => setSelectedCategory(c)}
-        />
-      ))}
-    </ScrollView>
+    // Wrapped so the trailing-edge fade (below) can sit on top of the
+    // ScrollView without affecting its layout — the fade is purely a
+    // "there's more to scroll" affordance, since the last chip
+    // previously just got hard-clipped by the screen edge with no
+    // visual cue it continued off-screen.
+    <View style={styles.categoryRowWrap}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.categoryRow}
+        contentContainerStyle={styles.categoryRowContent}
+      >
+        {['All', ...INGREDIENT_CATEGORIES].map((c) => (
+          <CategoryChip
+            key={c}
+            label={c}
+            isSelected={selectedCategory === c}
+            styles={styles}
+            onPress={() => setSelectedCategory(c)}
+          />
+        ))}
+      </ScrollView>
+      <CategoryFade colors={colors} />
+    </View>
   );
 
   return (
@@ -408,6 +416,40 @@ function CategoryChip({
   );
 }
 
+// Fakes a fade-to-background gradient on the category row's trailing
+// edge using stacked translucent strips, rather than pulling in
+// expo-linear-gradient for one small affordance — this app has no
+// gradient dependency anywhere else, and adding a native module here
+// would mean a dev-client rebuild before it'd show up on-device at all.
+// 8-digit hex (#RRGGBBAA) alpha works the same way the existing
+// `${colors.primary}26` pattern (addButton, above) relies on.
+const FADE_ALPHA_STEPS = ['00', '30', '66', '99', 'CC', 'FF'] as const;
+
+function CategoryFade({ colors }: { colors: Record<ColorToken, string> }) {
+  return (
+    <View pointerEvents="none" style={fadeStyles.wrap}>
+      {FADE_ALPHA_STEPS.map((alpha, i) => (
+        <View
+          key={alpha + i}
+          style={[fadeStyles.strip, { backgroundColor: `${colors.background}${alpha}` }]}
+        />
+      ))}
+    </View>
+  );
+}
+
+const fadeStyles = StyleSheet.create({
+  wrap: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: 28,
+    flexDirection: 'row',
+  },
+  strip: { flex: 1, height: '100%' },
+});
+
 const IngredientCard = memo(function IngredientCard({
   ingredient,
   sensitivity,
@@ -557,6 +599,9 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingTop: spacing.xs,
       paddingBottom: spacing.sm,
     },
+    // position: relative so the absolutely-positioned CategoryFade
+    // overlay anchors to this row's bounds rather than the screen.
+    categoryRowWrap: { position: 'relative' },
     categoryRow: { height: 40, maxHeight: 40, flexGrow: 0, flexShrink: 0 },
     categoryRowContent: { flexGrow: 0, alignItems: 'flex-start', paddingRight: spacing.xl },
     categoryChip: {

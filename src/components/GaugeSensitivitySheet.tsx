@@ -136,7 +136,13 @@ function SensitivityOption({
           <View style={{ flex: 1 }}>
             <StockGauge percent={percent} status="ok" />
           </View>
-          <Text style={styles.previewLabel}>Butter, 5kg stock</Text>
+          {/* Spells out both numbers (not just "Butter, 5kg stock") so
+              it's clear this is illustrating a stock-vs-alert ratio, not
+              describing a fixed real-world case — see EXAMPLE_STOCK /
+              EXAMPLE_THRESHOLD above for why 5/6 was chosen. */}
+          <Text style={styles.previewLabel}>
+            Butter: {EXAMPLE_STOCK}kg / {EXAMPLE_THRESHOLD}kg alert
+          </Text>
         </View>
       </Animated.View>
     </Pressable>
@@ -182,7 +188,11 @@ function makeStyles(colors: Record<ColorToken, string>) {
     optionDescription: {
       ...typography.caption,
       color: colors.textSecondary,
-      marginBottom: spacing.sm,
+      // Bumped from spacing.sm to spacing.md so the preview bar reads as
+      // its own element rather than crowding the description text above
+      // it — the bar carries real information (the actual gauge math),
+      // it deserves more visual separation than a caption-to-caption gap.
+      marginBottom: spacing.md,
     },
     previewRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     previewLabel: { ...typography.caption, color: colors.textSecondary },

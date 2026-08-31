@@ -2,14 +2,14 @@ export type IngredientCategory =
   | 'Dry goods'
   | 'Dairy'
   | 'Flavoring'
-  | 'Packaging'
+  | 'Sweeteners'
   | 'Other';
 
 export const INGREDIENT_CATEGORIES: IngredientCategory[] = [
   'Dry goods',
   'Dairy',
   'Flavoring',
-  'Packaging',
+  'Sweeteners',
   'Other',
 ];
 

@@ -14,7 +14,7 @@ const CATEGORY_ICONS: Record<IngredientCategory, IoniconName> = {
   'Dry goods': 'nutrition-outline',
   Dairy: 'water-outline',
   Flavoring: 'flask-outline',
-  Packaging: 'cube-outline',
+  Sweeteners: 'arrow-up-circle-outline',
   Other: 'ellipsis-horizontal',
 };
 
