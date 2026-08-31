@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Animated, {
   FadeInDown,
+  FadeOut,
+  LinearTransition,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -781,11 +783,19 @@ function CompletionBanner({
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
 }) {
+  // FadeOut on unmount -- without it, this vanishes instantly the moment
+  // showCelebration flips true, and RestockBanner right below it snaps
+  // up to fill the gap in the same frame the confetti fires. That
+  // collision is what read as "pushed down fast" (2026-08-31 feedback).
   return (
-    <View style={styles.completionLine}>
+    <Animated.View
+      entering={FadeInDown.duration(motionDuration.medium).easing(motionEasing.decelerate)}
+      exiting={FadeOut.duration(motionDuration.fast)}
+      style={styles.completionLine}
+    >
       <Ionicons name="checkmark-circle" size={14} color={colors.success} />
       <Text style={styles.completionLineText}>All done for {tab === 'tomorrow' ? 'tomorrow' : 'today'}</Text>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -943,8 +953,11 @@ function RestockBanner({
   colors: Record<ColorToken, string>;
   onPress: () => void;
 }) {
+  // `layout` makes Reanimated animate this banner smoothly to its new
+  // position whenever CompletionBanner above it mounts/unmounts, instead
+  // of snapping instantly to fill the gap.
   return (
-    <View style={styles.bannerCard}>
+    <Animated.View layout={LinearTransition.duration(motionDuration.medium)} style={styles.bannerCard}>
       <Ionicons name="alert-circle" size={18} color={colors.danger} style={{ marginTop: 1 }} />
       <View style={styles.bannerTextWrap}>
         <Text style={styles.bannerTitle}>
@@ -955,7 +968,7 @@ function RestockBanner({
       <Pressable onPress={onPress} hitSlop={8}>
         <Text style={styles.bannerAction}>View list</Text>
       </Pressable>
-    </View>
+    </Animated.View>
   );
 }
 
