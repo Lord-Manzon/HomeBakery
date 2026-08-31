@@ -253,7 +253,7 @@ export default function RecipeAndCostingScreen() {
           <>
             <Pressable
               style={styles.recipeLinkRow}
-              onPress={() => router.push(`/recipes/${variant.recipe_id}`)}
+              onPress={() => router.push(`/products/${id}/recipe-view?recipeId=${variant.recipe_id}`)}
             >
               <View style={styles.recipeLinkBody}>
                 <Text style={styles.recipeLinkName}>{linkedRecipe?.name ?? 'Loading…'}</Text>

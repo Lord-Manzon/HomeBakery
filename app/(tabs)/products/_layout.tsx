@@ -8,6 +8,8 @@ export default function ProductsLayout() {
       <Stack.Screen name="categories/new" />
       <Stack.Screen name="[id]/index" />
       <Stack.Screen name="[id]/recipe" />
+      <Stack.Screen name="[id]/recipe-view" />
+      <Stack.Screen name="[id]/recipe-instructions" />
     </Stack>
   );
 }

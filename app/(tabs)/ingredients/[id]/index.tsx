@@ -190,7 +190,7 @@ export default function IngredientDetailScreen() {
 
       {removeError ? <ErrorBanner message={removeError} /> : null}
       {blockedRecipes ? (
-        <BlockedRecipesNotice recipes={blockedRecipes} styles={styles} />
+        <BlockedRecipesNotice recipes={blockedRecipes} ingredientId={id} styles={styles} />
       ) : null}
 
       <Text style={styles.name}>{ingredient.name}</Text>
@@ -274,7 +274,7 @@ export default function IngredientDetailScreen() {
 
       <Text style={styles.historyTitle}>Used in</Text>
       {recipesUsing ? (
-        <UsedInSection recipes={recipesUsing} styles={styles} colors={colors} />
+        <UsedInSection recipes={recipesUsing} ingredientId={id} styles={styles} colors={colors} />
       ) : null}
 
       <Text style={styles.historyTitle}>Stock history</Text>
@@ -340,9 +340,11 @@ export default function IngredientDetailScreen() {
 // the screen's buttons.
 function BlockedRecipesNotice({
   recipes,
+  ingredientId,
   styles,
 }: {
   recipes: BlockingRecipe[];
+  ingredientId: string;
   styles: ReturnType<typeof makeStyles>;
 }) {
   const router = useRouter();
@@ -355,7 +357,9 @@ function BlockedRecipesNotice({
           <Text key={recipe.id}>
             <Text
               style={styles.blockedNoticeLink}
-              onPress={() => router.push(`/recipes/${recipe.id}`)}
+              onPress={() =>
+                router.push(`/ingredients/${ingredientId}/recipe-view?recipeId=${recipe.id}`)
+              }
             >
               {recipe.name}
             </Text>
@@ -370,10 +374,12 @@ function BlockedRecipesNotice({
 
 function UsedInSection({
   recipes,
+  ingredientId,
   styles,
   colors,
 }: {
   recipes: BlockingRecipe[];
+  ingredientId: string;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
 }) {
@@ -388,7 +394,7 @@ function UsedInSection({
   return (
     <View style={styles.usedInList}>
       {recipes.map((recipe) => (
-        <UsedInChip key={recipe.id} recipe={recipe} styles={styles} colors={colors} />
+        <UsedInChip key={recipe.id} recipe={recipe} ingredientId={ingredientId} styles={styles} colors={colors} />
       ))}
     </View>
   );
@@ -396,10 +402,12 @@ function UsedInSection({
 
 function UsedInChip({
   recipe,
+  ingredientId,
   styles,
   colors,
 }: {
   recipe: BlockingRecipe;
+  ingredientId: string;
   styles: ReturnType<typeof makeStyles>;
   colors: Record<ColorToken, string>;
 }) {
@@ -408,7 +416,7 @@ function UsedInChip({
 
   return (
     <Pressable
-      onPress={() => router.push(`/recipes/${recipe.id}`)}
+      onPress={() => router.push(`/ingredients/${ingredientId}/recipe-view?recipeId=${recipe.id}`)}
       onPressIn={press.onPressIn}
       onPressOut={press.onPressOut}
       accessibilityRole="button"

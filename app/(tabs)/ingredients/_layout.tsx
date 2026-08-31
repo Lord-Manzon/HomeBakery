@@ -17,6 +17,8 @@ export default function IngredientsLayout() {
     >
       <Stack.Screen name="index" />
       <Stack.Screen name="[id]/index" />
+      <Stack.Screen name="[id]/recipe-view" />
+      <Stack.Screen name="[id]/recipe-instructions" />
     </Stack>
   );
 }
