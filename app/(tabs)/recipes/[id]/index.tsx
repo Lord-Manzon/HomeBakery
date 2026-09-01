@@ -11,5 +11,11 @@ import { RecipeDetailScreen } from '../../../../src/screens/RecipeDetailScreen';
  */
 export default function RecipeDetailRoute() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  return <RecipeDetailScreen recipeId={id} basePath={`/recipes/${id}`} />;
+  return (
+    <RecipeDetailScreen
+      recipeId={id}
+      instructionsPath={`/recipes/${id}/instructions`}
+      productPath={(productId) => `/recipes/${id}/product-view?productId=${productId}`}
+    />
+  );
 }

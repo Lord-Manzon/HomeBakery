@@ -7,6 +7,7 @@ export default function RecipesLayout() {
       <Stack.Screen name="new" />
       <Stack.Screen name="[id]/index" />
       <Stack.Screen name="[id]/instructions" />
+      <Stack.Screen name="[id]/product-view" />
     </Stack>
   );
 }

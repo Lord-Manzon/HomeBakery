@@ -20,7 +20,11 @@ export default function ProductRecipeViewRoute() {
   return (
     <RecipeDetailScreen
       recipeId={recipeId}
-      basePath={`/products/${id}/recipe-view?recipeId=${recipeId}`}
+      instructionsPath={`/products/${id}/recipe-instructions?recipeId=${recipeId}`}
+      // Already inside the Products tab, so a product link here is a
+      // normal same-tab push to the tab's own native product route —
+      // no special nested route needed, unlike the Recipes-tab case.
+      productPath={(productId) => `/products/${productId}`}
     />
   );
 }

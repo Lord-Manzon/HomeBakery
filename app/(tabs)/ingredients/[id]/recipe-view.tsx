@@ -13,7 +13,13 @@ export default function IngredientRecipeViewRoute() {
   return (
     <RecipeDetailScreen
       recipeId={recipeId}
-      basePath={`/ingredients/${id}/recipe-view?recipeId=${recipeId}`}
+      instructionsPath={`/ingredients/${id}/recipe-instructions?recipeId=${recipeId}`}
+      // Known remaining limitation: this still jumps into the Products
+      // tab directly (cross-tab), same as the original bug this whole
+      // change was fixing — Ingredient → Recipe → Product is one hop
+      // deeper than what's been fixed so far. Not addressed here; would
+      // need an equivalent nested product-view route under Ingredients.
+      productPath={(productId) => `/products/${productId}`}
     />
   );
 }

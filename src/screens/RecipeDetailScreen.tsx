@@ -31,20 +31,38 @@ import type { RecipeIngredientWithDetails } from '../types/recipe';
  * detail screen — the Recipes tab's own `[id]/index.tsx`, plus thin
  * wrapper routes nested under Products (`[id]/recipe-view`) and
  * Ingredients (`[id]/recipe-view`). Each wrapper supplies `recipeId`
- * (instead of this component reading it from its own route) and a
- * `basePath` — this recipe's "home" URL within whichever tab is hosting
- * it right now — so links deeper into this recipe (currently just
- * Instructions) stay inside that same tab's stack instead of jumping
- * back to the Recipes tab. That's what makes `router.back()` below
- * return to wherever the baker actually came from (a product, an
- * ingredient, or the Recipes list) instead of always assuming Recipes.
+ * plus two fully-formed destination paths — `instructionsPath` and
+ * `productPath` — instead of a single shared "basePath" string that
+ * this component would then concatenate further segments onto.
+ *
+ * That concatenation approach was tried first and had a real bug:
+ * a wrapper's basePath could look like
+ * `/products/abc/recipe-view?recipeId=xyz` (it already has to carry
+ * `recipeId` as a query param, not a path segment, to stay a flat file
+ * — see recipe-view.tsx's own comment). Appending `/instructions` to
+ * that string puts it AFTER the `?`, where it's just part of the query
+ * string, not a real path segment — so it would silently fail to
+ * navigate anywhere real. Passing each wrapper's exact, correct
+ * destination path as its own prop sidesteps that entirely: each
+ * wrapper builds its own path however its own route structure requires,
+ * and this component just uses the finished string.
  */
 export function RecipeDetailScreen({
   recipeId,
-  basePath,
+  instructionsPath,
+  productPath,
 }: {
   recipeId: string;
-  basePath: string;
+  /** Exact path to this recipe's Instructions editor, within whichever
+   * tab is currently hosting this screen. */
+  instructionsPath: string;
+  /** Builds the exact path to view a given product from wherever this
+   * screen is currently hosted. When already inside the Products tab,
+   * this can just be the tab's own native product route (same-tab
+   * push, no issue). From Recipes or Ingredients, it needs to point at
+   * a same-tab nested route so `router.back()` from that product
+   * returns here instead of falling through toward Home. */
+  productPath: (productId: string) => string;
 }) {
   const id = recipeId;
   const router = useRouter();
@@ -493,7 +511,7 @@ export function RecipeDetailScreen({
                     <Pressable
                       key={u.variant_id}
                       style={styles.usageRow}
-                      onPress={() => navigateOnce(`/products/${u.product_id}`)}
+                      onPress={() => navigateOnce(productPath(u.product_id))}
                     >
                       <Text style={styles.usageText}>
                         {u.product_name} — {u.variant_name}
@@ -628,7 +646,7 @@ export function RecipeDetailScreen({
                   {(recipe.instructions?.length ?? 0)} step{(recipe.instructions?.length ?? 0) === 1 ? '' : 's'}
                   {effectiveTimeMinutes != null ? ` · ~${effectiveTimeMinutes} min` : ''}
                 </Text>
-                <Pressable onPress={() => navigateOnce(`${basePath}/instructions`)} style={styles.addLink}>
+                <Pressable onPress={() => navigateOnce(instructionsPath)} style={styles.addLink}>
                   <Ionicons
                     name={recipe.instructions && recipe.instructions.length > 0 ? 'create-outline' : 'add'}
                     size={16}
@@ -643,7 +661,7 @@ export function RecipeDetailScreen({
               {recipe.intro ? <Text style={styles.recipeIntroPreview}>{recipe.intro}</Text> : null}
 
               {!recipe.instructions || recipe.instructions.length === 0 ? (
-                <Pressable onPress={() => navigateOnce(`${basePath}/instructions`)}>
+                <Pressable onPress={() => navigateOnce(instructionsPath)}>
                   <Text style={styles.emptyState}>No steps yet — add them so they're not just in your head.</Text>
                 </Pressable>
               ) : (
