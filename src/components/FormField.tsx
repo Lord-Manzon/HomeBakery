@@ -7,14 +7,19 @@ import type { ColorToken } from '../theme/colors';
 type FormFieldProps = TextInputProps & {
   label: string;
   error?: string;
+  /** Tighter outer spacing (spacing.sm instead of spacing.lg) for fields
+   * grouped together inside a card, where the card boundary already
+   * establishes the grouping. Off by default -- every existing call site
+   * keeps its current spacing untouched. */
+  compact?: boolean;
 };
 
-export function FormField({ label, error, style, ...inputProps }: FormFieldProps) {
+export function FormField({ label, error, style, compact, ...inputProps }: FormFieldProps) {
   const { colors } = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, compact && styles.containerCompact]}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
       <TextInput
         style={[styles.input, error ? styles.inputError : null, style]}
@@ -35,6 +40,9 @@ function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
     container: {
       marginBottom: spacing.lg,
+    },
+    containerCompact: {
+      marginBottom: spacing.sm,
     },
     label: {
       ...typography.titleSm,

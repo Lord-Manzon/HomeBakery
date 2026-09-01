@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useThemeColors } from '../theme/ThemeContext';
@@ -159,178 +159,201 @@ export function OrderForm({
 
   return (
     <>
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-      >
-        {hasSubmitError ? <ErrorBanner message="Couldn't save this order. Please try again." /> : null}
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          {hasSubmitError ? <ErrorBanner message="Couldn't save this order. Please try again." /> : null}
 
-        <FormField
-          label="Customer name"
-          placeholder="e.g. Maria Santos"
-          value={customerName}
-          onChangeText={setCustomerName}
-          error={errors.customer_name}
-        />
-        <FormField
-          label="Contact (optional)"
-          placeholder="Phone or Messenger"
-          value={customerContact}
-          onChangeText={setCustomerContact}
-        />
-
-        <Text style={styles.label}>Fulfillment</Text>
-        <View style={styles.segmentRow}>
-          <SegmentButton
-            label="Pickup"
-            icon="bag-handle-outline"
-            isSelected={fulfillmentType === 'pickup'}
-            onPress={() => setFulfillmentType('pickup')}
-            styles={styles}
-            colors={colors}
-          />
-          <SegmentButton
-            label="Delivery"
-            icon="bicycle-outline"
-            isSelected={fulfillmentType === 'delivery'}
-            onPress={() => setFulfillmentType('delivery')}
-            styles={styles}
-            colors={colors}
-          />
-        </View>
-
-        {fulfillmentType === 'delivery' ? (
-          <>
+          {/* Customer -- both fields already self-label ("Customer name",
+              "Contact (optional)"), so no extra section header here; one
+              would just repeat what's already on screen, same issue as
+              the Orders list card's now-removed "Order" label. */}
+          <View style={styles.sectionCard}>
             <FormField
-              label="Delivery address"
-              placeholder="Where to deliver"
-              value={deliveryAddress}
-              onChangeText={setDeliveryAddress}
-              error={errors.delivery_address}
-              multiline
+              compact
+              label="Customer name"
+              placeholder="e.g. Maria Santos"
+              value={customerName}
+              onChangeText={setCustomerName}
+              error={errors.customer_name}
             />
             <FormField
-              label="Delivery fee"
-              keyboardType="decimal-pad"
-              value={deliveryFee}
-              onChangeText={setDeliveryFee}
-              error={errors.delivery_fee}
+              compact
+              label="Contact (optional)"
+              placeholder="Phone or Messenger"
+              value={customerContact}
+              onChangeText={setCustomerContact}
             />
-          </>
-        ) : null}
+          </View>
 
-        <Text style={styles.label}>When</Text>
-        <View style={styles.segmentRow}>
-          <Pressable style={styles.dateField} onPress={() => setShowDatePicker(true)}>
-            <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
-            <Text style={styles.dateFieldText}>{formatOrderDate(toISODateString(scheduledDate))}</Text>
-          </Pressable>
-          <Pressable style={styles.dateField} onPress={() => setShowTimePicker(true)}>
-            <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
-            <Text style={styles.dateFieldText}>
-              {scheduledTime ? formatOrderTime(toTimeString(scheduledTime)) : 'No time set'}
-            </Text>
-          </Pressable>
-        </View>
-        {errors.scheduled_date ? <Text style={styles.errorText}>{errors.scheduled_date}</Text> : null}
-        {showDatePicker ? (
-          <DateTimePicker
-            value={scheduledDate}
-            mode="date"
-            display={Platform.OS === 'ios' ? 'inline' : 'default'}
-            onChange={handleDateChange}
-          />
-        ) : null}
-        {showTimePicker ? (
-          <DateTimePicker
-            value={scheduledTime ?? new Date()}
-            mode="time"
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={handleTimeChange}
-          />
-        ) : null}
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Fulfillment</Text>
+            <View style={styles.segmentRow}>
+              <SegmentButton
+                label="Pickup"
+                icon="bag-handle-outline"
+                isSelected={fulfillmentType === 'pickup'}
+                onPress={() => setFulfillmentType('pickup')}
+                styles={styles}
+                colors={colors}
+              />
+              <SegmentButton
+                label="Delivery"
+                icon="bicycle-outline"
+                isSelected={fulfillmentType === 'delivery'}
+                onPress={() => setFulfillmentType('delivery')}
+                styles={styles}
+                colors={colors}
+              />
+            </View>
 
-        <Text style={styles.label}>Items</Text>
-        {items.length === 0 ? (
-          <Text style={styles.itemsEmpty}>No items added yet.</Text>
-        ) : (
-          items.map((item, index) => (
+            {fulfillmentType === 'delivery' ? (
+              <>
+                <FormField
+                  compact
+                  label="Delivery address"
+                  placeholder="Where to deliver"
+                  value={deliveryAddress}
+                  onChangeText={setDeliveryAddress}
+                  error={errors.delivery_address}
+                  multiline
+                />
+                <FormField
+                  compact
+                  label="Delivery fee"
+                  keyboardType="decimal-pad"
+                  value={deliveryFee}
+                  onChangeText={setDeliveryFee}
+                  error={errors.delivery_fee}
+                />
+              </>
+            ) : null}
+          </View>
+
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>When</Text>
+            <View style={styles.segmentRow}>
+              <Pressable style={styles.dateField} onPress={() => setShowDatePicker(true)}>
+                <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
+                <Text style={styles.dateFieldText}>{formatOrderDate(toISODateString(scheduledDate))}</Text>
+              </Pressable>
+              <Pressable style={styles.dateField} onPress={() => setShowTimePicker(true)}>
+                <Ionicons name="time-outline" size={16} color={colors.textSecondary} />
+                <Text style={styles.dateFieldText}>
+                  {scheduledTime ? formatOrderTime(toTimeString(scheduledTime)) : 'No time set'}
+                </Text>
+              </Pressable>
+            </View>
+            {errors.scheduled_date ? <Text style={styles.errorText}>{errors.scheduled_date}</Text> : null}
+            {showDatePicker ? (
+              <DateTimePicker
+                value={scheduledDate}
+                mode="date"
+                display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                onChange={handleDateChange}
+              />
+            ) : null}
+            {showTimePicker ? (
+              <DateTimePicker
+                value={scheduledTime ?? new Date()}
+                mode="time"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={handleTimeChange}
+              />
+            ) : null}
+          </View>
+
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>Items</Text>
+            {items.length === 0 ? (
+              <Text style={styles.itemsEmpty}>No items added yet.</Text>
+            ) : (
+              <View style={styles.itemsList}>
+                {items.map((item, index) => (
+                  <Pressable
+                    key={`${item.variant_id}-${index}`}
+                    style={[styles.itemRow, index === items.length - 1 && styles.itemRowLast]}
+                    onPress={() => {
+                      setEditingItemIndex(index);
+                      setItemSheetOpen(true);
+                    }}
+                  >
+                    <View style={styles.itemRowText}>
+                      <Text style={styles.itemName} numberOfLines={1}>
+                        {item.quantity}× {item.product_name} ({item.variant_name})
+                      </Text>
+                      <Text style={styles.itemPrice}>
+                        {formatCurrency(item.quantity * item.selling_price, baker?.currency)}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => handleRemoveItem(index)}
+                      hitSlop={8}
+                      style={styles.itemRemoveButton}
+                    >
+                      <Ionicons name="close" size={16} color={colors.textSecondary} />
+                    </Pressable>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            {errors.items ? <Text style={styles.errorText}>{errors.items}</Text> : null}
             <Pressable
-              key={`${item.variant_id}-${index}`}
-              style={styles.itemRow}
+              style={styles.addItemButton}
               onPress={() => {
-                setEditingItemIndex(index);
+                setEditingItemIndex(null);
                 setItemSheetOpen(true);
               }}
             >
-              <View style={styles.itemRowText}>
-                <Text style={styles.itemName} numberOfLines={1}>
-                  {item.quantity}× {item.product_name} ({item.variant_name})
-                </Text>
-                <Text style={styles.itemPrice}>
-                  {formatCurrency(item.quantity * item.selling_price, baker?.currency)}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => handleRemoveItem(index)}
-                hitSlop={8}
-                style={styles.itemRemoveButton}
-              >
-                <Ionicons name="close" size={16} color={colors.textSecondary} />
-              </Pressable>
+              <Ionicons name="add" size={16} color={colors.primary} />
+              <Text style={styles.addItemButtonText}>Add item</Text>
             </Pressable>
-          ))
-        )}
-        {errors.items ? <Text style={styles.errorText}>{errors.items}</Text> : null}
-        <Pressable
-          style={styles.addItemButton}
-          onPress={() => {
-            setEditingItemIndex(null);
-            setItemSheetOpen(true);
-          }}
-        >
-          <Ionicons name="add" size={16} color={colors.primary} />
-          <Text style={styles.addItemButtonText}>Add item</Text>
-        </Pressable>
 
-        {items.length > 0 ? (
-          <View style={styles.totalsBlock}>
-            <View style={styles.totalsRow}>
-              <Text style={styles.totalsLabel}>Subtotal</Text>
-              <Text style={styles.totalsValue}>{formatCurrency(subtotal, baker?.currency)}</Text>
-            </View>
-            {fulfillmentType === 'delivery' && parsedDeliveryFee > 0 ? (
-              <View style={styles.totalsRow}>
-                <Text style={styles.totalsLabel}>Delivery fee</Text>
-                <Text style={styles.totalsValue}>{formatCurrency(parsedDeliveryFee, baker?.currency)}</Text>
+            {items.length > 0 ? (
+              <View style={styles.totalsBlock}>
+                <View style={styles.totalsRow}>
+                  <Text style={styles.totalsLabel}>Subtotal</Text>
+                  <Text style={styles.totalsValue}>{formatCurrency(subtotal, baker?.currency)}</Text>
+                </View>
+                {fulfillmentType === 'delivery' && parsedDeliveryFee > 0 ? (
+                  <View style={styles.totalsRow}>
+                    <Text style={styles.totalsLabel}>Delivery fee</Text>
+                    <Text style={styles.totalsValue}>{formatCurrency(parsedDeliveryFee, baker?.currency)}</Text>
+                  </View>
+                ) : null}
+                <View style={styles.totalsRow}>
+                  <Text style={styles.totalsLabelBold}>Total</Text>
+                  <Text style={styles.totalsValueBold}>{formatCurrency(total, baker?.currency)}</Text>
+                </View>
               </View>
             ) : null}
-            <View style={styles.totalsRow}>
-              <Text style={styles.totalsLabelBold}>Total</Text>
-              <Text style={styles.totalsValueBold}>{formatCurrency(total, baker?.currency)}</Text>
-            </View>
           </View>
-        ) : null}
 
-        <FormField
-          label="Notes (optional)"
-          placeholder="Anything else to remember about this order"
-          value={notes}
-          onChangeText={setNotes}
-          multiline
-        />
+          <View style={styles.sectionCard}>
+            <FormField
+              compact
+              label="Notes (optional)"
+              placeholder="Anything else to remember about this order"
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+            />
+          </View>
 
-        <View style={styles.saveButton}>
-          <PrimaryButton
-            title={isSubmitting ? 'Saving…' : submitLabel}
-            onPress={handleSave}
-            disabled={!canSave}
-            isLoading={isSubmitting}
-          />
-        </View>
-      </ScrollView>
+          <View style={styles.saveButton}>
+            <PrimaryButton
+              title={isSubmitting ? 'Saving…' : submitLabel}
+              onPress={handleSave}
+              disabled={!canSave}
+              isLoading={isSubmitting}
+            />
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <OrderItemSheet
         visible={itemSheetOpen}
@@ -377,10 +400,28 @@ function SegmentButton({
 
 function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
+    flex: { flex: 1 },
     scrollView: { flex: 1 },
     scrollContent: { paddingBottom: spacing.xxl },
-    label: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.sm, marginTop: spacing.xs },
-    segmentRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+    // Fields used to sit one after another down the screen, each its own
+    // bordered box with a label above it -- reads as "many small forms
+    // to fill" rather than one order. Grouping related fields inside a
+    // shared card (Gestalt's proximity/common-region principle) reads as
+    // fewer, bigger decisions instead of many small identical ones, even
+    // though the same fields are still there. See src/components/
+    // FormField.tsx's new `compact` prop, used only inside these cards.
+    sectionCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radii.lg,
+      padding: spacing.lg,
+      marginBottom: spacing.md,
+    },
+    // Only used where the section holds something that doesn't already
+    // self-label (the fulfillment segment control, the date/time row,
+    // the item list) -- Customer and Notes skip this, since their
+    // FormFields already say what they are.
+    sectionTitle: { ...typography.titleSm, color: colors.textPrimary, marginBottom: spacing.sm },
+    segmentRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
     segmentButton: {
       flex: 1,
       flexDirection: 'row',
@@ -391,7 +432,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       borderColor: colors.border,
       backgroundColor: colors.surface,
       borderRadius: radii.md,
-      paddingVertical: spacing.sm + 2,
+      paddingVertical: spacing.md,
     },
     segmentButtonSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     segmentButtonText: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
@@ -406,20 +447,23 @@ function makeStyles(colors: Record<ColorToken, string>) {
       backgroundColor: colors.surface,
       borderRadius: radii.md,
       paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm + 4,
+      paddingVertical: spacing.md,
     },
     dateFieldText: { ...typography.bodySm, color: colors.textPrimary },
     itemsEmpty: { ...typography.bodySm, color: colors.textSecondary, marginBottom: spacing.sm },
+    // No border/radius/margin of its own anymore -- the card around it
+    // already establishes the boundary, so a bordered box per row was a
+    // box inside a box. A hairline bottom divider between rows (skipped
+    // on the last one) replaces it.
+    itemsList: { marginBottom: spacing.xs },
     itemRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderRadius: radii.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
       paddingVertical: spacing.sm,
-      paddingHorizontal: spacing.md,
-      marginBottom: spacing.xs,
     },
+    itemRowLast: { borderBottomWidth: 0 },
     itemRowText: { flex: 1 },
     itemName: { ...typography.bodySm, color: colors.textPrimary },
     itemPrice: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
@@ -433,14 +477,14 @@ function makeStyles(colors: Record<ColorToken, string>) {
       borderRadius: radii.md,
       paddingVertical: spacing.sm,
       justifyContent: 'center',
-      marginBottom: spacing.md,
+      marginTop: spacing.xs,
     },
     addItemButtonText: { ...typography.bodySm, color: colors.primary, fontWeight: '600' },
     totalsBlock: {
       backgroundColor: colors.surfaceMuted,
       borderRadius: radii.md,
       padding: spacing.md,
-      marginBottom: spacing.lg,
+      marginTop: spacing.md,
     },
     totalsRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xxs },
     totalsLabel: { ...typography.bodySm, color: colors.textSecondary },

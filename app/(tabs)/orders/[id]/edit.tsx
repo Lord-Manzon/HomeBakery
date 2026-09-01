@@ -11,6 +11,7 @@ import type { OrderWithItems } from '../../../../src/types/order';
 import { fromISODateString, fromTimeString } from '../../../../src/utils/dateFormat';
 import { ErrorBanner } from '../../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../../src/components/PrimaryButton';
+import { Screen } from '../../../../src/components/Screen';
 import { spacing, typography } from '../../../../src/theme';
 
 export default function EditOrderScreen() {
@@ -23,7 +24,7 @@ export default function EditOrderScreen() {
   const updateOrder = useUpdateOrder(id);
 
   return (
-    <View style={styles.container}>
+    <Screen style={styles.container}>
       <View style={styles.headerRow}>
         <Pressable onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
@@ -62,7 +63,7 @@ export default function EditOrderScreen() {
           }}
         />
       )}
-    </View>
+    </Screen>
   );
 }
 
@@ -103,7 +104,7 @@ function orderToFormValues(order: OrderWithItems): OrderFormValues {
 
 function makeStyles(colors: { background: string; textPrimary: string; surfaceMuted: string }) {
   return StyleSheet.create({
-    container: { flex: 1, backgroundColor: colors.background, padding: spacing.xl },
+    container: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',

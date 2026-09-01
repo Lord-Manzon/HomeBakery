@@ -206,7 +206,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       flexDirection: 'row',
       justifyContent: 'space-between',
       alignItems: 'center',
-      paddingVertical: spacing.sm + 2,
+      paddingVertical: spacing.md,
       paddingHorizontal: spacing.md,
       borderRadius: radii.md,
     },
