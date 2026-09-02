@@ -29,8 +29,7 @@ import {
 } from '../../../src/services/orderLogic';
 import { formatOrderTime, formatGroupHeaderDate, todayDateString } from '../../../src/utils/dateFormat';
 import { formatCurrency } from '../../../src/utils/currency';
-import { titleCase, initialOf } from '../../../src/utils/textFormat';
-import { hashStringToColor } from '../../../src/utils/colorHash';
+import { titleCase } from '../../../src/utils/textFormat';
 import { Screen } from '../../../src/components/Screen';
 import { ErrorBanner } from '../../../src/components/ErrorBanner';
 import { PrimaryButton } from '../../../src/components/PrimaryButton';
@@ -602,13 +601,16 @@ function OrderCard({
   const hasTime = Boolean(order.scheduled_time);
   const timeLabel = formatOrderTime(order.scheduled_time);
   const fulfillmentLabel = order.fulfillment_type === 'delivery' ? 'Delivery' : 'Pickup';
-  const metaText = hasTime ? `${timeLabel} · ${fulfillmentLabel}` : fulfillmentLabel;
+  const fulfillmentIcon = order.fulfillment_type === 'delivery' ? 'bicycle-outline' : 'bag-handle-outline';
 
   const displayName = titleCase(order.customer_name);
-  const avatarColor = hashStringToColor(order.customer_name);
 
   const canPay = canMarkPaid(order.status, order.payment_status);
   const canDeliver = canMarkDelivered(order.status);
+  // The sole or first-available action reads as this card's primary
+  // move (solid terracotta); whichever action is still offered once
+  // that's done falls back to the outline secondary style.
+  const payIsPrimary = canPay;
 
   // What's shown in the compact row (name, badge, price, item summary,
   // time/method) shouldn't be repeated in the expanded section -- only
@@ -633,30 +635,17 @@ function OrderCard({
       >
         <Animated.View style={[styles.card, press.style]}>
           <View style={styles.cardTopRow}>
-            <View style={styles.cardNameRow}>
-              <View style={[styles.avatar, { backgroundColor: avatarColor }]}>
-                <Text style={styles.avatarText}>{initialOf(order.customer_name)}</Text>
-              </View>
-              <View style={styles.cardNameTextGroup}>
-                <Text style={styles.cardName} numberOfLines={1}>
-                  {displayName}
-                </Text>
-                <View style={styles.statusIndicator}>
-                  <View style={[styles.statusDot, { backgroundColor: badgeColor }]} />
-                  <Text style={[styles.statusText, { color: badgeColor }]}>{badgeLabel}</Text>
-                </View>
+            <View style={styles.cardNameTextGroup}>
+              <Text style={styles.cardName} numberOfLines={1}>
+                {displayName}
+              </Text>
+              <View style={[styles.statusPill, { backgroundColor: `${badgeColor}22` }]}>
+                <View style={[styles.statusDot, { backgroundColor: badgeColor }]} />
+                <Text style={[styles.statusText, { color: badgeColor }]}>{badgeLabel}</Text>
               </View>
             </View>
-            <Text style={styles.cardTotal}>{formatCurrency(order.total, currency)}</Text>
-          </View>
-
-          <Text style={styles.cardItems} numberOfLines={1}>
-            {formatItemsSummary(order.items)}
-          </Text>
-
-          <View style={styles.cardMiddleRow}>
-            <Text style={styles.cardMetaText}>{metaText}</Text>
-            <View style={styles.cardActionsRow}>
+            <View style={styles.cardTopRightGroup}>
+              <Text style={styles.cardTotal}>{formatCurrency(order.total, currency)}</Text>
               <Pressable
                 onPress={(e) => {
                   e.stopPropagation();
@@ -666,8 +655,28 @@ function OrderCard({
                 hitSlop={12}
                 accessibilityLabel="Edit order"
               >
-                <Ionicons name="pencil-outline" size={18} color={colors.textSecondary} />
+                <Ionicons name="pencil-outline" size={15} color={colors.textSecondary} />
               </Pressable>
+            </View>
+          </View>
+
+          <View style={styles.cardItemsRow}>
+            <Ionicons name="bag-outline" size={15} color={colors.textSecondary} />
+            <Text style={styles.cardItems} numberOfLines={1}>
+              {formatItemsSummary(order.items)}
+            </Text>
+          </View>
+
+          <View style={styles.cardMiddleRow}>
+            {hasTime ? (
+              <View style={styles.cardMetaItem}>
+                <Ionicons name="time-outline" size={14} color={colors.textSecondary} />
+                <Text style={styles.cardMetaText}>{timeLabel}</Text>
+              </View>
+            ) : null}
+            <View style={styles.cardMetaItem}>
+              <Ionicons name={fulfillmentIcon} size={14} color={colors.textSecondary} />
+              <Text style={styles.cardMetaText}>{fulfillmentLabel}</Text>
             </View>
           </View>
 
@@ -678,28 +687,54 @@ function OrderCard({
             <View style={styles.actionButtonRow}>
               {canPay ? (
                 <Pressable
-                  style={[styles.actionButton, styles.actionButtonWarning]}
+                  style={[styles.actionButton, payIsPrimary ? styles.actionButtonPrimary : styles.actionButtonSecondary]}
                   onPress={(e) => {
                     e.stopPropagation();
                     onMarkPaid();
                   }}
                 >
-                  <Text style={[styles.actionButtonText, { color: colors.warning }]}>Mark as Paid</Text>
+                  <Text
+                    style={[
+                      styles.actionButtonText,
+                      { color: payIsPrimary ? colors.textInverse : colors.textPrimary },
+                    ]}
+                  >
+                    Mark as Paid
+                  </Text>
                 </Pressable>
               ) : null}
               {canDeliver ? (
                 <Pressable
-                  style={[styles.actionButton, styles.actionButtonSuccess]}
+                  style={[
+                    styles.actionButton,
+                    !payIsPrimary ? styles.actionButtonPrimary : styles.actionButtonSecondary,
+                  ]}
                   onPress={(e) => {
                     e.stopPropagation();
                     onMarkDelivered();
                   }}
                 >
-                  <Text style={[styles.actionButtonText, { color: colors.success }]}>
+                  <Text
+                    style={[
+                      styles.actionButtonText,
+                      { color: !payIsPrimary ? colors.textInverse : colors.textPrimary },
+                    ]}
+                  >
                     {order.fulfillment_type === 'delivery' ? 'Mark Delivered' : 'Mark Picked Up'}
                   </Text>
                 </Pressable>
               ) : null}
+            </View>
+          ) : null}
+
+          {hasExpandedContent ? (
+            <View style={styles.showDetailsRow}>
+              <Text style={styles.showDetailsText}>{isExpanded ? 'Hide details' : 'Show details'}</Text>
+              <Ionicons
+                name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                size={14}
+                color={colors.textSecondary}
+              />
             </View>
           ) : null}
 
@@ -908,42 +943,45 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.sm,
       marginBottom: spacing.xs,
     },
-    cardNameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
-    // Customer-initial avatar: color is hashed from the name (see
-    // src/utils/colorHash.ts, shared with product-category colors) so
-    // the same customer always gets the same color with nothing extra
-    // persisted. Also breaks up this card's otherwise flat white
-    // background with a bit of deliberate color.
-    avatar: {
-      width: 36,
-      height: 36,
-      borderRadius: radii.full,
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    avatarText: { ...typography.bodySm, color: '#FFFFFF', fontWeight: '700' },
-    cardNameTextGroup: { flexShrink: 1 },
+    cardNameTextGroup: { flexShrink: 1, gap: spacing.xxs },
     cardTopRow: {
       flexDirection: 'row',
-      alignItems: 'center',
+      alignItems: 'flex-start',
       justifyContent: 'space-between',
       gap: spacing.sm,
       marginBottom: spacing.xs,
     },
     cardName: { ...typography.body, color: colors.textPrimary, fontWeight: '600', flexShrink: 1 },
-    statusIndicator: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs, marginTop: 1 },
+    // Tinted pill (badge color at low alpha) rather than a bare dot +
+    // label -- reads as a real status chip instead of decoration.
+    statusPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: spacing.xxs,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: 2,
+      borderRadius: radii.full,
+    },
     statusDot: { width: 6, height: 6, borderRadius: 3 },
     statusText: { ...typography.caption, fontWeight: '600' },
+    cardTopRightGroup: { alignItems: 'flex-end', gap: spacing.xs },
+    cardItemsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xxs,
+      marginBottom: spacing.xs,
+    },
     cardMiddleRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      gap: spacing.sm,
+      gap: spacing.md,
+      marginBottom: spacing.xs,
     },
-    cardItems: { ...typography.bodySm, color: colors.textSecondary, flex: 1, marginBottom: spacing.xs },
+    cardItems: { ...typography.bodySm, color: colors.textSecondary, flex: 1 },
     cardTotal: { ...typography.titleLg, color: colors.textPrimary },
+    cardMetaItem: { flexDirection: 'row', alignItems: 'center', gap: spacing.xxs },
     cardMetaText: { ...typography.caption, color: colors.textSecondary },
-    cardActionsRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
     cardIconButton: {
       width: 20,
       height: 20,
@@ -993,9 +1031,21 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: spacing.sm,
       minHeight: 44,
     },
-    actionButtonWarning: { backgroundColor: colors.warningMuted },
-    actionButtonSuccess: { backgroundColor: colors.successMuted },
+    actionButtonPrimary: { backgroundColor: colors.primary },
+    actionButtonSecondary: {
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
     actionButtonText: { ...typography.bodySm, fontWeight: '600' },
+    showDetailsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xxs,
+      marginTop: spacing.sm,
+    },
+    showDetailsText: { ...typography.caption, color: colors.textSecondary },
     emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     emptyTitle: {
       ...typography.titleLg,
