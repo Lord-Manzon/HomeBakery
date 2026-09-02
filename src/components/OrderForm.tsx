@@ -17,6 +17,15 @@ import { spacing, radii, typography } from '../theme';
 import type { ColorToken } from '../theme/colors';
 import type { FulfillmentType } from '../types/order';
 
+// Fixed estimate of the sticky footer's own rendered height (Total text +
+// Save button + its internal padding) -- NOT including the safe-area
+// inset, which the footer adds separately to its own paddingBottom. Used
+// only so the ScrollView reserves enough space that its last card never
+// ends up hidden underneath the footer.
+// Bumped from 96 -- the stacked layout (summary row + full-width button)
+// is taller than the original single-row version it replaced.
+const FOOTER_CONTENT_HEIGHT = 140;
+
 export type OrderFormValues = {
   customerName: string;
   customerContact: string;
@@ -209,7 +218,10 @@ export function OrderForm({
           // accounts for the device's on-screen nav bar. Adding insets.bottom
           // here specifically, rather than in Screen.tsx globally, since
           // this is the one screen type that actually needs it.
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.xxl + insets.bottom }]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: spacing.xxl + insets.bottom + FOOTER_CONTENT_HEIGHT },
+          ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -454,16 +466,26 @@ export function OrderForm({
             />
           </View>
 
-          <View style={styles.saveButton}>
-            <PrimaryButton
-              title={isSubmitting ? 'Saving…' : submitLabel}
-              onPress={handleSave}
-              disabled={!canSave}
-              isLoading={isSubmitting}
-            />
-          </View>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      <View style={[styles.footer, { paddingBottom: spacing.md + insets.bottom }]}>
+        <View style={styles.footerSummaryRow}>
+          <Text style={styles.footerSummaryLabel}>
+            {items.length === 0 ? 'No items yet' : `${items.length} item${items.length === 1 ? '' : 's'}`}
+          </Text>
+          <View style={styles.footerTotalRow}>
+            <Text style={styles.footerTotalLabel}>Total</Text>
+            <Text style={styles.footerTotalValue}>{formatCurrency(total, baker?.currency)}</Text>
+          </View>
+        </View>
+        <PrimaryButton
+          title={isSubmitting ? 'Saving…' : submitLabel}
+          onPress={handleSave}
+          disabled={!canSave}
+          isLoading={isSubmitting}
+        />
+      </View>
 
       <OrderItemSheet
         visible={itemSheetOpen}
@@ -665,6 +687,30 @@ function makeStyles(colors: Record<ColorToken, string>) {
     totalsLabelBold: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
     totalsValueBold: { ...typography.body, color: colors.textPrimary, fontWeight: '600' },
     errorText: { ...typography.bodySm, color: colors.danger, marginBottom: spacing.sm },
-    saveButton: { marginTop: spacing.sm },
+    // Sticky footer -- Total + Save always visible regardless of scroll
+    // position. Sits outside Screen.tsx/the ScrollView, so it needs its
+    // own bottom-inset handling, same reasoning as Step 8's insets.bottom
+    // fix, applied here a second time.
+    footer: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: colors.surface,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+    },
+    footerSummaryRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: spacing.sm,
+    },
+    footerSummaryLabel: { ...typography.bodySm, color: colors.textSecondary },
+    footerTotalRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
+    footerTotalLabel: { ...typography.caption, color: colors.textSecondary },
+    footerTotalValue: { ...typography.titleSm, color: colors.textPrimary, fontWeight: '600' },
   });
 }
