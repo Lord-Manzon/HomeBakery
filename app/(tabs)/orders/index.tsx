@@ -841,7 +841,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     tabItem: {
       alignItems: 'center',
-      paddingBottom: spacing.xs,
     },
     tabText: { ...typography.body, color: colors.textSecondary, fontWeight: '600' },
     tabTextSelected: { color: colors.primary },

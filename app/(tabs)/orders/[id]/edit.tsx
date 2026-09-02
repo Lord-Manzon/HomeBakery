@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useHideFloatingNav } from '../../../../src/hooks/useHideFloatingNav';
@@ -104,7 +104,7 @@ function orderToFormValues(order: OrderWithItems): OrderFormValues {
 
 function makeStyles(colors: { background: string; textPrimary: string; surfaceMuted: string }) {
   return StyleSheet.create({
-    container: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
+    container: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xl },
     headerRow: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -112,7 +112,18 @@ function makeStyles(colors: { background: string; textPrimary: string; surfaceMu
       marginBottom: spacing.lg,
     },
     backButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    title: { ...typography.displaySm, color: colors.textPrimary },
+    title: {
+      ...typography.displaySm,
+      color: colors.textPrimary,
+      fontWeight: '500',
+      // Android's generic 'sans-serif' family collapses any fontWeight
+      // above 400 to full bold, regardless of the number given -- a
+      // known RN/Android quirk, not something the 500 value alone can
+      // fix. Roboto's real medium weight lives under its own family
+      // name, so it has to be named directly. iOS's 'System' font
+      // already renders 500 correctly, so it's left as-is.
+      fontFamily: Platform.select({ android: 'sans-serif-medium', default: typography.fontFamily }),
+    },
     skeleton: { flex: 1, borderRadius: 16, backgroundColor: colors.surfaceMuted },
   });
 }

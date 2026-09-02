@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { useThemeColors } from '../theme/ThemeContext';
@@ -87,10 +88,34 @@ export function OrderForm({
   const [items, setItems] = useState<CartItem[]>(initialValues.items);
   const [errors, setErrors] = useState<FormErrors>({});
 
+  // Today / Tomorrow / the day after, as one-tap pills above the date/time
+  // fields -- covers the two dates a baker checks constantly without
+  // opening the native date picker just to pick "today." Computed once on
+  // mount, not per-render, since "today" doesn't change within one form
+  // session.
+  const quickDates = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dayAfter = new Date(today);
+    dayAfter.setDate(dayAfter.getDate() + 2);
+    return [
+      { date: today, label: 'Today' },
+      { date: tomorrow, label: 'Tomorrow' },
+      { date: dayAfter, label: dayAfter.toLocaleDateString('en-US', { weekday: 'short' }) },
+    ];
+  }, []);
+
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [itemSheetOpen, setItemSheetOpen] = useState(false);
   const [editingItemIndex, setEditingItemIndex] = useState<number | null>(null);
+  // Which item row is currently showing its "Remove this item?" inline
+  // confirm, if any -- long-press triggers this instead of deleting
+  // immediately, closing the gap where the old X button had no
+  // confirmation step at all (see CODING_STANDARDS.md).
+  const [confirmRemoveIndex, setConfirmRemoveIndex] = useState<number | null>(null);
 
   const canSave = customerName.trim().length > 0 && items.length > 0 && !isSubmitting;
 
@@ -126,6 +151,20 @@ export function OrderForm({
     setItems((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // Quick +/- directly on an already-added item, without reopening the
+  // full Add/Edit item sheet just to bump a quantity. Clamped at 1, same
+  // floor as the sheet's own stepper (see OrderItemSheet.tsx) -- going to
+  // 0 stays the row's explicit × button's job, not something a stray
+  // extra tap on "-" should trigger silently.
+  const handleAdjustItemQuantity = (index: number, delta: number) => {
+    setItems((prev) => {
+      const next = [...prev];
+      const current = next[index];
+      next[index] = { ...current, quantity: Math.max(1, current.quantity + delta) };
+      return next;
+    });
+  };
+
   const handleSave = () => {
     const parsed = orderFormSchema.safeParse({
       customer_name: customerName,
@@ -157,12 +196,20 @@ export function OrderForm({
     onSubmit(parsed.data);
   };
 
+  const insets = useSafeAreaInsets();
+
   return (
     <>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          // Screen.tsx deliberately skips bottom safe-area padding, relying
+          // on the floating tab nav to reserve that space -- but this
+          // screen hides that nav (useHideFloatingNav), so nothing else
+          // accounts for the device's on-screen nav bar. Adding insets.bottom
+          // here specifically, rather than in Screen.tsx globally, since
+          // this is the one screen type that actually needs it.
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.xxl + insets.bottom }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -236,6 +283,22 @@ export function OrderForm({
 
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>When</Text>
+            <View style={styles.quickDateRow}>
+              {quickDates.map((qd) => {
+                const isSelected = toISODateString(scheduledDate) === toISODateString(qd.date);
+                return (
+                  <Pressable
+                    key={qd.label}
+                    onPress={() => setScheduledDate(qd.date)}
+                    style={[styles.quickDateChip, isSelected && styles.quickDateChipSelected]}
+                  >
+                    <Text style={[styles.quickDateChipText, isSelected && styles.quickDateChipTextSelected]}>
+                      {qd.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
             <View style={styles.segmentRow}>
               <Pressable style={styles.dateField} onPress={() => setShowDatePicker(true)}>
                 <Ionicons name="calendar-outline" size={16} color={colors.textSecondary} />
@@ -272,34 +335,81 @@ export function OrderForm({
             {items.length === 0 ? (
               <Text style={styles.itemsEmpty}>No items added yet.</Text>
             ) : (
-              <View style={styles.itemsList}>
-                {items.map((item, index) => (
-                  <Pressable
-                    key={`${item.variant_id}-${index}`}
-                    style={[styles.itemRow, index === items.length - 1 && styles.itemRowLast]}
-                    onPress={() => {
-                      setEditingItemIndex(index);
-                      setItemSheetOpen(true);
-                    }}
-                  >
-                    <View style={styles.itemRowText}>
-                      <Text style={styles.itemName} numberOfLines={1}>
-                        {item.quantity}× {item.product_name} ({item.variant_name})
-                      </Text>
-                      <Text style={styles.itemPrice}>
-                        {formatCurrency(item.quantity * item.selling_price, baker?.currency)}
-                      </Text>
-                    </View>
-                    <Pressable
-                      onPress={() => handleRemoveItem(index)}
-                      hitSlop={8}
-                      style={styles.itemRemoveButton}
-                    >
-                      <Ionicons name="close" size={16} color={colors.textSecondary} />
-                    </Pressable>
-                  </Pressable>
-                ))}
-              </View>
+              <>
+                <Text style={styles.itemsHint}>Tap to edit · hold to remove</Text>
+                <View style={styles.itemsList}>
+                  {items.map((item, index) => {
+                    const isConfirmingRemove = confirmRemoveIndex === index;
+                    return (
+                      <Pressable
+                        key={`${item.variant_id}-${index}`}
+                        style={[styles.itemRow, index === items.length - 1 && styles.itemRowLast]}
+                        onPress={() => {
+                          if (isConfirmingRemove) return;
+                          setEditingItemIndex(index);
+                          setItemSheetOpen(true);
+                        }}
+                        onLongPress={() => setConfirmRemoveIndex(index)}
+                      >
+                        {isConfirmingRemove ? (
+                          <View style={styles.itemConfirmRow}>
+                            <Text style={styles.itemConfirmText} numberOfLines={1}>
+                              Remove {item.product_name}?
+                            </Text>
+                            <View style={styles.itemConfirmActions}>
+                              <Pressable
+                                onPress={() => setConfirmRemoveIndex(null)}
+                                hitSlop={8}
+                                style={styles.itemConfirmCancel}
+                              >
+                                <Text style={styles.itemConfirmCancelText}>Cancel</Text>
+                              </Pressable>
+                              <Pressable
+                                onPress={() => {
+                                  handleRemoveItem(index);
+                                  setConfirmRemoveIndex(null);
+                                }}
+                                hitSlop={8}
+                                style={styles.itemConfirmRemove}
+                              >
+                                <Text style={styles.itemConfirmRemoveText}>Remove</Text>
+                              </Pressable>
+                            </View>
+                          </View>
+                        ) : (
+                          <>
+                            <View style={styles.itemRowText}>
+                              <Text style={styles.itemName} numberOfLines={1}>
+                                {item.product_name} ({item.variant_name})
+                              </Text>
+                              <Text style={styles.itemPrice}>
+                                {formatCurrency(item.quantity * item.selling_price, baker?.currency)}
+                              </Text>
+                            </View>
+                            <View style={styles.itemStepper}>
+                              <Pressable
+                                onPress={() => handleAdjustItemQuantity(index, -1)}
+                                hitSlop={8}
+                                style={styles.itemStepperButton}
+                              >
+                                <Ionicons name="remove" size={14} color={colors.textPrimary} />
+                              </Pressable>
+                              <Text style={styles.itemStepperValue}>{item.quantity}</Text>
+                              <Pressable
+                                onPress={() => handleAdjustItemQuantity(index, 1)}
+                                hitSlop={8}
+                                style={[styles.itemStepperButton, styles.itemStepperButtonPrimary]}
+                              >
+                                <Ionicons name="add" size={14} color={colors.textInverse} />
+                              </Pressable>
+                            </View>
+                          </>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
             )}
             {errors.items ? <Text style={styles.errorText}>{errors.items}</Text> : null}
             <Pressable
@@ -437,6 +547,19 @@ function makeStyles(colors: Record<ColorToken, string>) {
     segmentButtonSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
     segmentButtonText: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
     segmentButtonTextSelected: { color: colors.textInverse },
+    quickDateRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
+    quickDateChip: {
+      flex: 1,
+      alignItems: 'center',
+      paddingVertical: spacing.sm,
+      borderRadius: radii.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    quickDateChipSelected: { backgroundColor: colors.primary, borderColor: colors.primary },
+    quickDateChipText: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
+    quickDateChipTextSelected: { color: colors.textInverse },
     dateField: {
       flex: 1,
       flexDirection: 'row',
@@ -467,7 +590,57 @@ function makeStyles(colors: Record<ColorToken, string>) {
     itemRowText: { flex: 1 },
     itemName: { ...typography.bodySm, color: colors.textPrimary },
     itemPrice: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-    itemRemoveButton: { padding: spacing.xs },
+    itemStepper: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      paddingVertical: 4,
+      paddingHorizontal: spacing.sm,
+      marginRight: spacing.sm,
+    },
+    itemStepperButton: {
+      width: 22,
+      height: 22,
+      borderRadius: radii.sm,
+      backgroundColor: colors.surfaceMuted,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    itemStepperButtonPrimary: { backgroundColor: colors.primary },
+    itemStepperValue: {
+      ...typography.bodySm,
+      color: colors.textPrimary,
+      fontWeight: '600',
+      minWidth: 14,
+      textAlign: 'center',
+    },
+    itemsHint: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.sm },
+    itemConfirmRow: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    itemConfirmText: { ...typography.bodySm, color: colors.textPrimary, flex: 1, marginRight: spacing.sm },
+    itemConfirmActions: { flexDirection: 'row', gap: spacing.sm },
+    itemConfirmCancel: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      borderRadius: radii.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    itemConfirmCancelText: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
+    itemConfirmRemove: {
+      paddingVertical: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      borderRadius: radii.sm,
+      backgroundColor: colors.danger,
+    },
+    itemConfirmRemoveText: { ...typography.bodySm, color: colors.textInverse, fontWeight: '600' },
     addItemButton: {
       flexDirection: 'row',
       alignItems: 'center',
