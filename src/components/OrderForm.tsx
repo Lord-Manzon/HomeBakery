@@ -17,15 +17,6 @@ import { spacing, radii, typography } from '../theme';
 import type { ColorToken } from '../theme/colors';
 import type { FulfillmentType } from '../types/order';
 
-// Fixed estimate of the sticky footer's own rendered height (Total text +
-// Save button + its internal padding) -- NOT including the safe-area
-// inset, which the footer adds separately to its own paddingBottom. Used
-// only so the ScrollView reserves enough space that its last card never
-// ends up hidden underneath the footer.
-// Bumped from 96 -- the stacked layout (summary row + full-width button)
-// is taller than the original single-row version it replaced.
-const FOOTER_CONTENT_HEIGHT = 140;
-
 export type OrderFormValues = {
   customerName: string;
   customerContact: string;
@@ -125,6 +116,12 @@ export function OrderForm({
   // immediately, closing the gap where the old X button had no
   // confirmation step at all (see CODING_STANDARDS.md).
   const [confirmRemoveIndex, setConfirmRemoveIndex] = useState<number | null>(null);
+  // Real rendered height of the sticky footer below, captured via
+  // onLayout -- drives the ScrollView's bottom padding directly instead
+  // of a guessed constant, so the reserved space always matches the
+  // footer exactly regardless of its content or the device's safe-area
+  // inset (both already baked into this measured height).
+  const [footerHeight, setFooterHeight] = useState(0);
 
   const canSave = customerName.trim().length > 0 && items.length > 0 && !isSubmitting;
 
@@ -218,10 +215,7 @@ export function OrderForm({
           // accounts for the device's on-screen nav bar. Adding insets.bottom
           // here specifically, rather than in Screen.tsx globally, since
           // this is the one screen type that actually needs it.
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: spacing.xxl + insets.bottom + FOOTER_CONTENT_HEIGHT },
-          ]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: spacing.sm + footerHeight }]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
@@ -469,14 +463,19 @@ export function OrderForm({
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <View style={[styles.footer, { paddingBottom: spacing.md + insets.bottom }]}>
+      <View
+        style={[styles.footer, { paddingBottom: spacing.md + insets.bottom }]}
+        onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
+      >
         <View style={styles.footerSummaryRow}>
           <Text style={styles.footerSummaryLabel}>
             {items.length === 0 ? 'No items yet' : `${items.length} item${items.length === 1 ? '' : 's'}`}
           </Text>
           <View style={styles.footerTotalRow}>
             <Text style={styles.footerTotalLabel}>Total</Text>
-            <Text style={styles.footerTotalValue}>{formatCurrency(total, baker?.currency)}</Text>
+            <Text style={[styles.footerTotalValue, items.length === 0 && styles.footerTotalValueMuted]}>
+              {formatCurrency(total, baker?.currency)}
+            </Text>
           </View>
         </View>
         <PrimaryButton
@@ -691,16 +690,26 @@ function makeStyles(colors: Record<ColorToken, string>) {
     // position. Sits outside Screen.tsx/the ScrollView, so it needs its
     // own bottom-inset handling, same reasoning as Step 8's insets.bottom
     // fix, applied here a second time.
+    //
+    // Rounded top corners + upward shadow, no border -- reuses
+    // FloatingTabBar's unifiedCard treatment (this app's one existing
+    // "floating bar docked to the bottom of the screen" pattern) rather
+    // than inventing a second, flatter bottom-bar language.
     footer: {
       position: 'absolute',
       left: 0,
       right: 0,
       bottom: 0,
       backgroundColor: colors.surface,
-      borderTopWidth: 1,
-      borderTopColor: colors.border,
+      borderTopLeftRadius: radii.lg,
+      borderTopRightRadius: radii.lg,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.md,
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
     },
     footerSummaryRow: {
       flexDirection: 'row',
@@ -712,5 +721,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
     footerTotalRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs },
     footerTotalLabel: { ...typography.caption, color: colors.textSecondary },
     footerTotalValue: { ...typography.titleSm, color: colors.textPrimary, fontWeight: '600' },
+    footerTotalValueMuted: { color: colors.textSecondary },
   });
 }
