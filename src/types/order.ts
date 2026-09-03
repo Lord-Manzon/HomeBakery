@@ -93,5 +93,9 @@ export type OrderRefineFilters = {
   payment?: PaymentRefineFilter;
   fulfillment?: FulfillmentRefineFilter;
   status?: StatusRefineFilter;
+  /** Only ever surfaced in the UI on the History tab -- Today/Upcoming/
+   * All are already time-scoped by definition, so a second date bound
+   * there would be redundant. Both bounds are inclusive, YYYY-MM-DD to
+   * match `scheduled_date`. */
+  dateRange?: { start: string; end: string };
 };
-  

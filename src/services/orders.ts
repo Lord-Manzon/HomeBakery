@@ -93,6 +93,12 @@ export async function getOrders(
     query = query.eq('fulfillment_type', refine.fulfillment);
   }
 
+  if (refine.dateRange) {
+    query = query
+      .gte('scheduled_date', refine.dateRange.start)
+      .lte('scheduled_date', refine.dateRange.end);
+  }
+
   if (refine.status === 'delivered') {
     // Matches canRevertDelivered's notion in orderLogic.ts (delivered OR
     // completed both mean delivery already happened).

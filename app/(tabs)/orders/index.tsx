@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import Animated, { FadeIn, FadeInDown, runOnJS } from 'react-native-reanimated';
@@ -27,7 +28,14 @@ import {
   canRevertPaid,
   canCancelOrder,
 } from '../../../src/services/orderLogic';
-import { formatOrderTime, formatGroupHeaderDate, todayDateString } from '../../../src/utils/dateFormat';
+import {
+  formatOrderTime,
+  formatOrderDate,
+  formatGroupHeaderDate,
+  todayDateString,
+  toISODateString,
+  fromISODateString,
+} from '../../../src/utils/dateFormat';
 import { formatCurrency } from '../../../src/utils/currency';
 import { titleCase } from '../../../src/utils/textFormat';
 import { Screen } from '../../../src/components/Screen';
@@ -77,6 +85,42 @@ const STATUS_FILTERS: { value: StatusRefineFilter; label: string }[] = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
+// History-only. 'custom' isn't a computable range itself -- picking it
+// just reveals the two date fields below, seeded with the last applied
+// range (or today) so there's never an empty/invalid state to submit.
+type DatePreset = 'today' | 'week' | 'custom';
+const DATE_PRESETS: { value: DatePreset; label: string }[] = [
+  { value: 'today', label: 'Today' },
+  { value: 'week', label: 'This week' },
+  { value: 'custom', label: 'Custom' },
+];
+
+function presetToRange(preset: 'today' | 'week'): { start: string; end: string } {
+  const now = new Date();
+  if (preset === 'today') {
+    const s = toISODateString(now);
+    return { start: s, end: s };
+  }
+  // Week = the 7 days ending today, not a calendar-Monday week -- matches
+  // "how'd I do this week" better than a Mon-Sun box that's mostly empty
+  // on a Tuesday.
+  const start = new Date(now);
+  start.setDate(start.getDate() - 6);
+  return { start: toISODateString(start), end: toISODateString(now) };
+}
+
+function formatRangeLabel(range: { start: string; end: string }): string {
+  const opts: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
+  // fromISODateString, not `new Date(range.start)` -- a bare "YYYY-MM-DD"
+  // parses as UTC midnight, which rolls to the wrong calendar day on
+  // negative-UTC-offset devices. Same reasoning as everywhere else in
+  // dateFormat.ts.
+  const start = fromISODateString(range.start).toLocaleDateString('en-US', opts);
+  if (range.start === range.end) return start;
+  const end = fromISODateString(range.end).toLocaleDateString('en-US', opts);
+  return `${start} – ${end}`;
+}
+
 // Per docs/DECISIONS.md's 2026-08-28 entry: Overdue and Cancelled are
 // structurally incompatible with certain tabs -- Today/Upcoming force an
 // active-only, date-restricted scope that can never contain an overdue
@@ -109,6 +153,15 @@ export default function OrdersListScreen() {
   const [search, setSearch] = useState('');
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  // Draft state for the date-range picker -- Today/This week apply
+  // immediately (no ambiguity to confirm), but Custom needs its own
+  // Apply so two half-edited fields never fire a query mid-edit.
+  const [activePreset, setActivePreset] = useState<DatePreset>('today');
+  const [draftRange, setDraftRange] = useState(() => presetToRange('today'));
+  // Which of the two Custom fields has its native picker open, if any --
+  // mirrors OrderForm.tsx's showDatePicker/showTimePicker pattern rather
+  // than a free-text field, so typing a date isn't possible to get wrong.
+  const [openDateField, setOpenDateField] = useState<'start' | 'end' | null>(null);
   const { data: orders, isLoading, isError, refetch } = useOrders(tab, refine);
   const { data: baker } = useBakerProfile();
   const queryClient = useQueryClient();
@@ -157,6 +210,15 @@ export default function OrdersListScreen() {
     }
   }, [tab, refine.status]);
 
+  // Date range only ever makes sense on History (every other tab is
+  // already time-scoped by its own definition) -- same "clear rather
+  // than leave a selected-but-inert filter" rule as Status above.
+  useEffect(() => {
+    if (refine.dateRange && tab !== 'history') {
+      setRefine((prev) => ({ ...prev, dateRange: undefined }));
+    }
+  }, [tab, refine.dateRange]);
+
   const filtered = (orders ?? []).filter((o) =>
     o.customer_name.toLowerCase().includes(search.toLowerCase())
   );
@@ -187,7 +249,9 @@ export default function OrdersListScreen() {
     return result;
   }, [filtered]);
 
-  const isRefineActive = Boolean(refine.payment || refine.fulfillment || refine.status);
+  const isRefineActive = Boolean(
+    refine.payment || refine.fulfillment || refine.status || refine.dateRange
+  );
 
   // Tab and refine are now independent state, so the swipe gesture no
   // longer needs to be conditionally disabled -- `tab` is always exactly
@@ -335,6 +399,16 @@ export default function OrdersListScreen() {
           </View>
           <View style={styles.tabDivider} />
 
+          {tab === 'history' && refine.dateRange ? (
+            <Pressable
+              style={styles.activeRangePill}
+              onPress={() => setRefine((prev) => ({ ...prev, dateRange: undefined }))}
+            >
+              <Text style={styles.activeRangeText}>{formatRangeLabel(refine.dateRange)}</Text>
+              <Ionicons name="close" size={13} color={colors.warning} />
+            </Pressable>
+          ) : null}
+
           {isFilterOpen ? (
             <>
               <Pressable style={styles.filterScrim} onPress={() => setIsFilterOpen(false)} />
@@ -343,59 +417,85 @@ export default function OrdersListScreen() {
                 style={styles.filterMenu}
               >
                 <Text style={styles.filterSectionLabel}>Payment</Text>
-                {PAYMENT_FILTERS.map((f) => {
-                  const isSelected = refine.payment === f.value;
-                  return (
-                    <Pressable
-                      key={f.value}
-                      style={styles.filterMenuRow}
-                      onPress={() => {
-                        setRefine((prev) => ({
-                          ...prev,
-                          payment: prev.payment === f.value ? undefined : f.value,
-                        }));
-                        setIsFilterOpen(false);
-                      }}
-                    >
-                      <Text style={[styles.filterRowText, isSelected && styles.filterRowTextSelected]}>
-                        {f.label}
-                      </Text>
-                      {isSelected ? <Ionicons name="checkmark" size={16} color={colors.primary} /> : null}
-                    </Pressable>
-                  );
-                })}
+                {/* Segmented track, not a list -- Payment is strictly
+                    either/or, so one control communicates that structure
+                    instead of two separate rows that look independently
+                    selectable. */}
+                <View style={styles.segmentedTrack}>
+                  {PAYMENT_FILTERS.map((f) => {
+                    const isSelected = refine.payment === f.value;
+                    return (
+                      <Pressable
+                        key={f.value}
+                        style={[styles.segmentedOption, isSelected && styles.segmentedOptionSelected]}
+                        onPress={() =>
+                          setRefine((prev) => ({
+                            ...prev,
+                            payment: prev.payment === f.value ? undefined : f.value,
+                          }))
+                        }
+                      >
+                        <Text
+                          style={[styles.segmentedText, isSelected && styles.segmentedTextSelected]}
+                        >
+                          {f.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
 
                 <View style={styles.filterDivider} />
 
                 <Text style={styles.filterSectionLabel}>Fulfillment</Text>
-                {FULFILLMENT_FILTERS.map((f) => {
-                  const isSelected = refine.fulfillment === f.value;
-                  return (
-                    <Pressable
-                      key={f.value}
-                      style={styles.filterMenuRow}
-                      onPress={() => {
-                        setRefine((prev) => ({
-                          ...prev,
-                          fulfillment: prev.fulfillment === f.value ? undefined : f.value,
-                        }));
-                        setIsFilterOpen(false);
-                      }}
-                    >
-                      <Text style={[styles.filterRowText, isSelected && styles.filterRowTextSelected]}>
-                        {f.label}
-                      </Text>
-                      {isSelected ? <Ionicons name="checkmark" size={16} color={colors.primary} /> : null}
-                    </Pressable>
-                  );
-                })}
+                <View style={styles.segmentedTrack}>
+                  {FULFILLMENT_FILTERS.map((f) => {
+                    const isSelected = refine.fulfillment === f.value;
+                    const icon = f.value === 'delivery' ? 'bicycle-outline' : 'bag-handle-outline';
+                    return (
+                      <Pressable
+                        key={f.value}
+                        style={[styles.segmentedOption, isSelected && styles.segmentedOptionSelected]}
+                        onPress={() =>
+                          setRefine((prev) => ({
+                            ...prev,
+                            fulfillment: prev.fulfillment === f.value ? undefined : f.value,
+                          }))
+                        }
+                      >
+                        <Ionicons
+                          name={icon}
+                          size={14}
+                          color={isSelected ? colors.textInverse : colors.textSecondary}
+                        />
+                        <Text
+                          style={[styles.segmentedText, isSelected && styles.segmentedTextSelected]}
+                        >
+                          {f.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
 
                 <View style={styles.filterDivider} />
 
                 <Text style={styles.filterSectionLabel}>Status</Text>
+                {/* Rows, not a track -- three mutually exclusive options
+                    with a genuinely disabled state (Overdue/Cancelled off
+                    Today/Upcoming) doesn't fit a two-cell segmented shape.
+                    The dot reuses each status's own badge color from the
+                    order row itself, rather than inventing a new filter-
+                    only color language. */}
                 {STATUS_FILTERS.map((f) => {
                   const isSelected = refine.status === f.value;
                   const isAvailable = isStatusFilterAvailable(tab, f.value);
+                  const dotColor =
+                    f.value === 'cancelled'
+                      ? colors.statusCancelled
+                      : f.value === 'overdue'
+                        ? colors.danger
+                        : colors.success;
                   return (
                     <Pressable
                       key={f.value}
@@ -409,19 +509,114 @@ export default function OrdersListScreen() {
                         setIsFilterOpen(false);
                       }}
                     >
-                      <Text
-                        style={[
-                          styles.filterRowText,
-                          isSelected && styles.filterRowTextSelected,
-                          !isAvailable && styles.filterRowTextDisabled,
-                        ]}
-                      >
-                        {f.label}
-                      </Text>
+                      <View style={styles.filterRowLabelGroup}>
+                        <View
+                          style={[
+                            styles.filterRowDot,
+                            { backgroundColor: dotColor },
+                            !isAvailable && styles.filterRowDotDisabled,
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            styles.filterRowText,
+                            isSelected && styles.filterRowTextSelected,
+                            !isAvailable && styles.filterRowTextDisabled,
+                          ]}
+                        >
+                          {f.label}
+                        </Text>
+                      </View>
                       {isSelected ? <Ionicons name="checkmark" size={16} color={colors.primary} /> : null}
                     </Pressable>
                   );
                 })}
+
+                {tab === 'history' ? (
+                  <>
+                    <View style={styles.filterDivider} />
+                    <Text style={styles.filterSectionLabel}>Date range</Text>
+                    <View style={styles.presetRow}>
+                      {DATE_PRESETS.map((p) => {
+                        const isSelected = activePreset === p.value;
+                        return (
+                          <Pressable
+                            key={p.value}
+                            style={styles.presetTab}
+                            onPress={() => {
+                              setActivePreset(p.value);
+                              if (p.value === 'custom') return;
+                              const range = presetToRange(p.value);
+                              setDraftRange(range);
+                              setRefine((prev) => ({ ...prev, dateRange: range }));
+                            }}
+                          >
+                            <Text
+                              style={[styles.presetText, isSelected && styles.presetTextSelected]}
+                            >
+                              {p.label}
+                            </Text>
+                            {isSelected ? <View style={styles.presetUnderline} /> : null}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+
+                    {activePreset === 'custom' ? (
+                      <View style={styles.dateFieldsColumn}>
+                        <View style={styles.dateFieldLabeled}>
+                          <Text style={styles.dateFieldLabel}>From</Text>
+                          <Pressable style={styles.dateField} onPress={() => setOpenDateField('start')}>
+                            <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
+                            <Text style={styles.dateFieldText}>{formatOrderDate(draftRange.start)}</Text>
+                          </Pressable>
+                        </View>
+                        <View style={styles.dateFieldLabeled}>
+                          <Text style={styles.dateFieldLabel}>To</Text>
+                          <Pressable style={styles.dateField} onPress={() => setOpenDateField('end')}>
+                            <Ionicons name="calendar-outline" size={14} color={colors.textSecondary} />
+                            <Text style={styles.dateFieldText}>{formatOrderDate(draftRange.end)}</Text>
+                          </Pressable>
+                        </View>
+                        {openDateField ? (
+                          <DateTimePicker
+                            value={fromISODateString(draftRange[openDateField])}
+                            mode="date"
+                            display={Platform.OS === 'ios' ? 'inline' : 'default'}
+                            onChange={(event: DateTimePickerEvent, date?: Date) => {
+                              const field = openDateField;
+                              setOpenDateField(null);
+                              if (event.type === 'set' && date && field) {
+                                setDraftRange((prev) => ({ ...prev, [field]: toISODateString(date) }));
+                              }
+                            }}
+                          />
+                        ) : null}
+                      </View>
+                    ) : null}
+
+                    <View style={styles.dateRangeFooter}>
+                      <Pressable
+                        style={styles.dateRangeResetButton}
+                        onPress={() => {
+                          setActivePreset('today');
+                          setRefine((prev) => ({ ...prev, dateRange: undefined }));
+                        }}
+                      >
+                        <Text style={styles.dateRangeResetText}>Reset</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.dateRangeApplyButton}
+                        onPress={() => {
+                          setRefine((prev) => ({ ...prev, dateRange: draftRange }));
+                          setIsFilterOpen(false);
+                        }}
+                      >
+                        <Text style={styles.dateRangeApplyText}>Apply</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                ) : null}
               </Animated.View>
             </>
           ) : null}
@@ -640,7 +835,6 @@ function OrderCard({
                 {displayName}
               </Text>
               <View style={[styles.statusPill, { backgroundColor: `${badgeColor}22` }]}>
-                <View style={[styles.statusDot, { backgroundColor: badgeColor }]} />
                 <Text style={[styles.statusText, { color: badgeColor }]}>{badgeLabel}</Text>
               </View>
             </View>
@@ -921,6 +1115,125 @@ function makeStyles(colors: Record<ColorToken, string>) {
       backgroundColor: colors.border,
       marginVertical: spacing.xs,
     },
+    // Sits below the tab row, History only. Uses warning (amber), not
+    // primary -- an active filter is "pay attention, you're not looking
+    // at everything," which is a different signal than the terracotta
+    // used for primary actions elsewhere on this screen. Tapping it
+    // clears the range directly, so a baker who forgets it's on isn't
+    // stuck hunting back through the filter sheet to find the reset.
+    activeRangePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: spacing.xs,
+      backgroundColor: colors.warningMuted,
+      borderRadius: radii.full,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.xs,
+      marginBottom: spacing.md,
+    },
+    activeRangeText: { ...typography.bodySm, color: colors.warning, fontWeight: '600' },
+    // Payment/Fulfillment -- one grouped track per either/or choice,
+    // not two independently-tappable rows. Selected cell reuses the
+    // exact solid-primary/textInverse pairing already established by
+    // this same screen's Mark as Paid button, rather than a new
+    // white-elevated-pill idiom the app hasn't used elsewhere.
+    segmentedTrack: {
+      flexDirection: 'row',
+      backgroundColor: colors.surfaceMuted,
+      borderRadius: radii.md,
+      padding: 3,
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.xs,
+    },
+    segmentedOption: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: spacing.xxs,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.sm,
+    },
+    segmentedOptionSelected: { backgroundColor: colors.primary },
+    segmentedText: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
+    segmentedTextSelected: { color: colors.textInverse },
+    // Status stays rows, not a track -- three options with a genuine
+    // disabled state doesn't fit a two-cell segmented shape. The dot
+    // reuses each status's own badge color from the order card itself
+    // (statusDot/statusPill above) instead of a filter-only palette.
+    filterRowLabelGroup: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+    filterRowDot: { width: 6, height: 6, borderRadius: 3 },
+    filterRowDotDisabled: { opacity: 0.4 },
+    // History-only date range. Presets reuse the exact underline-tab
+    // pattern from the Today/Upcoming/All/History row above (tabRow/
+    // tabText/tabUnderline) rather than a third chip style for the same
+    // "pick one of a few options" interaction.
+    presetRow: { flexDirection: 'row', gap: spacing.lg, paddingHorizontal: spacing.lg, marginBottom: spacing.sm },
+    presetTab: { alignItems: 'center' },
+    presetText: { ...typography.bodySm, color: colors.textSecondary, fontWeight: '600' },
+    presetTextSelected: { color: colors.primary },
+    presetUnderline: {
+      marginTop: spacing.xxs,
+      width: 20,
+      height: 2,
+      borderRadius: 1,
+      backgroundColor: colors.primary,
+    },
+    // Stacked, not side-by-side -- two fields sharing one row left each
+    // too narrow to show a full YYYY-MM-DD once typed, which was
+    // scrolling the input to keep the cursor visible and hiding the
+    // leading digits. Full width per field removes the squeeze outright.
+    dateFieldsColumn: {
+      paddingHorizontal: spacing.lg,
+      gap: spacing.sm,
+      marginBottom: spacing.sm,
+    },
+    dateFieldLabeled: { gap: spacing.xxs },
+    dateFieldLabel: { ...typography.caption, color: colors.textSecondary },
+    dateField: {
+      width: '100%',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xs,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.sm,
+      borderRadius: radii.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    dateFieldText: { ...typography.bodySm, color: colors.textPrimary, flex: 1, padding: 0 },
+    // Same flex-1-outline / flex-2-solid footer convention as this
+    // screen's own Mark as Paid / Mark Delivered row (actionButton /
+    // actionButtonPrimary / actionButtonSecondary) -- not a new pair.
+    dateRangeFooter: {
+      flexDirection: 'row',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
+    },
+    dateRangeResetButton: {
+      flex: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radii.md,
+      paddingVertical: spacing.sm,
+      minHeight: 40,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    dateRangeResetText: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
+    dateRangeApplyButton: {
+      flex: 2,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radii.md,
+      paddingVertical: spacing.sm,
+      minHeight: 40,
+      backgroundColor: colors.primary,
+    },
+    dateRangeApplyText: { ...typography.bodySm, color: colors.textInverse, fontWeight: '600' },
     dayDivider: {
       alignItems: 'flex-start',
       paddingTop: spacing.md,
@@ -962,7 +1275,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingVertical: 2,
       borderRadius: radii.full,
     },
-    statusDot: { width: 6, height: 6, borderRadius: 3 },
     statusText: { ...typography.caption, fontWeight: '600' },
     cardTopRightGroup: { alignItems: 'flex-end', gap: spacing.xs },
     cardItemsRow: {

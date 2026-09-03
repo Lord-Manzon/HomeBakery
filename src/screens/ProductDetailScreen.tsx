@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -54,6 +55,7 @@ export function ProductDetailScreen({
   const id = productId;
   const router = useRouter();
   const { colors } = useThemeColors();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   const { data: product, isLoading, isError } = useProduct(id);
@@ -197,46 +199,35 @@ export function ProductDetailScreen({
   };
 
   return (
-    <Screen>
-      <View style={styles.content}>
-        <View style={styles.headerRow}>
-          <Pressable onPress={() => router.back()} style={styles.iconButton}>
-            <Ionicons name="chevron-back" size={24} color={colors.textPrimary} />
-          </Pressable>
-          <View style={styles.titleWrap}>
-            {isEditingName ? (
-              <TextInput
-                style={styles.titleInput}
-                value={nameDraft}
-                onChangeText={setNameDraft}
-                onBlur={commitNameEdit}
-                onSubmitEditing={commitNameEdit}
-                autoFocus
-                selectTextOnFocus
-                returnKeyType="done"
-                maxLength={100}
-              />
-            ) : (
-              <Pressable onPress={openNameEdit} style={styles.titlePressable}>
-                <Text style={styles.title} numberOfLines={1}>
-                  {product.name}
-                </Text>
-              </Pressable>
-            )}
-          </View>
-          <Pressable onPress={() => setIsOverflowOpen((v) => !v)} style={styles.iconButton}>
-            <Ionicons name="ellipsis-vertical" size={20} color={colors.textPrimary} />
-          </Pressable>
-        </View>
+    <Screen style={{ paddingTop: insets.top + spacing.sm }}>
+      <View style={styles.heroWrap}>
+        <HeroPhoto
+          uri={displayImageUri}
+          isUploading={isUploadingPhoto}
+          onPress={handlePickPhoto}
+          styles={styles}
+          colors={colors}
+        />
 
-        {nameError ? <Text style={styles.nameErrorText}>{nameError}</Text> : null}
+        <Pressable
+          onPress={() => router.back()}
+          style={[styles.floatingButton, styles.floatingBack, { top: spacing.lg }]}
+        >
+          <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+        </Pressable>
+        <Pressable
+          onPress={() => setIsOverflowOpen((v) => !v)}
+          style={[styles.floatingButton, styles.floatingOverflow, { top: spacing.lg }]}
+        >
+          <Ionicons name="ellipsis-vertical" size={19} color={colors.textPrimary} />
+        </Pressable>
 
         {isOverflowOpen ? (
           <>
             <Pressable style={styles.overflowScrim} onPress={() => setIsOverflowOpen(false)} />
             <Animated.View
               entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
-              style={styles.overflowMenu}
+              style={[styles.overflowMenu, { top: spacing.lg + 46 }]}
             >
               <Pressable
                 style={styles.overflowRow}
@@ -251,94 +242,108 @@ export function ProductDetailScreen({
             </Animated.View>
           </>
         ) : null}
+      </View>
+
+      <View style={styles.content}>
+        {isEditingName ? (
+          <TextInput
+            style={styles.titleInput}
+            value={nameDraft}
+            onChangeText={setNameDraft}
+            onBlur={commitNameEdit}
+            onSubmitEditing={commitNameEdit}
+            autoFocus
+            selectTextOnFocus
+            returnKeyType="done"
+            maxLength={100}
+          />
+        ) : (
+          <Pressable onPress={openNameEdit} style={styles.titlePressable}>
+            <Text style={styles.title} numberOfLines={1}>
+              {product.name}
+            </Text>
+          </Pressable>
+        )}
+
+        {nameError ? <Text style={styles.nameErrorText}>{nameError}</Text> : null}
+        {photoError ? <Text style={styles.photoErrorText}>{photoError}</Text> : null}
+
+        <Pressable
+          onPress={() => setIsCategoryPickerOpen((v) => !v)}
+          style={
+            product.category
+              ? styles.categoryPill
+              : [styles.categoryPill, styles.categoryPillEmpty]
+          }
+        >
+          {product.category ? (
+            <>
+              <Ionicons
+                name={
+                  getCategoryVisual(product.category, productCategories ?? [])
+                    .icon as keyof typeof Ionicons.glyphMap
+                }
+                size={12}
+                color={colors.textSecondary}
+              />
+              <Text style={styles.categoryPillText}>{product.category}</Text>
+            </>
+          ) : (
+            <>
+              <Ionicons name="add" size={12} color={colors.primary} />
+              <Text style={styles.categoryPillEmptyText}>Add category</Text>
+            </>
+          )}
+        </Pressable>
+
+        {isCategoryPickerOpen ? (
+          <Animated.View
+            entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
+            style={styles.categoryPickerRow}
+          >
+            {(productCategories ?? []).map((cat) => {
+              const isSelected = product.category === cat.name;
+              const visual = getCategoryVisual(cat.name, productCategories ?? []);
+              return (
+                <Pressable
+                  key={cat.id}
+                  onPress={() => handleSelectCategory(cat.name)}
+                  style={[
+                    styles.categoryPickerChip,
+                    isSelected && { backgroundColor: visual.color, borderColor: visual.color },
+                  ]}
+                >
+                  <Ionicons
+                    name={visual.icon as keyof typeof Ionicons.glyphMap}
+                    size={14}
+                    color={isSelected ? colors.textInverse : colors.textSecondary}
+                  />
+                  <Text
+                    style={[
+                      styles.categoryPickerChipText,
+                      isSelected && styles.categoryPickerChipTextSelected,
+                    ]}
+                  >
+                    {cat.name}
+                  </Text>
+                </Pressable>
+              );
+            })}
+            <Pressable
+              onPress={() => router.push('/products/categories/new')}
+              style={styles.categoryPickerChipNew}
+            >
+              <Ionicons name="add" size={14} color={colors.primary} />
+              <Text style={styles.categoryPickerChipNewText}>New</Text>
+            </Pressable>
+          </Animated.View>
+        ) : null}
 
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          <View style={styles.heroBlock}>
-            <HeroPhoto
-              uri={displayImageUri}
-              isUploading={isUploadingPhoto}
-              onPress={handlePickPhoto}
-              styles={styles}
-              colors={colors}
-            />
-            {photoError ? <Text style={styles.photoErrorText}>{photoError}</Text> : null}
-
-            <Pressable
-              onPress={() => setIsCategoryPickerOpen((v) => !v)}
-              style={
-                product.category
-                  ? styles.categoryPill
-                  : [styles.categoryPill, styles.categoryPillEmpty]
-              }
-            >
-              {product.category ? (
-                <>
-                  <Ionicons
-                    name={
-                      getCategoryVisual(product.category, productCategories ?? [])
-                        .icon as keyof typeof Ionicons.glyphMap
-                    }
-                    size={12}
-                    color={colors.textSecondary}
-                  />
-                  <Text style={styles.categoryPillText}>{product.category}</Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons name="add" size={12} color={colors.primary} />
-                  <Text style={styles.categoryPillEmptyText}>Add category</Text>
-                </>
-              )}
-            </Pressable>
-
-            {isCategoryPickerOpen ? (
-              <Animated.View
-                entering={FadeIn.duration(motionDuration.fast).easing(motionEasing.decelerate)}
-                style={styles.categoryPickerRow}
-              >
-                {(productCategories ?? []).map((cat) => {
-                  const isSelected = product.category === cat.name;
-                  const visual = getCategoryVisual(cat.name, productCategories ?? []);
-                  return (
-                    <Pressable
-                      key={cat.id}
-                      onPress={() => handleSelectCategory(cat.name)}
-                      style={[
-                        styles.categoryPickerChip,
-                        isSelected && { backgroundColor: visual.color, borderColor: visual.color },
-                      ]}
-                    >
-                      <Ionicons
-                        name={visual.icon as keyof typeof Ionicons.glyphMap}
-                        size={14}
-                        color={isSelected ? colors.textInverse : colors.textSecondary}
-                      />
-                      <Text
-                        style={[
-                          styles.categoryPickerChipText,
-                          isSelected && styles.categoryPickerChipTextSelected,
-                        ]}
-                      >
-                        {cat.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-                <Pressable
-                  onPress={() => router.push('/products/categories/new')}
-                  style={styles.categoryPickerChipNew}
-                >
-                  <Ionicons name="add" size={14} color={colors.primary} />
-                  <Text style={styles.categoryPickerChipNewText}>New</Text>
-                </Pressable>
-              </Animated.View>
-            ) : null}
-          </View>
-
           <Text style={styles.sectionLabel}>Variants</Text>
 
           {isLoadingVariants ? (
@@ -547,27 +552,36 @@ function VariantCard({
 
 function makeStyles(colors: Record<ColorToken, string>) {
   return StyleSheet.create({
-    content: { flex: 1, paddingHorizontal: spacing.lg },
-    headerRow: {
-      flexDirection: 'row',
+    content: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+    heroWrap: { position: 'relative' },
+    floatingButton: {
+      position: 'absolute',
+      width: 36,
+      height: 36,
+      borderRadius: radii.full,
+      backgroundColor: 'rgba(255,255,255,0.92)',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      marginBottom: spacing.md,
+      justifyContent: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 1 },
+      shadowOpacity: 0.12,
+      shadowRadius: 3,
+      elevation: 3,
     },
-    iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-    titleWrap: { flex: 1, alignItems: 'center' },
+    floatingBack: { left: spacing.xxl },
+    floatingOverflow: { right: spacing.xxl },
     titlePressable: {
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.xxs,
+      alignSelf: 'flex-start',
       maxWidth: '100%',
     },
     title: { ...typography.displaySm, color: colors.textPrimary, flexShrink: 1 },
     titleInput: {
       ...typography.displaySm,
       color: colors.textPrimary,
-      flex: 1,
-      textAlign: 'center',
+      alignSelf: 'stretch',
       borderBottomWidth: 1,
       borderBottomColor: colors.primary,
       paddingBottom: spacing.xxs,
@@ -575,8 +589,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     nameErrorText: {
       ...typography.caption,
       color: colors.danger,
-      textAlign: 'center',
-      marginBottom: spacing.sm,
+      marginTop: spacing.xxs,
     },
     overflowScrim: {
       position: 'absolute',
@@ -588,8 +601,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
     },
     overflowMenu: {
       position: 'absolute',
-      top: 56,
-      right: 0,
+      right: spacing.lg,
       backgroundColor: colors.surface,
       borderWidth: 1,
       borderColor: colors.border,
@@ -613,10 +625,9 @@ function makeStyles(colors: Record<ColorToken, string>) {
     overflowRowText: { ...typography.body, color: colors.danger },
     scroll: { flex: 1 },
     scrollContent: { paddingBottom: spacing.xxxl + 96 },
-    heroBlock: { marginBottom: spacing.xl },
     hero: {
-      width: '100%',
-      height: 180,
+      marginHorizontal: spacing.lg,
+      height: 340,
       borderRadius: radii.lg,
       backgroundColor: colors.surfaceMuted,
       overflow: 'hidden',
@@ -627,10 +638,6 @@ function makeStyles(colors: Record<ColorToken, string>) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: spacing.xs,
-      borderWidth: 1,
-      borderColor: colors.border,
-      borderStyle: 'dashed',
-      borderRadius: radii.lg,
     },
     heroPlaceholderText: { ...typography.bodySm, color: colors.textSecondary },
     heroBadge: {
@@ -667,6 +674,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.xs,
       marginTop: spacing.sm,
+      marginBottom: spacing.lg,
     },
     categoryPillEmpty: {
       backgroundColor: 'transparent',
