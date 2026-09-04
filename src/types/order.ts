@@ -80,11 +80,11 @@ export type OrderWithItems = Order & {
  * 'today'/'upcoming'/'all' keep their existing meaning; 'history' is now
  * its own tab instead of a refine option.
  */
-export type OrderTab = 'today' | 'upcoming' | 'all' | 'history';
+export type OrderTab = 'today' | 'upcoming' | 'history';
 
 export type PaymentRefineFilter = 'unpaid' | 'paid';
 export type FulfillmentRefineFilter = 'pickup' | 'delivery';
-export type StatusRefineFilter = 'overdue' | 'delivered' | 'cancelled';
+export type StatusRefineFilter = 'delivered' | 'cancelled';
 
 /** Each field is independently optional. Payment/Fulfillment/Status
  * combine with AND when more than one is set, but within a single group

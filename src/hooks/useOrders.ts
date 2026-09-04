@@ -5,8 +5,10 @@ import {
   deleteOrder,
   getOrder,
   getOrders,
+  hasAnyOrders,
   markOrderDelivered,
   markOrderPaid,
+  rescheduleOrder,
   revertOrderDelivered,
   revertOrderPaid,
   updateOrder,
@@ -32,6 +34,13 @@ export function useOrders(tab: OrderTab, refine: OrderRefineFilters = {}) {
 
 export function useOrder(id: string) {
   return useQuery({ queryKey: orderDetailKey(id), queryFn: () => getOrder(id), enabled: !!id });
+}
+
+// Shares the ['orders'] prefix, so every mutation below already
+// invalidates this alongside the tab lists -- no separate invalidation
+// needed.
+export function useHasAnyOrders() {
+  return useQuery({ queryKey: [...ordersBaseKey, 'hasAny'], queryFn: hasAnyOrders, staleTime: 60 * 1000 });
 }
 
 // Every mutation below invalidates the whole `['orders']` prefix (all 4
@@ -139,6 +148,20 @@ export function useCancelOrder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (order: Pick<Order, 'id' | 'status'>) => cancelOrder(order),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ordersBaseKey });
+      queryClient.invalidateQueries({ queryKey: productionBaseKey });
+    },
+  });
+}
+
+// Also invalidates Production -- scheduled_date is exactly what
+// Production groups by, so rescheduling can move an order's items into
+// or out of Production's Today/Tomorrow/Upcoming view too.
+export function useRescheduleOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, newDate }: { id: string; newDate: string }) => rescheduleOrder(id, newDate),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ordersBaseKey });
       queryClient.invalidateQueries({ queryKey: productionBaseKey });

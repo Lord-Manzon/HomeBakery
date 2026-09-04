@@ -71,7 +71,11 @@ export async function getOrders(
 
   switch (tab) {
     case 'today':
-      query = query.eq('scheduled_date', today).in('status', ['pending', 'delivered']);
+      // <= not = -- Today also catches anything overdue (active, date
+      // already passed), so a lapsed order surfaces at the top of the
+      // screen a baker already opens by default, instead of needing its
+      // own tab. See docs/DECISIONS.md.
+      query = query.lte('scheduled_date', today).in('status', ['pending', 'delivered']);
       break;
     case 'upcoming':
       query = query.gt('scheduled_date', today).in('status', ['pending', 'delivered']);
@@ -80,8 +84,6 @@ export async function getOrders(
       // "No longer active" -- everything that's finished one way or
       // another (completed OR cancelled).
       query = query.in('status', ['completed', 'cancelled']);
-      break;
-    case 'all':
       break;
   }
 
@@ -105,11 +107,6 @@ export async function getOrders(
     query = query.in('status', ['delivered', 'completed']);
   } else if (refine.status === 'cancelled') {
     query = query.eq('status', 'cancelled');
-  } else if (refine.status === 'overdue') {
-    // Same predicate as the per-card Overdue badge in
-    // app/(tabs)/orders/index.tsx: still active, and its date has
-    // passed.
-    query = query.lt('scheduled_date', today).in('status', ['pending', 'delivered']);
   }
 
   const { data, error } = await query
@@ -128,6 +125,38 @@ export async function getOrder(id: string): Promise<OrderWithItems> {
     .single();
   if (error) throw error;
   return mapOrderWithItems(data as unknown as Order & { order_items: OrderItemRow[] });
+}
+
+/**
+ * Whether this baker has ever created ANY order -- regardless of tab,
+ * date, or status. Needed because removing 'all' also removed the one
+ * query that used to double as "is this baker's order book completely
+ * empty." Today/Upcoming/History now fully partition every order, so no
+ * single tab's result can answer that anymore -- an empty Today is
+ * completely ordinary, not evidence of a first-run baker. Used only to
+ * pick the right empty-state copy, never to filter a list. `head: true,
+ * count: 'exact'` returns just the count, not the rows, so this stays
+ * cheap regardless of order history size.
+ */
+export async function hasAnyOrders(): Promise<boolean> {
+  const { count, error } = await supabase.from('orders').select('id', { count: 'exact', head: true });
+  if (error) throw error;
+  return (count ?? 0) > 0;
+}
+
+/** Moves an order to a new scheduled_date -- used from the Overdue group
+ * at the top of Today to pull a lapsed order back into view. Only
+ * touches scheduled_date; status, payment_status, and scheduled_time are
+ * left exactly as they were. */
+export async function rescheduleOrder(id: string, newDate: string): Promise<Order> {
+  const { data, error } = await supabase
+    .from('orders')
+    .update({ scheduled_date: newDate })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Order;
 }
 
 async function fetchVariantPrices(variantIds: string[]): Promise<Map<string, number>> {

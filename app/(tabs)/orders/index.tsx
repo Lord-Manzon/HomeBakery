@@ -10,8 +10,10 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getOrders } from '../../../src/services/orders';
 import {
   useOrders,
+  useHasAnyOrders,
   useMarkOrderDelivered,
   useMarkOrderPaid,
+  useRescheduleOrder,
   useRevertOrderDelivered,
   useRevertOrderPaid,
   useCancelOrder,
@@ -61,7 +63,6 @@ type ListRow =
 const TABS: { value: OrderTab; label: string }[] = [
   { value: 'today', label: 'Today' },
   { value: 'upcoming', label: 'Upcoming' },
-  { value: 'all', label: 'All' },
   { value: 'history', label: 'History' },
 ];
 
@@ -79,8 +80,10 @@ const FULFILLMENT_FILTERS: { value: FulfillmentRefineFilter; label: string }[] =
   { value: 'delivery', label: 'Delivery' },
 ];
 
+// 'overdue' isn't a filter value at all anymore -- overdue orders live
+// directly inside Today's own list now (see docs/DECISIONS.md), not
+// behind a filter on any tab.
 const STATUS_FILTERS: { value: StatusRefineFilter; label: string }[] = [
-  { value: 'overdue', label: 'Overdue' },
   { value: 'delivered', label: 'Delivered' },
   { value: 'cancelled', label: 'Cancelled' },
 ];
@@ -121,15 +124,12 @@ function formatRangeLabel(range: { start: string; end: string }): string {
   return `${start} – ${end}`;
 }
 
-// Per docs/DECISIONS.md's 2026-08-28 entry: Overdue and Cancelled are
-// structurally incompatible with certain tabs -- Today/Upcoming force an
-// active-only, date-restricted scope that can never contain an overdue
-// or cancelled order; History's scope excludes active orders entirely,
-// which Overdue specifically requires. Disabled rather than tappable-
-// but-silently-empty ("Option A").
+// Cancelled orders only ever live in History's scope (Today/Upcoming are
+// active-only by construction), so the Cancelled filter only makes sense
+// there -- narrowing "completed OR cancelled" down to just the cancelled
+// half.
 function isStatusFilterAvailable(tab: OrderTab, value: StatusRefineFilter): boolean {
-  if (value === 'overdue') return tab === 'all';
-  if (value === 'cancelled') return tab === 'all';
+  if (value === 'cancelled') return tab === 'history';
   return true; // 'delivered' is valid on every tab
 }
 
@@ -139,7 +139,6 @@ function isStatusFilterAvailable(tab: OrderTab, value: StatusRefineFilter): bool
 const EMPTY_MESSAGE: Record<OrderTab, string> = {
   today: 'Nothing scheduled for today.',
   upcoming: 'No upcoming orders.',
-  all: 'No orders yet.',
   history: 'No completed or cancelled orders yet.',
 };
 
@@ -163,10 +162,12 @@ export default function OrdersListScreen() {
   // than a free-text field, so typing a date isn't possible to get wrong.
   const [openDateField, setOpenDateField] = useState<'start' | 'end' | null>(null);
   const { data: orders, isLoading, isError, refetch } = useOrders(tab, refine);
+  const { data: hasAnyOrders } = useHasAnyOrders();
   const { data: baker } = useBakerProfile();
   const queryClient = useQueryClient();
   const markPaid = useMarkOrderPaid();
   const markDelivered = useMarkOrderDelivered();
+  const reschedule = useRescheduleOrder();
   const revertDelivered = useRevertOrderDelivered();
   const revertPaid = useRevertOrderPaid();
   const cancelOrder = useCancelOrder();
@@ -294,10 +295,12 @@ export default function OrdersListScreen() {
     );
   }
 
-  // True first-run emptiness (zero orders ever, not just zero in this
-  // filter) only really applies to "All" -- every other filter can
-  // legitimately be empty while orders still exist elsewhere.
-  const isTrulyEmpty = tab === 'all' && !isRefineActive && orders && orders.length === 0;
+  // True first-run emptiness (zero orders EVER) can no longer be read
+  // off any single tab -- Today/Upcoming/History now fully partition
+  // every order, so an empty Today tells us nothing about whether
+  // orders exist elsewhere. useHasAnyOrders answers this directly,
+  // independent of whichever tab is open.
+  const isTrulyEmpty = hasAnyOrders === false;
 
   return (
     <Screen style={styles.container}>
@@ -490,12 +493,7 @@ export default function OrdersListScreen() {
                 {STATUS_FILTERS.map((f) => {
                   const isSelected = refine.status === f.value;
                   const isAvailable = isStatusFilterAvailable(tab, f.value);
-                  const dotColor =
-                    f.value === 'cancelled'
-                      ? colors.statusCancelled
-                      : f.value === 'overdue'
-                        ? colors.danger
-                        : colors.success;
+                  const dotColor = f.value === 'cancelled' ? colors.statusCancelled : colors.success;
                   return (
                     <Pressable
                       key={f.value}
@@ -641,14 +639,23 @@ export default function OrdersListScreen() {
             renderItem={({ item }) => {
               if (item.type === 'header') {
                 const count = item.count === 1 ? '1 order' : `${item.count} orders`;
-                // The Today tab only ever has one group -- today -- so
-                // repeating "Today" here just echoes the active tab pill
-                // above it. Every other tab spans multiple days, where
-                // the date label is the useful part.
-                const dividerText = tab === 'today' ? count : `${formatGroupHeaderDate(item.date)} · ${count}`;
+                // Today can now contain more than one date group -- its
+                // own date, plus one group per overdue date pulled in
+                // alongside it (see getOrders' 'today' case). Groups are
+                // already in ascending scheduled_date order, so overdue
+                // dates naturally render above today's own group.
+                const isOverdueGroup = tab === 'today' && item.date < todayDateString();
+                const dividerText =
+                  tab === 'today'
+                    ? isOverdueGroup
+                      ? `Overdue · ${formatGroupHeaderDate(item.date)} · ${count}`
+                      : `Today · ${count}`
+                    : `${formatGroupHeaderDate(item.date)} · ${count}`;
                 return (
                   <View style={styles.dayDivider}>
-                    <Text style={styles.dayDividerText}>{dividerText}</Text>
+                    <Text style={[styles.dayDividerText, isOverdueGroup && styles.dayDividerTextOverdue]}>
+                      {dividerText}
+                    </Text>
                   </View>
                 );
               }
@@ -671,6 +678,7 @@ export default function OrdersListScreen() {
                       payment_status: item.order.payment_status,
                     })
                   }
+                  onReschedule={() => reschedule.mutate({ id: item.order.id, newDate: todayDateString() })}
                 />
               );
             }}
@@ -755,6 +763,7 @@ function OrderCard({
   onLongPress,
   onMarkPaid,
   onMarkDelivered,
+  onReschedule,
 }: {
   order: OrderWithItems;
   index: number;
@@ -765,6 +774,7 @@ function OrderCard({
   onLongPress: () => void;
   onMarkPaid: () => void;
   onMarkDelivered: () => void;
+  onReschedule: () => void;
 }) {
   const press = usePressScale();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -873,6 +883,24 @@ function OrderCard({
               <Text style={styles.cardMetaText}>{fulfillmentLabel}</Text>
             </View>
           </View>
+
+          {/* Only ever true for a card sitting in Today's Overdue group
+              -- Mark Paid/Mark Delivered/Cancel already work on this
+              card exactly as they do anywhere else, so Reschedule is the
+              only genuinely new action an overdue order needs. */}
+          {isOverdue ? (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                onReschedule();
+              }}
+              hitSlop={8}
+              style={styles.rescheduleLink}
+            >
+              <Ionicons name="calendar-outline" size={13} color={colors.danger} />
+              <Text style={styles.rescheduleLinkText}>Reschedule to today</Text>
+            </Pressable>
+          ) : null}
 
           {/* Mark Paid/Mark Delivered are part of the compact row now,
               not gated behind expand -- these are the most-used actions
@@ -1240,6 +1268,7 @@ function makeStyles(colors: Record<ColorToken, string>) {
       paddingBottom: spacing.sm,
     },
     dayDividerText: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
+    dayDividerTextOverdue: { color: colors.danger },
     // Per docs/DECISIONS.md's 2026-08-27 refinement: flatter and tighter
     // than a standard app card -- no border (relies on the
     // surface-vs-background color contrast alone for separation), a
@@ -1329,6 +1358,19 @@ function makeStyles(colors: Record<ColorToken, string>) {
     expandedDetailLabel: { ...typography.bodySm, color: colors.textSecondary },
     expandedDetailValue: { ...typography.bodySm, color: colors.textPrimary, fontWeight: '600' },
     expandedEmptyText: { ...typography.bodySm, color: colors.textSecondary },
+    rescheduleLink: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: spacing.xxs,
+      alignSelf: 'flex-start',
+      marginBottom: spacing.xs,
+    },
+    rescheduleLinkText: {
+      ...typography.caption,
+      color: colors.danger,
+      fontWeight: '600',
+      textDecorationLine: 'underline',
+    },
     actionButtonRow: {
       flexDirection: 'row',
       gap: spacing.sm,
